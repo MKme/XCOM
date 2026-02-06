@@ -1,0 +1,1066 @@
+/**
+ * XCOM Mesh module
+ * - Connect to Meshtastic device (Web Bluetooth)
+ * - Configure destination/channel
+ * - Test send
+ * - View traffic log
+ */
+
+function formatError(e) {
+  if (e == null) return 'Unknown error'
+  if (typeof e === 'string') return e
+  if (typeof e === 'number' || typeof e === 'boolean' || typeof e === 'bigint') return String(e)
+  if (e instanceof Error) {
+    const base = e.message ? `${e.name}: ${e.message}` : e.name
+    const cause = e.cause != null ? `; cause: ${formatError(e.cause)}` : ''
+    return `${base}${cause}`.trim() || 'Error'
+  }
+  if (typeof e === 'object') {
+    const any = e
+    const name = typeof any?.name === 'string' ? any.name : ''
+    const message = typeof any?.message === 'string' ? any.message : ''
+    const reason = typeof any?.reason === 'string' ? any.reason : ''
+    const code = typeof any?.code === 'string' || typeof any?.code === 'number' ? String(any.code) : ''
+
+    const parts = []
+    if (name && message) parts.push(`${name}: ${message}`)
+    else if (message) parts.push(message)
+    else if (name) parts.push(name)
+    if (!message && reason) parts.push(reason)
+    if (code) parts.push(`code=${code}`)
+    if (parts.length) return parts.join(' ')
+
+    // Meshtastic routing error shape: { id, error } where error is a Routing_Error enum value.
+    try {
+      const errCode = any?.error
+      const n = Number(errCode)
+      const Enum =
+        globalThis?.Meshtastic?.Protobuf?.Mesh?.Routing_Error ||
+        globalThis?.Meshtastic?.Protobuf?.Routing_Error ||
+        globalThis?.Meshtastic?.Protobufs?.Mesh?.Routing_Error ||
+        globalThis?.Meshtastic?.Protobufs?.Routing_Error
+      const label = Number.isFinite(n) && Enum ? Enum[n] : null
+      if (typeof label === 'string' && label) {
+        const id = any?.id ?? any?.requestId ?? null
+        return `Routing error: ${label} (${String(errCode)})${id != null ? ` id=${String(id)}` : ''}`
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    try {
+      return JSON.stringify(any)
+    } catch (_) {
+      // ignore
+    }
+
+    try {
+      return Object.prototype.toString.call(e)
+    } catch (_) {
+      return 'Unknown error'
+    }
+  }
+  return String(e)
+}
+
+// eslint-disable-next-line no-unused-vars
+class MeshModule {
+  constructor() {
+    this.unsub = null
+    this.map = null
+    this.mapEl = null
+    this.mapReady = false
+    this.popup = null
+    this.mapLayersAdded = false
+
+    this.showNodes = true
+    this.showCoverage = true
+    this.coverageMetric = 'snr' // 'snr' | 'rssi'
+
+    this._lastTrafficLen = 0
+    this.coverageLogging = false
+    this.geoWatchId = null
+    this.lastGeo = null
+    this._lastCov = null
+    this._boundHashChange = null
+    this.init()
+  }
+
+  init() {
+    this.createModuleStructure()
+    this.bindEvents()
+    this.renderFromState()
+    this.initMap()
+
+    this._boundHashChange = () => {
+      try {
+        const hash = (window.location.hash || '').replace('#', '').trim()
+        if (hash !== 'mesh') this.stopCoverageLogging()
+      } catch (_) {
+        // ignore
+      }
+    }
+    window.addEventListener('hashchange', this._boundHashChange)
+    this.unsub = (globalThis.xcomMesh && typeof globalThis.xcomMesh.subscribe === 'function')
+      ? globalThis.xcomMesh.subscribe(() => this.renderFromState())
+      : null
+    window.radioApp.updateStatus('Mesh module loaded')
+  }
+
+  destroy() {
+    try { if (this.unsub) this.unsub() } catch (_) { /* ignore */ }
+    this.unsub = null
+    try { this.stopCoverageLogging() } catch (_) { /* ignore */ }
+    try { if (this._boundHashChange) window.removeEventListener('hashchange', this._boundHashChange) } catch (_) { /* ignore */ }
+    this._boundHashChange = null
+  }
+
+  createModuleStructure() {
+    const root = document.getElementById('mesh')
+    if (!root) return
+
+    root.innerHTML = `
+      <div class="xModuleIntro">
+        <div class="xModuleIntroTitle">What you can do here</div>
+        <div class="xModuleIntroText">
+          Connect XCOM to a Meshtastic radio over Bluetooth, view nodes on a map, and send/receive messages. Pair it with XTOC Comm to move standardized packets over the mesh.
+        </div>
+      </div>
+      <div class="meshShell">
+        <div class="meshCard">
+          <div class="meshCardTitle">Mesh</div>
+          <div class="meshSmallMuted">
+            Connect XCOM to a Meshtastic device using <strong>Web Bluetooth</strong> (Chrome/Edge/Android).
+            iOS Safari does not currently support Web Bluetooth.
+          </div>
+
+          <div class="meshRow">
+            <label>Status</label>
+            <div id="meshStatus" class="meshStatusPill">Not connected</div>
+            <div id="meshStatusMeta" class="meshSmallMuted"></div>
+          </div>
+
+          <div class="meshButtonRow">
+            <button id="meshConnectBtn" type="button" class="primary">Connect</button>
+            <button id="meshDisconnectBtn" type="button" class="danger">Disconnect</button>
+            <button id="meshClearLogBtn" type="button">Clear Log</button>
+          </div>
+        </div>
+
+        <div class="meshCard">
+          <div class="meshCardTitle">Send Settings</div>
+
+          <div class="meshGrid2">
+            <div class="meshRow">
+              <label>Destination</label>
+              <select id="meshDest">
+                <option value="broadcast">Broadcast (channel)</option>
+                <option value="direct">Direct (node id)</option>
+              </select>
+            </div>
+            <div class="meshRow">
+              <label>Channel</label>
+              <input id="meshChannel" type="number" min="0" max="7" step="1" value="0" />
+            </div>
+          </div>
+
+          <div class="meshRow">
+            <label>To Node ID (direct only)</label>
+            <input id="meshToNodeId" type="text" placeholder="!deadbeef or numeric node id" />
+          </div>
+
+          <div class="meshRow">
+            <label class="meshInline"><input id="meshWantAck" type="checkbox" checked /> Request ACK</label>
+          </div>
+
+          <div class="meshRow">
+            <label class="meshInline"><input id="meshAutoReconnect" type="checkbox" checked /> Auto-reconnect</label>
+            <div class="meshSmallMuted">If Bluetooth drops, try to reconnect automatically</div>
+          </div>
+
+          <div class="meshDivider"></div>
+
+          <div class="meshRow">
+            <label>Test message</label>
+            <textarea id="meshTestText" rows="3" placeholder="Type a short message to send over the mesh"></textarea>
+          </div>
+          <div class="meshButtonRow">
+            <button id="meshSendTestBtn" type="button">Send Test</button>
+          </div>
+          <div class="meshSmallMuted">
+            Tip: Comms can also send generated packet lines directly over Mesh after you connect here.
+          </div>
+        </div>
+
+        <div class="meshCard">
+          <div class="meshCardTitle">Traffic</div>
+          <pre id="meshTraffic" class="meshPre"></pre>
+        </div>
+
+        <div class="meshCard">
+          <div class="meshCardTitle">Mesh Map</div>
+          <div class="meshSmallMuted" style="margin-bottom: 10px;">
+            Shows known nodes (from Meshtastic position/user packets) and optional coverage points logged on this device.
+          </div>
+
+          <div class="meshGrid2">
+            <div class="meshRow">
+              <label class="meshInline"><input id="meshMapShowNodes" type="checkbox" checked /> Show nodes</label>
+            </div>
+            <div class="meshRow">
+              <label class="meshInline"><input id="meshMapShowCoverage" type="checkbox" checked /> Show coverage</label>
+            </div>
+          </div>
+
+          <div class="meshGrid2">
+            <div class="meshRow">
+              <label>Coverage metric</label>
+              <select id="meshCoverageMetric">
+                <option value="snr" selected>SNR</option>
+                <option value="rssi">RSSI</option>
+              </select>
+            </div>
+            <div class="meshRow">
+              <label>Coverage logging (GPS)</label>
+              <div class="meshButtonRow" style="margin-top: 0;">
+                <button id="meshCoverageLogBtn" type="button" class="primary">Start Logging</button>
+                <button id="meshCoverageCenterBtn" type="button">Center on Me</button>
+              </div>
+              <div id="meshCoverageStatus" class="meshSmallMuted"></div>
+            </div>
+          </div>
+
+          <div class="meshButtonRow" style="margin-top: 6px;">
+            <button id="meshClearNodesBtn" type="button" class="danger">Clear Nodes</button>
+            <button id="meshClearCoverageBtn" type="button" class="danger">Clear Coverage</button>
+          </div>
+          <div id="meshMapSummary" class="meshSmallMuted"></div>
+          <div class="meshMapWrap">
+            <div id="meshMapCanvas" class="meshMapCanvas"></div>
+          </div>
+        </div>
+      </div>
+    `
+  }
+
+  bindEvents() {
+    const connectBtn = document.getElementById('meshConnectBtn')
+    const disconnectBtn = document.getElementById('meshDisconnectBtn')
+    const clearBtn = document.getElementById('meshClearLogBtn')
+    const sendBtn = document.getElementById('meshSendTestBtn')
+
+    if (connectBtn) connectBtn.addEventListener('click', async () => {
+      try {
+        if (!globalThis.meshConnect) throw new Error('Mesh transport not loaded')
+        await globalThis.meshConnect()
+      } catch (e) {
+        alert(formatError(e))
+      }
+    })
+
+    if (disconnectBtn) disconnectBtn.addEventListener('click', async () => {
+      try {
+        if (globalThis.meshDisconnect) await globalThis.meshDisconnect()
+      } catch (e) {
+        alert(formatError(e))
+      }
+    })
+
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+      try {
+        if (globalThis.meshClearTrafficLog) globalThis.meshClearTrafficLog()
+      } catch (_) {
+        // ignore
+      }
+    })
+
+    // Persist settings on change
+    const updateCfg = () => {
+      try {
+        const dest = document.getElementById('meshDest')?.value || 'broadcast'
+        const channel = Number(document.getElementById('meshChannel')?.value || 0)
+        const toNodeId = String(document.getElementById('meshToNodeId')?.value || '').trim()
+        const wantAck = !!document.getElementById('meshWantAck')?.checked
+        const autoReconnect = !!document.getElementById('meshAutoReconnect')?.checked
+        if (globalThis.setMeshConfig) {
+          globalThis.setMeshConfig({ meshtastic: { destination: dest, channel, toNodeId, wantAck }, ui: { autoReconnect } })
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    ;['meshDest', 'meshChannel', 'meshToNodeId', 'meshWantAck', 'meshAutoReconnect'].forEach((id) => {
+      const el = document.getElementById(id)
+      if (el) el.addEventListener('change', updateCfg)
+      if (el) el.addEventListener('input', updateCfg)
+    })
+
+    if (sendBtn) sendBtn.addEventListener('click', async () => {
+      try {
+        const text = document.getElementById('meshTestText')?.value || ''
+        await this.sendText(text)
+      } catch (e) {
+        alert(formatError(e))
+      }
+    })
+
+    const showNodesEl = document.getElementById('meshMapShowNodes')
+    if (showNodesEl) showNodesEl.addEventListener('change', () => {
+      this.showNodes = !!showNodesEl.checked
+      this.refreshMapOverlays()
+    })
+
+    const showCovEl = document.getElementById('meshMapShowCoverage')
+    if (showCovEl) showCovEl.addEventListener('change', () => {
+      this.showCoverage = !!showCovEl.checked
+      this.refreshMapOverlays()
+    })
+
+    const metricEl = document.getElementById('meshCoverageMetric')
+    if (metricEl) metricEl.addEventListener('change', () => {
+      const v = String(metricEl.value || '').trim()
+      this.coverageMetric = (v === 'rssi') ? 'rssi' : 'snr'
+      this.refreshMapOverlays()
+    })
+
+    const clearNodesBtn = document.getElementById('meshClearNodesBtn')
+    if (clearNodesBtn) clearNodesBtn.addEventListener('click', () => {
+      try {
+        if (globalThis.meshClearNodes) globalThis.meshClearNodes()
+      } catch (_) {
+        // ignore
+      } finally {
+        this.refreshMapOverlays()
+      }
+    })
+
+    const clearCovBtn = document.getElementById('meshClearCoverageBtn')
+    if (clearCovBtn) clearCovBtn.addEventListener('click', () => {
+      try {
+        if (globalThis.meshClearCoverageSamples) globalThis.meshClearCoverageSamples()
+      } catch (_) {
+        // ignore
+      } finally {
+        this.refreshMapOverlays()
+      }
+    })
+
+    const logBtn = document.getElementById('meshCoverageLogBtn')
+    if (logBtn) logBtn.addEventListener('click', async () => {
+      if (this.coverageLogging) {
+        this.stopCoverageLogging()
+        return
+      }
+      await this.startCoverageLogging()
+    })
+
+    const centerBtn = document.getElementById('meshCoverageCenterBtn')
+    if (centerBtn) centerBtn.addEventListener('click', () => this.centerOnMe())
+  }
+
+  renderFromState() {
+    const cfg = globalThis.getMeshConfig ? globalThis.getMeshConfig() : null
+    const state = globalThis.xcomMesh ? globalThis.xcomMesh.getState() : { status: { connected: false }, traffic: [] }
+
+    // status pill
+    const statusEl = document.getElementById('meshStatus')
+    if (statusEl) {
+      const s = state.status || {}
+      const connected = !!s.connected
+      const linkConnected = !!s.linkConnected
+      const reconnecting = !!s.reconnecting
+      const attempt = Number(s.reconnectAttempt || 0)
+      const ds = s.deviceStatusLabel
+      const busy = reconnecting || (!connected && ds != null && ds !== 'Disconnected')
+      const label = connected
+        ? `Connected (${s.driver || 'mesh'})`
+        : reconnecting
+          ? `Reconnecting${attempt ? ` (attempt ${attempt})` : ''}`
+          : (linkConnected && ds === 'Connected')
+            ? 'Connected (not configured)'
+            : (ds || 'Not connected')
+      statusEl.textContent = label
+      statusEl.classList.toggle('ok', connected)
+      statusEl.classList.toggle('warn', !connected && (busy || linkConnected))
+    }
+
+    // status meta (device / link / last rx/tx)
+    const metaEl = document.getElementById('meshStatusMeta')
+    if (metaEl) {
+      metaEl.textContent = ''
+      try {
+        const s = state.status || {}
+        const traffic = Array.isArray(state.traffic) ? state.traffic : []
+        let lastInTs = null
+        let lastOutTs = null
+        for (let i = traffic.length - 1; i >= 0 && (lastInTs == null || lastOutTs == null); i--) {
+          const e = traffic[i]
+          if (lastInTs == null && e?.dir === 'in') lastInTs = e?.ts ?? null
+          if (lastOutTs == null && e?.dir === 'out') lastOutTs = e?.ts ?? null
+        }
+
+        const deviceLabel = s?.lastDeviceInfo?.shortName || s?.lastDeviceInfo?.longName || null
+        const nodeNum = s?.lastDeviceInfo?.myNodeNum ?? s?.lastDeviceInfo?.nodeId ?? null
+
+        const lines = []
+        if (deviceLabel || nodeNum != null) {
+          lines.push(`Device: ${deviceLabel || 'Unknown'}${nodeNum != null ? ` (#${nodeNum})` : ''}`)
+        }
+        lines.push(`Link: ${s?.deviceStatusLabel || 'Unknown'}${typeof s?.deviceStatus === 'number' ? ` (${s.deviceStatus})` : ''}`)
+
+        if (s?.reconnecting) {
+          const at = typeof s?.nextReconnectAt === 'number' ? new Date(s.nextReconnectAt).toISOString() : null
+          lines.push(`Auto-reconnect: attempt ${s?.reconnectAttempt || '?'}${at ? `; next: ${at}` : ''}`)
+        }
+        if (s?.lastError) {
+          lines.push(`Last error: ${String(s.lastError)}`)
+        }
+
+        lines.push(`Last RX: ${lastInTs ? new Date(lastInTs).toISOString() : '—'} | Last TX: ${lastOutTs ? new Date(lastOutTs).toISOString() : '—'}`)
+
+        metaEl.innerHTML = ''
+        for (const line of lines) {
+          const div = document.createElement('div')
+          div.textContent = line
+          metaEl.appendChild(div)
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    // settings
+    try {
+      const mt = (cfg && cfg.meshtastic) ? cfg.meshtastic : {}
+      const ui = (cfg && cfg.ui) ? cfg.ui : {}
+      const destEl = document.getElementById('meshDest')
+      const chEl = document.getElementById('meshChannel')
+      const toEl = document.getElementById('meshToNodeId')
+      const ackEl = document.getElementById('meshWantAck')
+      const arEl = document.getElementById('meshAutoReconnect')
+
+      if (destEl) destEl.value = mt.destination || 'broadcast'
+      if (chEl) chEl.value = String(Number(mt.channel || 0))
+      if (toEl) toEl.value = mt.toNodeId || ''
+      if (ackEl) ackEl.checked = mt.wantAck !== false
+      if (arEl) arEl.checked = ui.autoReconnect !== false
+
+      if (toEl) toEl.disabled = (destEl?.value !== 'direct')
+    } catch (_) {
+      // ignore
+    }
+
+    // traffic log
+    const pre = document.getElementById('meshTraffic')
+    if (pre) {
+      const traffic = Array.isArray(state.traffic) ? state.traffic : []
+      const lines = traffic
+        .slice(-200)
+        .map((e) => {
+          const ts = e.ts ? new Date(e.ts).toISOString() : ''
+          const dir = e.dir || ''
+          if (dir === 'out' && e.kind === 'text') return `${ts}  OUT  ${e.text}`
+          if (dir === 'in') {
+            const txt = e?.text || (e?.kind === 'message' ? e?.raw?.data : null)
+            if (typeof txt === 'string' && txt.trim()) return `${ts}  IN   ${txt}`
+            return `${ts}  IN   ${JSON.stringify(e.raw)}`
+          }
+          if (dir === 'sys') return `${ts}  SYS  ${e.level || ''} ${e.msg || ''}`
+          return `${ts}  ${dir} ${JSON.stringify(e)}`
+        })
+      pre.textContent = lines.join('\n')
+    }
+
+    // buttons
+    const connectBtn = document.getElementById('meshConnectBtn')
+    const disconnectBtn = document.getElementById('meshDisconnectBtn')
+    const sendBtn = document.getElementById('meshSendTestBtn')
+    const connected = !!state?.status?.connected
+    const linkConnected = !!state?.status?.linkConnected
+    const ds = state?.status?.deviceStatusLabel
+    const busy = !!state?.status?.reconnecting || (!connected && ds != null && ds !== 'Disconnected')
+
+    if (connectBtn) connectBtn.disabled = connected || busy || linkConnected
+    if (disconnectBtn) disconnectBtn.disabled = !connected && !busy && !linkConnected
+    if (sendBtn) sendBtn.disabled = !connected
+
+    // map overlays / summary
+    this.processNewTrafficForCoverage(state)
+    this.updateCoverageStatusUi()
+    this.updateMapSummary(state)
+    this.refreshMapOverlays(state)
+  }
+
+  initMap() {
+    this.mapEl = document.getElementById('meshMapCanvas')
+    if (!this.mapEl) return
+
+    if (!globalThis.maplibregl) {
+      this.mapEl.innerHTML = '<div class="meshSmallMuted">MapLibre not loaded. Open a map-based module once or check dependencies.</div>'
+      return
+    }
+
+    // Create a map once and keep it alive.
+    try {
+      const c = globalThis.getMapDefaultCoords ? globalThis.getMapDefaultCoords() : { lat: 35.9606, lon: -83.9207 }
+      const z = globalThis.getMapDefaultZoom ? globalThis.getMapDefaultZoom() : 6
+      if (globalThis.createMapLibreMap) {
+        this.map = globalThis.createMapLibreMap({
+          container: this.mapEl,
+          centerLon: c.lon,
+          centerLat: c.lat,
+          zoom: z,
+        })
+      } else {
+        this.map = new globalThis.maplibregl.Map({
+          container: this.mapEl,
+          style: globalThis.buildMapLibreStyle ? globalThis.buildMapLibreStyle() : 'https://tiles.openfreemap.org/styles/liberty',
+          center: [c.lon, c.lat],
+          zoom: z,
+          attributionControl: true,
+        })
+        this.map.addControl(new globalThis.maplibregl.NavigationControl(), 'top-right')
+      }
+
+      this.map.on('load', () => {
+        this.mapReady = true
+        this.ensureMapLayers()
+        this.refreshMapOverlays()
+      })
+    } catch (e) {
+      console.error(e)
+      this.mapEl.innerHTML = `<div class="meshSmallMuted">Map init failed: ${String(e?.message || e)}</div>`
+    }
+  }
+
+  ensureMapLayers() {
+    if (!this.map || !this.mapReady || this.mapLayersAdded) return
+
+    const map = this.map
+    const safeAddSource = (id, src) => {
+      try { if (!map.getSource(id)) map.addSource(id, src) } catch (_) { /* ignore */ }
+    }
+    const safeAddLayer = (layer, beforeId) => {
+      try { if (!map.getLayer(layer.id)) map.addLayer(layer, beforeId) } catch (_) { /* ignore */ }
+    }
+
+    safeAddSource('meshCoverage', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+    safeAddSource('meshNodes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+    safeAddSource('meshMe', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+
+    // Coverage points (under nodes)
+    safeAddLayer({
+      id: 'meshCoverageCircle',
+      type: 'circle',
+      source: 'meshCoverage',
+      paint: {
+        'circle-radius': 5,
+        'circle-color': ['get', 'color'],
+        'circle-opacity': ['get', 'opacity'],
+        'circle-stroke-color': 'rgba(0,0,0,0.35)',
+        'circle-stroke-width': 1,
+      },
+    })
+
+    // Device position
+    safeAddLayer({
+      id: 'meshMeCircle',
+      type: 'circle',
+      source: 'meshMe',
+      paint: {
+        'circle-radius': 6,
+        'circle-color': 'rgba(102, 194, 255, 0.95)',
+        'circle-opacity': 0.9,
+        'circle-stroke-color': 'rgba(0,0,0,0.35)',
+        'circle-stroke-width': 1.25,
+      },
+    })
+
+    // Nodes
+    safeAddLayer({
+      id: 'meshNodesCircle',
+      type: 'circle',
+      source: 'meshNodes',
+      paint: {
+        'circle-radius': 7,
+        'circle-color': ['get', 'color'],
+        'circle-opacity': ['get', 'opacity'],
+        'circle-stroke-color': 'rgba(255,255,255,0.25)',
+        'circle-stroke-width': 1.25,
+      },
+    })
+
+    safeAddLayer({
+      id: 'meshNodesLabel',
+      type: 'symbol',
+      source: 'meshNodes',
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-size': 12,
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top',
+        'text-optional': true,
+      },
+      paint: {
+        'text-color': 'rgba(233,238,248,0.95)',
+        'text-halo-color': 'rgba(0,0,0,0.55)',
+        'text-halo-width': 1.25,
+      },
+    })
+
+    // Click popups
+    map.on('click', 'meshNodesCircle', (e) => {
+      try {
+        const f = e?.features?.[0]
+        if (!f) return
+        const coords = f.geometry?.coordinates
+        const p = f.properties || {}
+        this.showPopup(coords, this.nodePopupContent(p))
+      } catch (_) {
+        // ignore
+      }
+    })
+    map.on('mouseenter', 'meshNodesCircle', () => { try { map.getCanvas().style.cursor = 'pointer' } catch (_) {} })
+    map.on('mouseleave', 'meshNodesCircle', () => { try { map.getCanvas().style.cursor = '' } catch (_) {} })
+
+    map.on('click', 'meshCoverageCircle', (e) => {
+      try {
+        const f = e?.features?.[0]
+        if (!f) return
+        const coords = f.geometry?.coordinates
+        const p = f.properties || {}
+        this.showPopup(coords, this.coveragePopupContent(p))
+      } catch (_) {
+        // ignore
+      }
+    })
+    map.on('mouseenter', 'meshCoverageCircle', () => { try { map.getCanvas().style.cursor = 'pointer' } catch (_) {} })
+    map.on('mouseleave', 'meshCoverageCircle', () => { try { map.getCanvas().style.cursor = '' } catch (_) {} })
+
+    this.mapLayersAdded = true
+  }
+
+  showPopup(coords, contentEl) {
+    if (!this.map || !globalThis.maplibregl || !coords || !Array.isArray(coords)) return
+    try {
+      if (this.popup) {
+        try { this.popup.remove() } catch (_) { /* ignore */ }
+        this.popup = null
+      }
+      const popup = new globalThis.maplibregl.Popup({ closeButton: true, closeOnClick: true })
+      popup.setLngLat(coords)
+      if (contentEl) popup.setDOMContent(contentEl)
+      popup.addTo(this.map)
+      this.popup = popup
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  nodePopupContent(p) {
+    const wrap = document.createElement('div')
+    wrap.style.minWidth = '220px'
+
+    const title = document.createElement('div')
+    title.style.fontWeight = '700'
+    title.style.marginBottom = '6px'
+    title.textContent = p?.label ? String(p.label) : 'Node'
+    wrap.appendChild(title)
+
+    const lines = []
+    if (p?.num != null) lines.push(`Node: ${String(p.num)}`)
+    if (p?.lastSeen) lines.push(`Last seen: ${String(p.lastSeen)}`)
+    if (p?.snr != null) lines.push(`SNR: ${String(p.snr)} dB`)
+    if (p?.rssi != null) lines.push(`RSSI: ${String(p.rssi)} dBm`)
+    if (p?.port) lines.push(`Port: ${String(p.port)}`)
+    if (p?.battery != null) lines.push(`Battery: ${String(p.battery)}%`)
+    if (p?.voltage != null) lines.push(`Voltage: ${String(p.voltage)}V`)
+
+    for (const s of lines) {
+      const div = document.createElement('div')
+      div.style.fontSize = '12px'
+      div.style.opacity = '0.9'
+      div.textContent = s
+      wrap.appendChild(div)
+    }
+
+    return wrap
+  }
+
+  coveragePopupContent(p) {
+    const wrap = document.createElement('div')
+    wrap.style.minWidth = '220px'
+
+    const title = document.createElement('div')
+    title.style.fontWeight = '700'
+    title.style.marginBottom = '6px'
+    title.textContent = 'Coverage'
+    wrap.appendChild(title)
+
+    const lines = []
+    if (p?.ts) lines.push(`Time: ${String(p.ts)}`)
+    if (p?.from != null) lines.push(`From: ${String(p.from)}`)
+    if (p?.snr != null) lines.push(`SNR: ${String(p.snr)} dB`)
+    if (p?.rssi != null) lines.push(`RSSI: ${String(p.rssi)} dBm`)
+    if (p?.hops != null) lines.push(`Hops: ${String(p.hops)}`)
+    if (p?.acc != null) lines.push(`GPS acc: ${String(p.acc)}m`)
+
+    for (const s of lines) {
+      const div = document.createElement('div')
+      div.style.fontSize = '12px'
+      div.style.opacity = '0.9'
+      div.textContent = s
+      wrap.appendChild(div)
+    }
+
+    return wrap
+  }
+
+  updateMapSummary(state) {
+    const el = document.getElementById('meshMapSummary')
+    if (!el) return
+
+    try {
+      const nodes = Array.isArray(state?.nodes) ? state.nodes : (globalThis.meshGetNodes ? globalThis.meshGetNodes() : [])
+      const withPos = nodes.filter((n) => n && n.position && Number.isFinite(Number(n.position.lat)) && Number.isFinite(Number(n.position.lon))).length
+      const cov = globalThis.meshGetCoverageSamples ? globalThis.meshGetCoverageSamples() : []
+      const covCount = Array.isArray(cov) ? cov.length : 0
+      el.textContent = `Nodes: ${nodes.length} (${withPos} with position) | Coverage points: ${covCount}`
+    } catch (_) {
+      el.textContent = ''
+    }
+  }
+
+  refreshMapOverlays(state) {
+    if (!this.map || !this.mapReady) return
+    this.ensureMapLayers()
+
+    const s = state || (globalThis.xcomMesh ? globalThis.xcomMesh.getState() : null)
+    const nodes = Array.isArray(s?.nodes) ? s.nodes : (globalThis.meshGetNodes ? globalThis.meshGetNodes() : [])
+    const cov = globalThis.meshGetCoverageSamples ? globalThis.meshGetCoverageSamples() : []
+
+    this.updateMeSource()
+    this.updateNodesSource(nodes)
+    this.updateCoverageSource(Array.isArray(cov) ? cov : [])
+  }
+
+  updateMeSource() {
+    if (!this.map) return
+    const src = this.map.getSource('meshMe')
+    if (!src || typeof src.setData !== 'function') return
+    const g = this.lastGeo
+    const lat = Number(g?.lat)
+    const lon = Number(g?.lon)
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      src.setData({ type: 'FeatureCollection', features: [] })
+      return
+    }
+    src.setData({
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [lon, lat] },
+          properties: {},
+        },
+      ],
+    })
+  }
+
+  updateNodesSource(nodes) {
+    if (!this.map) return
+    const src = this.map.getSource('meshNodes')
+    if (!src || typeof src.setData !== 'function') return
+
+    if (!this.showNodes) {
+      src.setData({ type: 'FeatureCollection', features: [] })
+      return
+    }
+
+    const now = Date.now()
+    const feats = []
+    for (const n of Array.isArray(nodes) ? nodes : []) {
+      const pos = n?.position
+      const lat = Number(pos?.lat)
+      const lon = Number(pos?.lon)
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
+
+      const label = String(n?.shortName || n?.longName || `#${n?.num ?? ''}` || 'Node').trim()
+      const lastSeenTs = Number(n?.lastSeenTs || 0) || 0
+      const ageMin = lastSeenTs ? Math.max(0, (now - lastSeenTs) / 60000) : 9999
+      const opacity = ageMin <= 10 ? 0.9 : ageMin <= 60 ? 0.65 : 0.35
+
+      const snr = Number.isFinite(Number(n?.lastSnr)) ? Number(n.lastSnr) : null
+      const rssi = Number.isFinite(Number(n?.lastRssi)) ? Number(n.lastRssi) : null
+      const color = (snr != null) ? this.colorForSnr(snr) : (rssi != null) ? this.colorForRssi(rssi) : 'rgba(159,178,198,0.85)'
+
+      feats.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [lon, lat] },
+        properties: {
+          num: n?.num ?? null,
+          label,
+          color,
+          opacity,
+          snr,
+          rssi,
+          port: n?.lastPort ?? null,
+          lastSeen: lastSeenTs ? new Date(lastSeenTs).toISOString() : null,
+          battery: n?.device?.batteryLevel ?? null,
+          voltage: n?.device?.voltage ?? null,
+        },
+      })
+    }
+
+    src.setData({ type: 'FeatureCollection', features: feats })
+  }
+
+  updateCoverageSource(samples) {
+    if (!this.map) return
+    const src = this.map.getSource('meshCoverage')
+    if (!src || typeof src.setData !== 'function') return
+
+    if (!this.showCoverage) {
+      src.setData({ type: 'FeatureCollection', features: [] })
+      return
+    }
+
+    const feats = []
+    const metric = this.coverageMetric === 'rssi' ? 'rssi' : 'snr'
+
+    for (const s of Array.isArray(samples) ? samples : []) {
+      const lat = Number(s?.lat)
+      const lon = Number(s?.lon)
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
+
+      const snr = Number.isFinite(Number(s?.snr)) ? Number(s.snr) : null
+      const rssi = Number.isFinite(Number(s?.rssi)) ? Number(s.rssi) : null
+      const v = metric === 'rssi' ? rssi : snr
+      const color = (metric === 'rssi')
+        ? (rssi != null ? this.colorForRssi(rssi) : 'rgba(159,178,198,0.65)')
+        : (snr != null ? this.colorForSnr(snr) : 'rgba(159,178,198,0.65)')
+      const opacity = 0.75
+
+      const ts = Number(s?.ts || 0) || 0
+      const hopStart = Number.isFinite(Number(s?.hopStart)) ? Number(s.hopStart) : null
+      const hopLimit = Number.isFinite(Number(s?.hopLimit)) ? Number(s.hopLimit) : null
+      const hops = (hopStart != null && hopLimit != null) ? Math.max(0, hopStart - hopLimit) : null
+
+      feats.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [lon, lat] },
+        properties: {
+          color,
+          opacity,
+          ts: ts ? new Date(ts).toISOString() : null,
+          from: s?.from ?? null,
+          snr,
+          rssi,
+          hopStart,
+          hopLimit,
+          hops,
+          acc: s?.acc ?? null,
+          v,
+        },
+      })
+    }
+
+    src.setData({ type: 'FeatureCollection', features: feats })
+  }
+
+  colorForSnr(snr) {
+    const n = Number(snr)
+    if (!Number.isFinite(n)) return 'rgba(159,178,198,0.85)'
+    if (n >= 8) return 'rgba(46, 230, 166, 0.95)'     // good
+    if (n >= 3) return 'rgba(246, 201, 69, 0.95)'     // warn
+    return 'rgba(255, 77, 79, 0.95)'                  // bad
+  }
+
+  colorForRssi(rssi) {
+    const n = Number(rssi)
+    if (!Number.isFinite(n)) return 'rgba(159,178,198,0.85)'
+    if (n >= -75) return 'rgba(46, 230, 166, 0.95)'
+    if (n >= -95) return 'rgba(246, 201, 69, 0.95)'
+    return 'rgba(255, 77, 79, 0.95)'
+  }
+
+  async startCoverageLogging() {
+    if (!navigator.geolocation) {
+      alert('Geolocation not available in this browser/device.')
+      return
+    }
+
+    // Prevent backfilling old traffic with the current location.
+    try {
+      const traffic = globalThis.xcomMesh ? globalThis.xcomMesh.getState()?.traffic : []
+      this._lastTrafficLen = Array.isArray(traffic) ? traffic.length : 0
+    } catch (_) {
+      this._lastTrafficLen = 0
+    }
+
+    const opts = { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+    this.coverageLogging = true
+    this.updateCoverageStatusUi()
+
+    try {
+      this.geoWatchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          try {
+            const c = pos?.coords
+            if (!c) return
+            this.lastGeo = {
+              lat: c.latitude,
+              lon: c.longitude,
+              acc: c.accuracy,
+              alt: c.altitude,
+              ts: pos?.timestamp || Date.now(),
+            }
+            this.updateCoverageStatusUi()
+            this.updateMeSource()
+          } catch (_) {
+            // ignore
+          }
+        },
+        (err) => {
+          console.warn('Geolocation error', err)
+          alert(`Geolocation error: ${err?.message || String(err)}`)
+          this.stopCoverageLogging()
+        },
+        opts,
+      )
+    } catch (e) {
+      alert(`Failed to start geolocation: ${e?.message || e}`)
+      this.stopCoverageLogging()
+    }
+  }
+
+  stopCoverageLogging() {
+    this.coverageLogging = false
+    if (this.geoWatchId != null) {
+      try { navigator.geolocation.clearWatch(this.geoWatchId) } catch (_) { /* ignore */ }
+    }
+    this.geoWatchId = null
+    this.updateCoverageStatusUi()
+  }
+
+  updateCoverageStatusUi() {
+    const btn = document.getElementById('meshCoverageLogBtn')
+    const status = document.getElementById('meshCoverageStatus')
+    if (btn) btn.textContent = this.coverageLogging ? 'Stop Logging' : 'Start Logging'
+    if (!status) return
+
+    if (!this.coverageLogging) {
+      status.textContent = 'Logging is OFF. Turn it on to record coverage points when packets are received.'
+      return
+    }
+
+    const g = this.lastGeo
+    const lat = Number(g?.lat)
+    const lon = Number(g?.lon)
+    const acc = Number(g?.acc)
+    const loc = (Number.isFinite(lat) && Number.isFinite(lon)) ? `${lat.toFixed(5)},${lon.toFixed(5)}` : '(waiting for GPS…)'
+    const accTxt = Number.isFinite(acc) ? ` ±${Math.round(acc)}m` : ''
+    status.textContent = `Logging ON. Last GPS: ${loc}${accTxt}`
+  }
+
+  centerOnMe() {
+    if (!this.map) return
+    const g = this.lastGeo
+    const lat = Number(g?.lat)
+    const lon = Number(g?.lon)
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      alert('No GPS fix yet. Start logging first, or allow location access.')
+      return
+    }
+    try {
+      this.map.easeTo({ center: [lon, lat], zoom: Math.max(this.map.getZoom(), 13), duration: 600 })
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  processNewTrafficForCoverage(state) {
+    const traffic = Array.isArray(state?.traffic) ? state.traffic : []
+    if (!this.coverageLogging) {
+      this._lastTrafficLen = traffic.length
+      return
+    }
+
+    const g = this.lastGeo
+    const lat = Number(g?.lat)
+    const lon = Number(g?.lon)
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      this._lastTrafficLen = traffic.length
+      return
+    }
+
+    const start = Math.max(0, Math.min(traffic.length, Number(this._lastTrafficLen || 0)))
+    for (let i = start; i < traffic.length; i++) {
+      const e = traffic[i]
+      if (!e || e.dir !== 'in') continue
+
+      const ts = Number(e.ts || Date.now())
+      const from = Number.isFinite(Number(e.from)) ? Number(e.from) : null
+      const snr = Number.isFinite(Number(e.rxSnr)) ? Number(e.rxSnr) : null
+      const rssi = Number.isFinite(Number(e.rxRssi)) ? Number(e.rxRssi) : null
+      const hopStart = Number.isFinite(Number(e.hopStart)) ? Number(e.hopStart) : null
+      const hopLimit = Number.isFinite(Number(e.hopLimit)) ? Number(e.hopLimit) : null
+
+      // Downsample: ignore rapid repeats at roughly the same location.
+      try {
+        if (this._lastCov && typeof this._lastCov === 'object') {
+          const dt = ts - Number(this._lastCov.ts || 0)
+          const d = this.distanceMeters(lat, lon, Number(this._lastCov.lat), Number(this._lastCov.lon))
+          if (Number.isFinite(dt) && dt < 7000 && Number.isFinite(d) && d < 20) continue
+        }
+      } catch (_) {
+        // ignore
+      }
+
+      const sample = {
+        ts,
+        lat,
+        lon,
+        acc: Number.isFinite(Number(g?.acc)) ? Math.round(Number(g.acc)) : undefined,
+        from: from ?? undefined,
+        snr: snr ?? undefined,
+        rssi: rssi ?? undefined,
+        hopStart: hopStart ?? undefined,
+        hopLimit: hopLimit ?? undefined,
+        channel: Number.isFinite(Number(e.channel)) ? Number(e.channel) : undefined,
+        portnum: e.portnum != null ? String(e.portnum) : undefined,
+      }
+
+      try {
+        if (globalThis.meshAppendCoverageSample) globalThis.meshAppendCoverageSample(sample)
+      } catch (_) {
+        // ignore
+      }
+
+      this._lastCov = { ts, lat, lon }
+    }
+
+    this._lastTrafficLen = traffic.length
+  }
+
+  distanceMeters(lat1, lon1, lat2, lon2) {
+    const toRad = (deg) => (deg * Math.PI) / 180
+    const R = 6371000
+    const dLat = toRad(lat2 - lat1)
+    const dLon = toRad(lon2 - lon1)
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return R * c
+  }
+
+  async sendText(text) {
+    const msg = String(text || '').trim()
+    if (!msg) throw new Error('Nothing to send')
+    if (!globalThis.meshSendText) throw new Error('Mesh transport not loaded')
+    await globalThis.meshSendText(msg)
+    window.radioApp.updateStatus('Sent via mesh')
+  }
+}

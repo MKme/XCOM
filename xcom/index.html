@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>XCOM™</title>
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+    <!-- Explicitly set the icon used by some install flows / older UAs -->
+    <link rel="shortcut icon" href="assets/icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#0b0f16">
+    <meta name="application-name" content="XCOM™">
+    <meta name="apple-mobile-web-app-title" content="XCOM™">
+    <link rel="stylesheet" href="styles/main.css">
+    <!-- Module-specific stylesheets will be loaded dynamically -->
+</head>
+<body>
+    <div class="appShell">
+        <aside class="xSidebar" id="xSidebar" aria-label="Modules">
+            <div class="xBrand">
+                <div class="xBrandLeft">
+                    <img src="assets/icon.svg" alt="VE3YLO logo" class="xBrandIcon">
+                    <div class="xBrandTitle">XCOM™</div>
+                </div>
+            </div>
+
+            <nav class="xNav" aria-label="Main">
+                <a href="#callsign-lookup" class="xNavItem active" data-module="callsign-lookup">
+                    <span class="xNavIcon" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 20v-8" />
+                            <path d="M8 20h8" />
+                            <path d="M7 7a7 7 0 0110 0" />
+                            <path d="M9.5 9.5a3.5 3.5 0 015 0" />
+                            <circle cx="12" cy="12" r="1" />
+                        </svg>
+                    </span>
+                    <span>Predict</span>
+                </a>
+
+                <a href="#shortwave" class="xNavItem" data-module="shortwave">
+                    <span class="xNavIcon" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 12h4l2-6 4 12 2-6h6" />
+                        </svg>
+                    </span>
+                    <span>Shortwave Broadcasts</span>
+                </a>
+
+                <a href="#packet-radio" class="xNavItem" data-module="packet-radio">
+                    <span class="xNavIcon" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 8h16a2 2 0 012 2v9a2 2 0 01-2 2H4a2 2 0 01-2-2v-9a2 2 0 012-2z" />
+                            <path d="M8 8l8-4" />
+                            <path d="M6 14h4" />
+                            <circle cx="16" cy="15" r="2" />
+                        </svg>
+                    </span>
+                    <span>Packet Stations</span>
+                </a>
+
+                <a href="#comms" class="xNavItem" data-module="comms">
+                    <span class="xNavIcon" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+                            <path d="M7 8h10" />
+                            <path d="M7 12h7" />
+                        </svg>
+                    </span>
+                    <span>XTOC Comm</span>
+                </a>
+
+                <a href="#mesh" class="xNavItem" data-module="mesh">
+                    <span class="xNavIcon" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 3v18" />
+                            <path d="M5 7l14 10" />
+                            <path d="M19 7L5 17" />
+                            <circle cx="12" cy="12" r="2" />
+                        </svg>
+                    </span>
+                    <span>Mesh</span>
+                </a>
+
+                <a href="#logbook" class="xNavItem" data-module="logbook">
+                    <span class="xNavIcon" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H7a2 2 0 00-2 2v16a2 2 0 002 2h10a2 2 0 002-2V8z" />
+                            <path d="M14 2v6h6" />
+                            <path d="M9 13h6" />
+                            <path d="M9 17h6" />
+                        </svg>
+                    </span>
+                    <span>Logbook</span>
+                </a>
+
+                <a href="#ascii-art" class="xNavItem" data-module="ascii-art">
+                    <span class="xNavIcon" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 7h16" />
+                            <path d="M4 12h10" />
+                            <path d="M4 17h16" />
+                            <path d="M16 10l4 4" />
+                            <path d="M20 10l-4 4" />
+                        </svg>
+                    </span>
+                    <span>ASCII</span>
+                </a>
+
+                <a href="#repeater-map" class="xNavItem" data-module="repeater-map">
+                    <span class="xNavIcon" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 18l-6 3V6l6-3 6 3 6-3v15l-6 3-6-3z" />
+                            <path d="M9 3v15" />
+                            <path d="M15 6v15" />
+                        </svg>
+                    </span>
+                    <span>Repeaters</span>
+                </a>
+
+                <a href="#map" class="xNavItem" data-module="map">
+                    <span class="xNavIcon" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 18l-6 3V6l6-3 6 3 6-3v15l-6 3-6-3z" />
+                            <path d="M9 3v15" />
+                            <path d="M15 6v15" />
+                        </svg>
+                    </span>
+                    <span>Map</span>
+                </a>
+
+                <a href="#ham-clock" class="xNavItem" data-module="ham-clock">
+                    <span class="xNavIcon" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M12 6v6l4 2" />
+                        </svg>
+                    </span>
+                    <span>Ham Clock</span>
+                </a>
+
+                <a href="#help" class="xNavItem" data-module="help">
+                    <span class="xNavIcon" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M9.1 9a3 3 0 115.3 2c-.8.8-1.4 1.1-1.4 2v.5" />
+                            <path d="M12 17h.01" />
+                        </svg>
+                    </span>
+                    <span>Help</span>
+                </a>
+            </nav>
+
+            <div class="xSidebarFooter">
+                <div class="xSidebarFooterTitle">OFF-GRID READY</div>
+                <div class="xSidebarFooterSub">Local-first radio reference</div>
+            </div>
+        </aside>
+
+        <div class="xContent">
+            <header class="xTopbar">
+                <div class="xTopbarLeft">
+                    <button class="xMobileNavBtn" id="xMobileNavBtn" type="button" aria-label="Menu" aria-controls="xSidebar" aria-expanded="false">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M4 6h16" />
+                            <path d="M4 12h16" />
+                            <path d="M4 18h16" />
+                        </svg>
+                    </button>
+                    <div class="xTopbarTitle" id="xTopbarTitle">XCOM™</div>
+                 </div>
+                 <div class="xTopbarRight">
+                     <button class="xTopbarBtn" id="xUpdateBtn" type="button" title="Check for updates and reload">Update</button>
+                     <div class="xPill" id="xNetPill" title="Checking network...">
+                         <span class="xPillKey">NET</span>
+                         <span class="xPillValue" id="xNetValue">...</span>
+                     </div>
+                    <div class="xPill" aria-label="Local time">
+                        <span class="xPillKey">LOCAL</span>
+                        <span class="xPillValue xClock" id="xLocalTime">--:--:--</span>
+                    </div>
+                    <div class="xPill" aria-label="UTC time">
+                        <span class="xPillKey">UTC</span>
+                        <span class="xPillValue xClock" id="xUtcTime">--:--:--</span>
+                    </div>
+                    <div class="xStatusPill" title="App status"><span id="statusText">Ready</span></div>
+                </div>
+            </header>
+
+            <main class="xMain">
+                <div id="module-container">
+                    <!-- Module content will be loaded here -->
+                    <div class="loading-indicator">Loading...</div>
+                </div>
+            </main>
+
+            <footer class="xFooter">
+                <div class="app-info">
+                    <p>XCOM™ v1.0.20 | &copy; 2025</p>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <div class="xNavBackdrop" id="xNavBackdrop" aria-hidden="true"></div>
+    
+    <!-- Main application script -->
+    <!-- Vendor libs used by Comms (globals): NobleCiphers, QRCodeLib, QrScanner -->
+    <script src="assets/vendor/noble-ciphers.iife.min.js?v=offline"></script>
+    <script src="assets/vendor/qrcode.iife.min.js?v=offline"></script>
+    <script src="assets/vendor/qr-scanner.umd.min.js?v=offline"></script>
+    <!-- Vendor lib used by Mesh module (global): Meshtastic -->
+    <script src="assets/vendor/meshtastic.iife.min.js?v=offline"></script>
+    <script src="registerSW.js"></script>
+    <script src="app-main.js?v=58DE72F3"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "name": "repeaterbook",
+  "version": "1.0.20",
+  "description": "A web-based application that displays amateur radio repeaters on an interactive map, allowing users to search for repeaters near their location across the USA and Canada.",
+  "private": true,
+  "keywords": [],
+  "author": "XCOM Team",
+  "license": "ISC",
+  "scripts": {
+    "dev": "node scripts/serve-static.js --dir . --port 5174",
+    "preview": "node scripts/serve-latest-release.js --port 5179",
+    "build": "node scripts/make-release.js",
+    "fetch-callsigns": "node scripts/fetch-callsigns.js",
+    "fetch-shortwave": "node scripts/fetch-shortwave-schedule.js",
+    "fetch-tiles": "node scripts/fetch-tiles.js",
+    "test-callsign-geo": "node scripts/test-callsign-geocoding.js",
+    "test": "npm run test-callsign-geo"
+  },
+  "dependencies": {
+    "@meshtastic/js": "^2.2.24-1",
+    "adm-zip": "^0.5.16",
+    "csv-parse": "^5.6.0",
+    "maplibre-gl": "^4.7.1",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

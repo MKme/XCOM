@@ -1,0 +1,328 @@
+/* Packet Radio Module Styles */
+
+#packetMap {
+  height: 70vh;
+  min-height: 400px;
+  width: 100%;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  z-index: 1;
+}
+
+#packetMap.map-pick-mode {
+  cursor: crosshair;
+}
+
+.packet-radio-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0.5rem;
+  box-sizing: border-box;
+}
+
+@media (min-width: 992px) {
+  .packet-radio-container {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .packet-radio-container .controls {
+    width: 100%;
+    order: 1;
+  }
+
+  #packetMap {
+    flex: 3;
+    order: 2;
+    margin-right: 1rem;
+  }
+
+  .packet-radio-container .sidebar {
+    flex: 1;
+    max-width: 320px;
+    order: 3;
+    overflow-y: auto;
+    max-height: 70vh;
+  }
+
+  .bottom-panels {
+    width: 100%;
+    order: 4;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+}
+
+/* Reuse base app button styles but add module-specific tweaks */
+.packet-radio-container .controls {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  padding: 0.5rem;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.packet-radio-container .search-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  width: 100%;
+  margin-bottom: 0.25rem;
+  align-items: center;
+}
+
+#packetLocationSearch {
+  flex: 1;
+  min-width: 140px;
+  max-width: 280px;
+  padding: 0.4rem;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  height: 32px;
+  box-sizing: border-box;
+}
+
+.packet-radio-container .filter-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  width: 100%;
+}
+
+.packet-radio-container .filter-group {
+  display: flex;
+  align-items: center;
+  margin-right: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.packet-radio-container .filter-group label {
+  margin-right: 0.3rem;
+  font-weight: bold;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.packet-radio-container .filter-group select,
+.packet-radio-container .filter-group input {
+  padding: 0.25rem;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  height: 32px;
+  font-size: 0.85rem;
+  min-width: 120px;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.info-panel, .results-panel, .panel {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 4px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.info-panel h3, .results-panel h3, .panel h3 {
+  margin-bottom: 0.5rem;
+  color: #d6e3f0;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  padding-bottom: 0.5rem;
+}
+
+#packetList {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.packet-item {
+  padding: 0.8rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.packet-item:hover {
+  background: rgba(46, 230, 166, 0.06);
+}
+
+.packet-item.selected {
+  background: rgba(46, 230, 166, 0.10);
+  border-left: 3px solid rgba(46, 230, 166, 0.75);
+}
+
+.packet-item-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.packet-item-sub {
+  margin-top: 0.25rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  color: rgba(159, 178, 198, 0.9);
+  font-size: 0.9rem;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.badge.node {
+  background: #2ecc71;
+}
+
+.badge.bbs {
+  background: #8e44ad;
+}
+
+.callsign {
+  font-weight: 700;
+  color: #d6e3f0;
+}
+
+.freq {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  color: #d6e3f0;
+}
+
+.detail-title {
+  font-weight: 800;
+  font-size: 1.1rem;
+  margin-bottom: 0.25rem;
+}
+
+.detail-sub {
+  color: rgba(159, 178, 198, 0.9);
+  margin-bottom: 0.5rem;
+}
+
+.detail-row {
+  font-size: 0.92rem;
+  margin-bottom: 0.25rem;
+}
+
+.small-muted {
+  color: rgba(159, 178, 198, 0.9);
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.bottom-panels {
+  width: 100%;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.packet-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.packet-table th,
+.packet-table td {
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.packet-table th {
+  color: #d6e3f0;
+}
+
+.help-text {
+  padding: 0.5rem 0;
+}
+
+/* Packet Radio help formatting */
+.packet-help-block {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.packet-help-title {
+  margin: 0 0 0.5rem 0;
+  color: #d6e3f0;
+}
+
+.packet-help-subblock {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 4px;
+  background: rgba(255,255,255,0.03);
+}
+
+.packet-help-subtitle {
+  margin: 0 0 0.5rem 0;
+  color: #d6e3f0;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}
+
+.packet-radio-container button.danger {
+  background-color: #e74c3c;
+}
+
+.packet-radio-container button.danger:hover {
+  background-color: #c0392b;
+}
+
+/* Responsive tweaks */
+@media (max-width: 768px) {
+  #packetMap {
+    height: 50vh;
+    min-height: 300px;
+  }
+
+  .packet-radio-container .controls {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 0.4rem;
+  }
+
+  #packetLocationSearch {
+    width: 100%;
+    max-width: 100%;
+    margin-bottom: 0.25rem;
+  }
+
+  .packet-radio-container .filter-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .packet-radio-container .filter-group select,
+  .packet-radio-container .filter-group input {
+    flex: 1;
+  }
+}

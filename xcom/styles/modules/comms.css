@@ -1,0 +1,421 @@
+/* XCOM Comms module (XTOC-ish cards, dark) */
+
+#comms .commsShell {
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  gap: 14px;
+  align-items: start;
+  grid-template-areas:
+    "create output"
+    "keys output"
+    "keys import"
+    "keys map";
+}
+
+#comms .commsCard--create { grid-area: create; }
+#comms .commsCard--output { grid-area: output; }
+#comms .commsCard--import { grid-area: import; }
+#comms .commsCard--keys { grid-area: keys; }
+#comms .commsCard--mapInfo { grid-area: map; }
+
+#comms .commsCard {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  min-width: 0;
+}
+
+#comms .commsCardTitle {
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  margin-bottom: 10px;
+}
+
+#comms .commsCardSub {
+  font-size: 12px;
+  color: rgba(159, 178, 198, 0.95);
+}
+
+#comms .commsRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+#comms label {
+  font-size: 12px;
+  color: rgba(159, 178, 198, 0.95);
+}
+
+#comms .commsGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+#comms input,
+#comms select,
+#comms textarea {
+  padding: 9px 10px;
+}
+
+/* Ensure native dropdown menu isn't bright white where the browser allows it */
+#comms select option,
+#comms select optgroup {
+  background: #111824;
+  color: rgba(214, 227, 240, 0.98);
+}
+
+#comms textarea {
+  resize: vertical;
+}
+
+#comms .commsMode {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+#comms .commsInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(214, 227, 240, 0.95);
+}
+
+#comms .commsSmallMuted {
+  font-size: 12px;
+  color: rgba(159, 178, 198, 0.85);
+}
+
+#comms .commsDivider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 10px 0;
+}
+
+#comms .commsButtonRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+#comms button {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+#comms button:hover {
+  border-color: rgba(46, 230, 166, 0.28);
+  background: rgba(46, 230, 166, 0.08);
+}
+
+#comms button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+}
+
+#comms button:disabled:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+#comms button.primary {
+  border-color: rgba(46, 230, 166, 0.35);
+  background: rgba(46, 230, 166, 0.12);
+}
+
+#comms button.danger {
+  border-color: rgba(255, 77, 79, 0.5);
+  background: rgba(255, 77, 79, 0.12);
+}
+
+#comms .commsWarn {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(246, 201, 69, 0.35);
+  background: rgba(246, 201, 69, 0.08);
+  color: rgba(246, 201, 69, 0.95);
+}
+
+#comms .commsOk {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(46, 230, 166, 0.35);
+  background: rgba(46, 230, 166, 0.08);
+  color: rgba(46, 230, 166, 0.95);
+}
+
+#comms .commsQrWrap {
+  display: inline-flex;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* Map picker modal (only appears for Pick Location / Draw Zone) */
+.commsMapOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9998;
+}
+
+.commsMapModal {
+  width: min(980px, 96vw);
+  background: #0f1622;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.commsMapModalTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.commsMapModalTitle {
+  font-weight: 800;
+}
+
+.commsMapPopup {
+  width: 100%;
+  height: min(62vh, 560px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.commsMapPopup.map-pick-mode {
+  cursor: crosshair;
+}
+
+#comms .commsPre {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px;
+  overflow: auto;
+  max-height: 280px;
+}
+
+/* --------------------------------------------------------------------------
+   Import: preview + mini map
+   -------------------------------------------------------------------------- */
+
+#comms .commsImportToggles {
+  align-items: center;
+}
+
+#comms .commsInline--check {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: rgba(214, 227, 240, 0.95);
+}
+
+#comms .commsImportPreview {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 12px;
+  align-items: start;
+}
+
+#comms .commsImportMap {
+  width: 100%;
+  height: 220px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+#comms .commsDecodedHuman {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px;
+  color: rgba(214, 227, 240, 0.95);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+#comms .commsDecodedHumanTitle {
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+#comms .commsDecodedHumanSub {
+  margin-top: 4px;
+}
+
+#comms .commsKV {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 6px 10px;
+  margin-top: 10px;
+}
+
+#comms .commsKVKey {
+  color: rgba(159, 178, 198, 0.95);
+  font-weight: 800;
+}
+
+#comms .commsKVVal {
+  color: rgba(214, 227, 240, 0.95);
+}
+
+#comms .commsDetails {
+  margin-top: 10px;
+}
+
+#comms .commsDetails summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: rgba(159, 178, 198, 0.95);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+#comms .commsDetails--inline {
+  margin-top: 10px;
+}
+
+#comms .commsPre--small {
+  max-height: 180px;
+}
+
+/* QR scanner modal */
+.commsQrOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.commsQrModal {
+  width: min(680px, 95vw);
+  background: #0f1622;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.commsQrModalTitle {
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+
+.commsQrModal video {
+  width: 100%;
+  max-height: 60vh;
+  border-radius: 12px;
+  background: #000;
+}
+
+@media (max-width: 900px) {
+  #comms .commsShell {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "create"
+      "output"
+      "import"
+      "keys"
+      "map";
+  }
+
+  #comms .commsGrid2 {
+    grid-template-columns: 1fr;
+  }
+
+  #comms .commsImportPreview {
+    grid-template-columns: 1fr;
+  }
+
+  #comms .commsImportMap {
+    height: 240px;
+  }
+
+  #comms .commsMode {
+    flex-wrap: wrap;
+  }
+
+  #comms .commsButtonRow {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  #comms input,
+  #comms select,
+  #comms textarea,
+  #comms button {
+    min-height: 44px;
+  }
+
+  /* Prevent iOS Safari from zooming on focus (font-size < 16px) */
+  #comms input,
+  #comms select,
+  #comms textarea {
+    font-size: 16px;
+  }
+
+  #comms .commsQrWrap {
+    width: 100%;
+    justify-content: center;
+  }
+
+  #comms #commsQrCanvas {
+    width: min(256px, 74vw);
+    height: auto;
+    aspect-ratio: 1;
+  }
+}
+
+@media (max-width: 600px) {
+  #comms .commsPre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .commsMapModal {
+    width: 100vw;
+    border-radius: 0;
+    padding-top: calc(12px + env(safe-area-inset-top));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .commsMapPopup {
+    height: 72dvh;
+  }
+
+  .commsQrModal {
+    width: 100vw;
+    border-radius: 0;
+    padding-top: calc(12px + env(safe-area-inset-top));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .commsQrModal video {
+    max-height: 72dvh;
+  }
+}

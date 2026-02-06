@@ -1,0 +1,17 @@
+{
+  "name": "XCOM™ — Offline Communication Suite",
+  "short_name": "XCOM™",
+  "description": "Local-first offline comms & radio reference suite",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0b0f16",
+  "theme_color": "#0b0f16",
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

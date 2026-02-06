@@ -1,0 +1,207 @@
+/* XCOM Shortwave module */
+
+#shortwave .swShell {
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 980px) {
+  #shortwave .swShell {
+    grid-template-columns: 1fr;
+  }
+}
+
+#shortwave .swCard {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  min-width: 0;
+}
+
+#shortwave .swCardTitle {
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  margin-bottom: 8px;
+}
+
+#shortwave .swCardSub {
+  font-size: 12px;
+  color: rgba(159, 178, 198, 0.95);
+  margin-bottom: 12px;
+}
+
+#shortwave .swRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+#shortwave label {
+  font-size: 12px;
+  color: rgba(159, 178, 198, 0.95);
+}
+
+#shortwave input,
+#shortwave select {
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+#shortwave .swGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+#shortwave .swTabs {
+  display: flex;
+  gap: 10px;
+}
+
+#shortwave .swTab,
+#shortwave button {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+#shortwave .swTab:hover,
+#shortwave button:hover {
+  border-color: rgba(46, 230, 166, 0.28);
+  background: rgba(46, 230, 166, 0.08);
+}
+
+#shortwave .swTab.active {
+  border-color: rgba(46, 230, 166, 0.35);
+  background: rgba(46, 230, 166, 0.12);
+}
+
+#shortwave button.primary {
+  border-color: rgba(46, 230, 166, 0.35);
+  background: rgba(46, 230, 166, 0.12);
+}
+
+#shortwave .swInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(214, 227, 240, 0.95);
+}
+
+#shortwave .swInline--right {
+  justify-content: flex-end;
+}
+
+#shortwave .swCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#shortwave .swSmallMuted {
+  font-size: 12px;
+  color: rgba(159, 178, 198, 0.85);
+}
+
+#shortwave .swSmallMuted a {
+  color: rgba(46, 230, 166, 0.95);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+#shortwave .swSmallMuted a:hover {
+  color: rgba(46, 230, 166, 1);
+}
+
+#shortwave .swDivider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 10px 0;
+}
+
+#shortwave .swMeta {
+  font-size: 12px;
+  color: rgba(214, 227, 240, 0.92);
+  margin-bottom: 8px;
+}
+
+#shortwave .swResultsTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+#shortwave .swTableWrap {
+  width: 100%;
+  overflow: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#shortwave .swTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+#shortwave .swTable th,
+#shortwave .swTable td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  vertical-align: top;
+}
+
+#shortwave .swTable th {
+  position: sticky;
+  top: 0;
+  background: rgba(15, 22, 34, 0.98);
+  text-align: left;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: rgba(159, 178, 198, 0.95);
+}
+
+#shortwave .swEmpty {
+  padding: 14px 10px;
+  color: rgba(159, 178, 198, 0.95);
+}
+
+#shortwave .swMono {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  white-space: nowrap;
+}
+
+#shortwave .swRowActive {
+  background: rgba(46, 230, 166, 0.08);
+}
+
+#shortwave .swTimeCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#shortwave .swTimeSub {
+  font-size: 11px;
+  color: rgba(159, 178, 198, 0.85);
+}
+
+#shortwave .swColFreq { width: 90px; }
+#shortwave .swColTime { width: 170px; }
+#shortwave .swColDays { width: 70px; }
+#shortwave .swColItu { width: 54px; }
+#shortwave .swColLang { width: 70px; }
+#shortwave .swColTarget { width: 80px; }

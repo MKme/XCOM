@@ -1,0 +1,104 @@
+.mapShell {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 12px;
+  height: calc(100vh - 180px);
+  padding: 12px;
+}
+
+.mapLeft {
+  overflow: auto;
+}
+
+.mapRight {
+  min-width: 0;
+}
+
+.mapCard {
+  background: rgba(14, 18, 26, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.mapCardTitle {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.mapRow {
+  margin-bottom: 10px;
+}
+
+.mapRow label {
+  display: block;
+  font-size: 12px;
+  opacity: 0.9;
+  margin-bottom: 6px;
+}
+
+.mapRow input,
+.mapRow select {
+  width: 100%;
+}
+
+.mapSmallMuted {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.mapGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.mapButtonRow {
+  display: flex;
+  gap: 10px;
+}
+
+.mapButtonRow button {
+  flex: 1;
+}
+
+.mapMono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.mapTips {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.mapWrap {
+  height: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0b0f16;
+}
+
+.mapCanvas {
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  .mapShell {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .mapWrap {
+    height: 60vh;
+  }
+}

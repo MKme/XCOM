@@ -1,0 +1,16 @@
+RewriteEngine On
+
+# Block the secrets file from being downloaded
+<Files ".xcom-license-secrets.php">
+  Require all denied
+</Files>
+
+# Don’t let a SPA fallback rewrite steal the proxy endpoint
+RewriteRule ^license\.php$ - [L]
+RewriteRule ^\.xcom-license-secrets\.php$ - [L]
+
+# Optional SPA fallback (must be LAST)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /xcom/index.html [L]
+

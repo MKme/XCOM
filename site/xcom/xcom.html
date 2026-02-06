@@ -1,0 +1,121 @@
+<div class="wrap">
+  <header>
+    <div class="headerRight">
+      <div class="kicker" style="text-align: right;">Offline-first radio reference + mapping toolkit</div>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div id="what" class="card section">
+      <h2>What XCOM&trade; is</h2>
+      <div class="subtitle">XCOM&trade; is an <strong>offline-capable Progressive Web App (PWA)</strong> for <strong>ham radio</strong> and <strong>shortwave</strong> reference, mapping, and field workflow tools.</div>
+
+      <div class="subtitle" style="margin-top: 10px;">
+        <strong>Use it to (examples):</strong>
+        <ul style="margin: 8px 0 0 18px;">
+          <li>Find <strong>repeaters</strong> near a location and see tones, offsets, modes, and notes on a map.</li>
+          <li>Look up a <strong>callsign offline</strong> (USA/Canada) and plot a path with a quick HF prediction.</li>
+          <li>Browse worldwide <strong>shortwave broadcasts</strong> by <strong>time</strong> ("what's on now") or by <strong>frequency</strong>.</li>
+          <li>Reference <strong>packet radio</strong> nodes/BBS stations and keep a personal local list.</li>
+          <li>Download map tiles for your <strong>Area of Operations</strong> so maps keep working when you go offline.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="why" class="card section">
+      <h2>Built for bad connectivity</h2>
+      <div class="subtitle">
+        XCOM&trade; is <strong>local-first</strong>: your data stays on your device, and the app keeps working with no signal once it's loaded.
+        It's designed for field use, travel, emergency preparedness, and radio operations where the network isn't guaranteed.
+      </div>
+
+      <ul style="margin: 8px 0 0 18px;">
+        <li><strong>No accounts.</strong> No login, no cloud dependency, no server required for the core app.</li>
+        <li><strong>Offline maps.</strong> Cache raster tiles for your AO while online, then use them offline later.</li>
+        <li><strong>Offline location search.</strong> Look up cities/QTHs from a local dataset (no live geocoding API required).</li>
+      </ul>
+    </div>
+
+    <div id="modules" class="card section" style="margin-top: 14px;">
+      <h2>What's inside</h2>
+      <div class="subtitle">XCOM&trade; includes purpose-built modules for radio operators:</div>
+
+      <ul style="margin: 8px 0 0 18px;">
+        <li><strong>Predict:</strong> offline callsign lookup (USA/Canada), path plotting, and a quick HF prediction tool.</li>
+        <li><strong>Shortwave Broadcasts:</strong> browse HF schedules by time or frequency (with Local/UTC views).</li>
+        <li><strong>Packet Stations:</strong> map of packet nodes/BBS + frequency reference + your own local entries.</li>
+        <li><strong>Repeaters:</strong> repeater map with filters (band/mode/radius) and detailed station info.</li>
+        <li><strong>Map:</strong> set your AO and download offline raster tiles for that area.</li>
+        <li><strong>XTOC Comm:</strong> create/import structured packets (CLEAR or SECURE), chunk them for tight limits, and move them via copy/paste, QR, or Meshtastic.</li>
+        <li><strong>Mesh:</strong> connect to a Meshtastic radio (Web Bluetooth), view nodes on a map, and send/receive messages.</li>
+        <li><strong>Logbook:</strong> fast QSO logging with local storage and ADIF/CSV export.</li>
+        <li><strong>ASCII:</strong> generate clean copy/paste ASCII banners for packets, BBS posts, and notes.</li>
+        <li><strong>Ham Clock:</strong> a quick time + operating reference view.</li>
+      </ul>
+    </div>
+
+    <div id="offline" class="card section" style="margin-top: 14px;">
+      <h2>Quick start (offline)</h2>
+      <h3>1) Install as an app (recommended)</h3>
+      <ul>
+        <li><strong>iPhone/iPad:</strong> Safari &rarr; Share &rarr; <em>Add to Home Screen</em></li>
+        <li><strong>Android:</strong> Chrome menu &rarr; <em>Install app</em></li>
+        <li><strong>Desktop:</strong> Chrome/Edge install icon &rarr; <em>Install</em></li>
+      </ul>
+
+      <h3>2) Cache offline maps for your AO</h3>
+      <ul>
+        <li>Open <strong>Map</strong> and select <strong>Offline Raster (cached)</strong>.</li>
+        <li>Pan/zoom to your Area of Operations.</li>
+        <li>Download tiles for that AO while you have internet.</li>
+      </ul>
+
+      <p class="muted">Note: public tile servers have usage policies. For serious/off-grid use, point XCOM&trade; at your own tile server.</p>
+    </div>
+
+    <div id="compliance" class="card section" style="margin-top: 14px;">
+      <h2>Compliance notes (important)</h2>
+      <div class="subtitle">
+        XCOM&trade; includes tools that can create SECURE (encrypted) payloads for some workflows.
+        You are responsible for following local laws and radio regulations.
+      </div>
+      <div class="pill warn" style="margin-top: 12px;">Ham note: do <strong>not</strong> transmit encrypted/obscured content on amateur radio. Use CLEAR mode on ham where appropriate.</div>
+    </div>
+
+    <div id="privacy" class="card section" style="margin-top: 14px;">
+      <h2>Privacy &amp; data</h2>
+      <ul style="margin: 8px 0 0 18px;">
+        <li><strong>Local-first:</strong> your personal lists and log entries live in your browser storage on this device.</li>
+        <li><strong>No tracking:</strong> XCOM&trade; is designed to run without accounts or analytics.</li>
+        <li><strong>Offline friendly:</strong> most features work without internet once installed/loaded.</li>
+      </ul>
+    </div>
+
+    <div id="faq" class="card section" style="margin-top: 14px;">
+      <h2>FAQ</h2>
+
+      <p><strong>Does XCOM&trade; require a server?</strong><br />
+      No. The core app is a static PWA and runs locally in your browser.</p>
+
+      <p><strong>Do I need a license key?</strong><br />
+      On first run (when hosted), XCOM&trade; may prompt for a license key. Activate once while online, then keep using it offline on that device.</p>
+
+      <p><strong>Will it work offline?</strong><br />
+      Yes. Install it as a PWA, and it will keep working offline after it's loaded. Offline map tiles must be cached while online.</p>
+
+      <p><strong>Which browsers are recommended?</strong><br />
+      Modern Chrome/Edge/Safari. The Mesh module uses Web Bluetooth (typically Chrome/Edge/Android).</p>
+
+      <p><strong>Are frequencies guaranteed accurate?</strong><br />
+      Treat any directory as a reference. Always listen/verify on-air and follow your local regulations.</p>
+    </div>
+
+    <div id="cta" class="card section" style="margin-top: 14px;">
+      <h2>Get XCOM&trade;</h2>
+      <div class="subtitle">
+        Download/purchase here: <strong>[LINK TO YOUR STORE PAGE]</strong> (includes license key)<br />
+        Community/support: <strong>https://mkme.org/discord</strong>
+      </div>
+    </div>
+  </div>
+</div>

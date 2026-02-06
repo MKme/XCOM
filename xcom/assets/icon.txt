@@ -1,0 +1,3 @@
+Since we can't directly create a binary PNG file, we'll use a placeholder text file.
+For a real application, you would need to create a proper icon file (PNG or ICO format).
+You can use any image editing software to create a 256x256 pixel icon for your application.

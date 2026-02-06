@@ -1,0 +1,292 @@
+/* QSO Logbook module styles */
+
+.logbook-container {
+  padding: 1rem;
+}
+
+.logbook-header h2 {
+  margin: 0;
+}
+
+.logbook-subtitle {
+  margin-top: 0.25rem;
+  color: rgba(159, 178, 198, 0.9);
+}
+
+.logbook-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.logbook-panel {
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 1rem;
+  background: rgba(255,255,255,0.03);
+}
+
+.logbook-panel h3 {
+  margin: 0 0 0.75rem 0;
+}
+
+.logbook-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+
+.logbook-form-grid .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.logbook-form-grid .field-wide {
+  grid-column: 1 / -1;
+}
+
+.logbook-form-grid label {
+  font-size: 0.85rem;
+  color: rgba(159, 178, 198, 0.9);
+}
+
+.logbook-form-grid input,
+.logbook-form-grid select {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.logbook-form-grid .help {
+  margin-top: 0.15rem;
+  color: rgba(159, 178, 198, 0.85);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.logbook-form-grid .help code {
+  font-size: 0.8rem;
+}
+
+.logbook-actions {
+  margin-top: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.logbook-hint {
+  margin-top: 0.5rem;
+  color: rgba(159, 178, 198, 0.85);
+  font-size: 0.85rem;
+}
+
+.logbook-small-muted {
+  margin-top: 0.5rem;
+  color: rgba(159, 178, 198, 0.85);
+  font-size: 0.85rem;
+}
+
+.logbook-clock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed rgba(255,255,255,0.18);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.03);
+  margin-bottom: 0.75rem;
+}
+
+.logbook-known {
+  margin: 0 0 0.75rem 0;
+}
+
+.logbook-known-card {
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+}
+
+.logbook-known-card .title {
+  font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(159, 178, 198, 0.9);
+  margin-bottom: 0.35rem;
+}
+
+.logbook-known-card .headline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.logbook-known-card .headline code {
+  font-size: 1rem;
+}
+
+.logbook-known-card .headline .name {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #d6e3f0;
+}
+
+.logbook-known-card .details {
+  margin-top: 0.5rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem 0.75rem;
+  color: rgba(159, 178, 198, 0.9);
+  font-size: 0.92rem;
+}
+
+.logbook-known-map-wrap {
+  margin-top: 0.75rem;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0b1220;
+}
+
+.logbook-known-map {
+  height: 160px;
+  width: 100%;
+}
+
+/* Small map: hide MapLibre attribution (we show none in this tiny card) */
+.logbook-known-map .maplibregl-ctrl-attrib,
+.logbook-known-map .maplibregl-ctrl-logo {
+  display: none !important;
+}
+
+.logbook-known-card .details .label {
+  color: rgba(159, 178, 198, 0.85);
+  font-weight: 700;
+}
+
+.logbook-known-card.found {
+  border-color: rgba(46, 230, 166, 0.40);
+  background: rgba(46, 230, 166, 0.08);
+}
+
+.logbook-known-card.unknown {
+  border-color: rgba(246, 201, 69, 0.45);
+  background: rgba(246, 201, 69, 0.10);
+}
+
+.logbook-known-card.pending {
+  border-color: rgba(56, 189, 248, 0.40);
+  background: rgba(56, 189, 248, 0.10);
+}
+
+.logbook-known-card.error {
+  border-color: rgba(255, 77, 79, 0.40);
+  background: rgba(255, 77, 79, 0.10);
+}
+
+.logbook-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.logbook-table-wrap {
+  margin-top: 0.75rem;
+  overflow: auto;
+  max-height: 520px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+}
+
+.logbook-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.logbook-table thead th {
+  position: sticky;
+  top: 0;
+  background: rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: 0.5rem;
+  text-align: left;
+  font-size: 0.85rem;
+  color: #d6e3f0;
+}
+
+.logbook-table tbody td {
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding: 0.5rem;
+  vertical-align: top;
+  font-size: 0.92rem;
+}
+
+.logbook-table tbody td.notes {
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.logbook-table tbody td.actions {
+  text-align: right;
+}
+
+.logbook-table tbody td.empty {
+  padding: 1rem;
+  color: rgba(159, 178, 198, 0.85);
+}
+
+button {
+  cursor: pointer;
+}
+
+button.secondary {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.12);
+  padding: 0.5rem 0.8rem;
+  border-radius: 6px;
+}
+
+button.danger {
+  background: rgba(255, 77, 79, 0.10);
+  border: 1px solid rgba(255, 77, 79, 0.25);
+  padding: 0.5rem 0.8rem;
+  border-radius: 6px;
+}
+
+button.small {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+}
+
+@media (max-width: 980px) {
+  .logbook-grid {
+    grid-template-columns: 1fr;
+  }
+  .logbook-form-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .logbook-known-card .details {
+    grid-template-columns: 1fr;
+  }
+
+  .logbook-known-map {
+    height: 180px;
+  }
+}

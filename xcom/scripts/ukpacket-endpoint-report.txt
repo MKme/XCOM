@@ -1,0 +1,10 @@
+Map: https://nodes.ukpacketradio.network/packet-network-map.html?rfonly=0
+
+Scripts:
+  https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015
+  https://unpkg.com/leaflet-simplestyle
+  https://unpkg.com/leaflet@1.9.4/dist/leaflet.js
+
+Candidate endpoints (from fetch/xhr patterns):
+
+All URLs found in HTML/JS (first 300):

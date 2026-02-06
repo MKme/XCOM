@@ -1,0 +1,435 @@
+/* Ham Clock module styling — HamClock-inspired dashboard */
+
+.ham-clock *,
+.ham-clock *::before,
+.ham-clock *::after {
+    box-sizing: border-box;
+}
+
+.ham-clock {
+    --hc-top-row: 220px;
+    padding: 8px;
+    background: #000;
+    color: #e5e7eb;
+}
+
+.hc-dash {
+    display: grid;
+    grid-template-columns: 300px 1fr 330px;
+    /* Make the map row at least 520px tall to prevent CSS-grid overflow overlap */
+    grid-template-rows: var(--hc-top-row) minmax(520px, auto);
+    grid-template-areas:
+        "topl topm topr"
+        "left map  botr";
+    gap: 8px;
+    /* Let the dashboard grow and scroll rather than force the map into a too-small row */
+    height: auto;
+    min-height: 0;
+    align-content: start;
+}
+
+/* Ensure grid items can shrink without overlapping (CSS Grid min-width quirk) */
+.hc-top-left,
+.hc-top-mid,
+.hc-top-right,
+.hc-left-col,
+.hc-map-wrap,
+.hc-bottom-right {
+    min-width: 0;
+}
+
+.hc-top-left { grid-area: topl; }
+.hc-top-mid { grid-area: topm; }
+.hc-top-right { grid-area: topr; }
+.hc-left-col { grid-area: left; }
+.hc-map-wrap { grid-area: map; }
+.hc-bottom-right { grid-area: botr; }
+
+.hc-panel {
+    background: #050505;
+    border: 2px solid rgba(255, 255, 255, 0.10);
+    border-radius: 2px;
+    padding: 6px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.65) inset;
+}
+
+.hc-top-left,
+.hc-top-mid,
+.hc-top-right,
+.hc-left-col,
+.hc-map-wrap,
+.hc-bottom-right {
+    position: relative;
+}
+
+.hc-map-wrap {
+    height: auto;
+}
+
+.hc-panel-spacewx {
+    height: var(--hc-top-row);
+    overflow: hidden;
+}
+
+.hc-spacewx-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.hc-spacewx-fetch {
+    background: #111;
+    color: #e5e7eb;
+    border: 1px solid rgba(255,255,255,0.18);
+    padding: 5px 10px;
+    font-weight: 800;
+    height: 32px;
+}
+
+.hc-panel-clock {
+    height: var(--hc-top-row);
+    overflow: hidden;
+}
+
+.hc-panel-bands {
+    height: var(--hc-top-row);
+    overflow: hidden;
+}
+
+.hc-panel-title {
+    font-size: 22px;
+    letter-spacing: 0.5px;
+    color: #cbd5e1;
+    margin-bottom: 2px;
+}
+
+.hc-brand {
+    font-size: 18px;
+    font-weight: 900;
+    color: #fbbf24;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+}
+
+/* Allow the clock to shrink to fit smaller widths without overflowing */
+.hc-panel-clock {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+}
+
+.hc-brand {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hc-big-date {
+    font-size: clamp(18px, 1.7vw, 26px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hc-big-time {
+    font-variant-numeric: tabular-nums;
+    /* Keep it sized for a fixed ~300px clock column */
+    font-size: 54px;
+    line-height: 1;
+    font-weight: 900;
+    color: #f8fafc;
+    margin-top: 6px;
+    white-space: nowrap;
+}
+
+.hc-big-date {
+    color: #e5e7eb;
+    margin-top: 4px;
+}
+
+.hc-left-time {
+    font-variant-numeric: tabular-nums;
+    font-size: 58px;
+    line-height: 1;
+    font-weight: 900;
+}
+
+.hc-panel-de .hc-left-time {
+    color: #f59e0b;
+}
+
+.hc-panel-dx .hc-left-time {
+    color: #22c55e;
+}
+
+.hc-left-sub {
+    margin-top: 4px;
+    font-size: 14px;
+    color: #cbd5e1;
+}
+
+.hc-small-muted {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-top: 6px;
+}
+
+/* Space weather mimic */
+.hc-panel-spacewx .hc-panel-title {
+    font-size: 30px;
+    color: #cbd5e1;
+    margin-bottom: 0;
+}
+
+.hc-spacewx-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin: 6px 0;
+}
+
+.hc-spacewx-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 0px;
+}
+
+.hc-spacewx-row .k {
+    font-size: 22px;
+    color: rgba(255,255,255,0.35);
+    font-weight: 900;
+}
+
+.hc-spacewx-row .v {
+    font-variant-numeric: tabular-nums;
+    font-size: 42px;
+    font-weight: 900;
+    color: #22c55e;
+    line-height: 1;
+}
+
+.hc-spacewx-kv {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 12px;
+}
+
+.hc-spacewx-kv-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    color: #9ca3af;
+}
+
+.hc-spacewx-kv-row strong {
+    color: #e5e7eb;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Map */
+.hc-map-panel {
+    position: relative;
+    border: 2px solid rgba(255, 255, 255, 0.10);
+    background: #000;
+    height: auto;
+}
+
+.hc-map {
+    height: 520px;
+    width: 100%;
+}
+
+#hcMap.map-pick-mode {
+    cursor: crosshair;
+}
+
+.hc-overlay-canvas { pointer-events: none; }
+
+.hc-map-legend {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    display: flex;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+.legend-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #e5e7eb;
+}
+
+.legend-chip::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    display: inline-block;
+}
+
+.legend-chip.day::before { background: rgba(30, 64, 175, 0.6); }
+.legend-chip.grey::before { background: rgba(203, 213, 225, 0.35); }
+.legend-chip.night::before { background: rgba(2, 6, 23, 0.75); }
+
+/* Band strip */
+.hc-band-strip {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.hc-band-chip {
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.6);
+    padding: 6px;
+}
+
+.hc-band-chip-top {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 900;
+    font-size: 12px;
+}
+
+.hc-band-chip-bar {
+    height: 8px;
+    background: rgba(255,255,255,0.08);
+    margin-top: 6px;
+    overflow: hidden;
+}
+
+.hc-band-chip-fill {
+    height: 100%;
+}
+
+/* Controls */
+.hc-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.hc-controls.compact {
+    margin-top: 6px;
+}
+
+.hc-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: #cbd5e1;
+}
+
+.hc-controls input,
+.hc-controls select {
+    width: 170px;
+    background: #000;
+    color: #e5e7eb;
+    border: 1px solid rgba(255,255,255,0.18);
+    padding: 4px 6px;
+}
+
+.hc-controls button {
+    background: #111;
+    color: #e5e7eb;
+    border: 1px solid rgba(255,255,255,0.18);
+    padding: 5px 10px;
+    font-weight: 800;
+}
+
+details summary {
+    cursor: pointer;
+    color: #cbd5e1;
+}
+
+.hc-spacewx {
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #e5e7eb;
+    background: rgba(0,0,0,0.45);
+    font-size: 13px;
+    line-height: 1.35;
+}
+
+.hc-bands {
+    margin-top: 10px;
+}
+
+.hc-band-meta {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    color: #cbd5e1;
+    font-size: 12px;
+    margin-bottom: 10px;
+}
+
+.hc-band-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.hc-band {
+    border: 1px solid rgba(255,255,255,0.12);
+    padding: 8px;
+    background: rgba(0,0,0,0.4);
+}
+
+.hc-band-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-weight: 800;
+}
+
+.hc-band-score { color: #fbbf24; }
+
+.hc-band-bar {
+    height: 8px;
+    background: rgba(255,255,255,0.08);
+    margin: 6px 0;
+}
+
+.hc-band-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #22c55e, #f59e0b);
+}
+
+.hc-band-detail {
+    font-size: 12px;
+    color: #9ca3af;
+}
+
+@media (max-width: 1100px) {
+    .hc-dash {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+        grid-template-areas:
+            "topl"
+            "topm"
+            "topr"
+            "left"
+            "map"
+            "botr";
+        height: auto;
+        min-height: 0;
+    }
+    .hc-map {
+        min-height: 480px;
+    }
+    .hc-band-strip {
+        grid-template-columns: 1fr;
+    }
+}

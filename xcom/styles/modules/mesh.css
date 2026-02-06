@@ -1,0 +1,161 @@
+.meshShell {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.meshCard {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.meshCardTitle {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-bottom: 10px;
+}
+
+.meshRow {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.meshGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.meshRow label {
+  font-size: 12px;
+  color: rgba(233, 238, 248, 0.85);
+}
+
+.meshRow input,
+.meshRow select,
+.meshRow textarea {
+  width: 100%;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #e9eef8;
+  border-radius: 10px;
+  padding: 10px;
+  outline: none;
+}
+
+.meshButtonRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.meshButtonRow button {
+  border-radius: 10px;
+}
+
+.meshButtonRow button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+}
+
+.meshButtonRow button:disabled:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.meshDivider {
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 12px 0;
+}
+
+.meshSmallMuted {
+  font-size: 12px;
+  color: rgba(233, 238, 248, 0.7);
+  line-height: 1.4;
+}
+
+.meshInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meshStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  width: fit-content;
+}
+
+.meshStatusPill.ok {
+  border-color: rgba(88, 214, 141, 0.55);
+  color: rgba(88, 214, 141, 0.95);
+}
+
+.meshStatusPill.warn {
+  border-color: rgba(255, 209, 102, 0.55);
+  color: rgba(255, 209, 102, 0.95);
+}
+
+.meshPre {
+  margin: 0;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 220px;
+  max-height: 420px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.meshMapWrap {
+  height: 60vh;
+  min-height: 320px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0b0f16;
+  margin-top: 10px;
+}
+
+.meshMapCanvas {
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  .meshGrid2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 900px) {
+  .meshShell {
+    grid-template-columns: 1fr 1fr;
+  }
+  .meshShell .meshCard:nth-child(1) {
+    grid-column: 1 / -1;
+  }
+  .meshShell .meshCard:nth-child(4) {
+    grid-column: 1 / -1;
+  }
+  .meshMapWrap {
+    height: 520px;
+    min-height: 520px;
+  }
+}

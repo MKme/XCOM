@@ -1,0 +1,81 @@
+XCOM™ - WooCommerce Product Listing (COPY/PASTE TEXT)
+====================================================
+
+[SECTION: Product Name]
+XCOM™ - Offline Radio Reference + Mapping (PWA)
+
+[SECTION: Product Type / Setup Notes (internal)]
+- Suggested product type: Downloadable (and/or Virtual)
+- Suggested SKU: XCOM-PWA (edit as desired)
+- Price: [SET YOUR PRICE]
+- Download file: [UPLOAD ZIP] (example: xcom-web-fileset-1.0.x.zip)
+- Support/community: https://mkme.org/discord
+- Docs/product page: [LINK TO YOUR XCOM™.html PAGE]
+
+[SECTION: Short Description]
+XCOM™ is an offline-first radio reference + mapping toolkit built for bad connectivity. Install it as a PWA on iOS/Android/Desktop and keep operating with no signal. It includes an offline Repeater Map (USA/Canada), Packet Stations directory, worldwide Shortwave Broadcasts schedule browser, Predict (offline callsign lookup + path tools), plus field utilities like XTOC Comm (copy/paste + QR packets), Meshtastic mesh integration, a QSO Logbook, and more. Activate once with your license key while online, then keep using it offline on that device.
+
+[SECTION: Long Description]
+WHAT YOU'RE GETTING
+- Offline-ready web app (PWA): installable on iOS/Android/Desktop. Once loaded, it keeps working without signal.
+- Local-first data: personal lists and logs stay on your device (no accounts required).
+- Offline mapping: set an AO and cache map tiles for that area to keep maps usable offline.
+- Operator-focused tools: repeaters, packet nodes, shortwave schedules, callsign lookup, logging, and more.
+
+KEY MODULES
+- Predict: offline callsign lookup (USA/Canada), path plotting, and a quick HF prediction tool.
+- Repeaters: find repeaters by radius/band/mode and view tones, offsets, notes, and distance.
+- Packet Stations: map packet nodes/BBS and keep a personal local list.
+- Shortwave Broadcasts: browse worldwide HF schedules by time ("what's on now") or by frequency.
+- Map: AO selection + offline raster tile caching.
+- XTOC Comm: create/import structured packets (CLEAR or SECURE), chunk for tight message limits, and move by copy/paste, QR, or mesh.
+- Mesh: connect to a Meshtastic radio (Web Bluetooth) and send/receive messages.
+- Logbook: fast QSO logging with ADIF/CSV export.
+
+LICENSE & ACTIVATION
+- One-time activation: enter your license key once while online.
+- Offline afterward: after activation, XCOM™ continues to work offline on that device.
+
+WORKS WITH WHATEVER YOU HAVE
+- Copy/paste between apps
+- QR scan/export
+- Mesh text (Meshtastic)
+- Offline maps (after caching tiles)
+
+COMPLIANCE NOTES (IMPORTANT)
+Do NOT transmit encrypted/obscured content on amateur radio. You are responsible for following your local laws and regulations.
+
+GETTING STARTED (QUICK)
+1) Install for offline use:
+   - iPhone/iPad: Safari -> Share -> Add to Home Screen
+   - Android: Chrome menu -> Install app
+   - Desktop: Chrome/Edge install icon -> Install
+2) Cache maps for your AO:
+   - Open Map and download tiles for your operating area while online.
+3) Operate:
+   - Use Repeaters/Packet/Shortwave/Predict as offline references, and log QSOs as needed.
+
+Note: public tile servers have usage policies. For serious/off-grid use, point XCOM™ at your own tile server.
+
+WHO XCOM™ IS FOR
+- Ham radio operators (POTA/SOTA/Field Day, go-kits, travel)
+- Shortwave listeners and HF monitoring
+- Emergency preparedness and field operations
+- Off-grid comms enthusiasts using mesh/radio workflows
+
+[SECTION: FAQ]
+Q: Does XCOM™ require a server?
+A: No. XCOM™ is a static PWA and runs locally in your browser.
+
+Q: Will it work offline?
+A: Yes. Most tools run offline after installation/first load. Offline map tiles must be cached while online.
+
+Q: Does it require accounts?
+A: No. XCOM™ is designed to be local-first and account-free.
+
+Q: Which browsers are recommended?
+A: Modern Chrome/Edge/Safari. Mesh features typically require Chrome/Edge/Android due to Web Bluetooth support.
+
+[SECTION: Suggested Categories / Tags (optional)]
+Categories: Software, Communications, Ham Radio, Emergency Preparedness
+Tags: offline, pwa, ham radio, repeater map, packet radio, shortwave, meshtastic, callsign lookup, qso logbook
