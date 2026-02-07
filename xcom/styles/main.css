@@ -388,6 +388,37 @@ body.xGateOpen {
     line-height: 1.35;
 }
 
+.xLicenseImportant {
+    display: block;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-color: rgba(246, 201, 69, 0.35);
+    background: rgba(246, 201, 69, 0.05);
+    color: var(--text);
+    white-space: normal;
+    line-height: 1.35;
+    border-radius: 14px;
+}
+
+.xLicenseImportant + .xLicenseSubtitle {
+    margin-top: 10px;
+}
+
+.xLicenseImportant ul {
+    margin: 6px 0 0 18px;
+    padding: 0;
+    color: var(--muted);
+    line-height: 1.45;
+}
+
+.xLicenseImportant li {
+    margin: 4px 0;
+}
+
+.xLicenseImportant li strong {
+    color: var(--text);
+}
+
 .xLicenseRow {
     margin-top: 12px;
     display: flex;

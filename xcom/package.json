@@ -1,6 +1,6 @@
 {
   "name": "repeaterbook",
-  "version": "1.0.20",
+  "version": "1.0.25",
   "description": "A web-based application that displays amateur radio repeaters on an interactive map, allowing users to search for repeaters near their location across the USA and Canada.",
   "private": true,
   "keywords": [],

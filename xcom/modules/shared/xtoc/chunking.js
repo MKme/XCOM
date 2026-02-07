@@ -15,6 +15,9 @@ function getTransportMaxPacketChars(profile) {
       return 400
     case 'Meshtastic':
       return 180
+    case 'HaLow':
+      // IP LAN (HaLow/Open MANET/etc). Chunking generally not required.
+      return 50000
     case 'Email':
       return 800
     case 'QR':

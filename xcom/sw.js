@@ -11,7 +11,7 @@
 */
 
 // Bump this any time you change styling/assets and need clients to refresh caches.
-const VERSION = 'xcom.sw.v17'
+const VERSION = 'xcom.sw.v18'
 const APP_CACHE = `${VERSION}.app`
 const TILE_CACHE = `${VERSION}.tiles`
 

@@ -56,19 +56,136 @@ function split_csv_ids($s) {
   return $out;
 }
 
-function extract_product_id_from_validate($parsed) {
-  if (!is_array($parsed)) return '';
+function redact_license_key_fields($s) {
+  $out = strval($s);
+  $out = preg_replace('/("licenseKey"\\s*:\\s*")[^"]*(")/i', '$1REDACTED$2', $out);
+  $out = preg_replace('/("license_key"\\s*:\\s*")[^"]*(")/i', '$1REDACTED$2', $out);
+  return $out;
+}
 
-  if (isset($parsed['data']) && is_array($parsed['data'])) {
-    $d = $parsed['data'];
-    if (isset($d['productId'])) return trim(strval($d['productId']));
-    if (isset($d['product_id'])) return trim(strval($d['product_id']));
+function extract_product_id_from_node($node, $maxDepth) {
+  if ($maxDepth <= 0) return '';
+  if (!is_array($node)) return '';
+
+  if (array_key_exists('productId', $node)) return trim(strval($node['productId']));
+  if (array_key_exists('product_id', $node)) return trim(strval($node['product_id']));
+
+  // Some API shapes use `product` as either a scalar id or an object.
+  if (array_key_exists('product', $node)) {
+    $p = $node['product'];
+    if (is_scalar($p) || $p === null) return trim(strval($p));
+    if (is_array($p)) {
+      $sub = extract_product_id_from_node($p, $maxDepth - 1);
+      if ($sub !== '') return $sub;
+      if (array_key_exists('id', $p)) return trim(strval($p['id']));
+    }
   }
 
-  if (isset($parsed['productId'])) return trim(strval($parsed['productId']));
-  if (isset($parsed['product_id'])) return trim(strval($parsed['product_id']));
+  foreach ($node as $child) {
+    if (!is_array($child)) continue;
+    $found = extract_product_id_from_node($child, $maxDepth - 1);
+    if ($found !== '') return $found;
+  }
 
   return '';
+}
+
+function extract_product_id_from_validate($parsed) {
+  return extract_product_id_from_node($parsed, 6);
+}
+
+function extract_license_key_from_item($item) {
+  if (!is_array($item)) return '';
+  if (array_key_exists('licenseKey', $item)) return trim(strval($item['licenseKey']));
+  if (array_key_exists('license_key', $item)) return trim(strval($item['license_key']));
+  return '';
+}
+
+function extract_license_items_from_list_response($parsed) {
+  if (!is_array($parsed)) return [];
+  if (array_key_exists('data', $parsed) && is_array($parsed['data'])) return $parsed['data'];
+  if (function_exists('array_is_list') && array_is_list($parsed)) return $parsed;
+  return [];
+}
+
+function lm_try_fetch_product_id_via_list_query($apiBase, $licenseKey, $consumerKey, $consumerSecret, $query) {
+  $url = $apiBase . '/licenses?per_page=100&' . $query;
+  [$status, $body, $err] = http_get_with_basic_auth($url, $consumerKey, $consumerSecret);
+  if ($body === false) return '';
+  if ($status < 200 || $status >= 300) return '';
+
+  $parsed = json_decode($body, true);
+  $items = extract_license_items_from_list_response($parsed);
+  foreach ($items as $item) {
+    if (!is_array($item)) continue;
+    $itemKey = extract_license_key_from_item($item);
+    if ($itemKey !== '' && hash_equals($licenseKey, $itemKey)) {
+      $pid = extract_product_id_from_node($item, 3);
+      if ($pid !== '') return $pid;
+    }
+  }
+
+  return '';
+}
+
+function lm_find_product_id_by_listing($apiBase, $licenseKey, $consumerKey, $consumerSecret) {
+  // Best-effort filters (plugin-dependent). If unsupported, we fall back to paging.
+  $encoded = rawurlencode($licenseKey);
+  $queries = [
+    'search=' . $encoded,
+    'license_key=' . $encoded,
+    'licenseKey=' . $encoded,
+  ];
+  foreach ($queries as $q) {
+    $pid = lm_try_fetch_product_id_via_list_query($apiBase, $licenseKey, $consumerKey, $consumerSecret, $q);
+    if ($pid !== '') return $pid;
+  }
+
+  $perPage = 100;
+  $maxPages = 10;
+  for ($page = 1; $page <= $maxPages; $page++) {
+    $url = $apiBase . '/licenses?per_page=' . $perPage . '&page=' . $page;
+    [$status, $body, $err] = http_get_with_basic_auth($url, $consumerKey, $consumerSecret);
+    if ($body === false) return '';
+    if ($status < 200 || $status >= 300) return '';
+
+    $parsed = json_decode($body, true);
+    $items = extract_license_items_from_list_response($parsed);
+    if (count($items) === 0) return '';
+
+    foreach ($items as $item) {
+      if (!is_array($item)) continue;
+      $itemKey = extract_license_key_from_item($item);
+      if ($itemKey !== '' && hash_equals($licenseKey, $itemKey)) {
+        $pid = extract_product_id_from_node($item, 3);
+        if ($pid !== '') return $pid;
+      }
+    }
+
+    // If we got fewer than per_page results, we're at the end.
+    if (count($items) < $perPage) return '';
+  }
+
+  return '';
+}
+
+function lm_try_fetch_product_id_via_direct_get($apiBase, $licenseKey, $consumerKey, $consumerSecret) {
+  // If supported by the LMFWC REST API, this is the cheapest way to find a license's productId.
+  $url = $apiBase . '/licenses/' . rawurlencode($licenseKey);
+
+  [$status, $body, $err] = http_get_with_basic_auth($url, $consumerKey, $consumerSecret);
+  if ($body === false) return '';
+  if ($status < 200 || $status >= 300) return '';
+
+  $parsed = json_decode($body, true);
+  return extract_product_id_from_node($parsed, 6);
+}
+
+function lm_find_product_id_fallback($apiBase, $licenseKey, $consumerKey, $consumerSecret) {
+  $pid = lm_try_fetch_product_id_via_direct_get($apiBase, $licenseKey, $consumerKey, $consumerSecret);
+  if ($pid !== '') return $pid;
+
+  return lm_find_product_id_by_listing($apiBase, $licenseKey, $consumerKey, $consumerSecret);
 }
 
 function extract_int_field($parsed, $field) {
@@ -84,20 +201,55 @@ function extract_int_field($parsed, $field) {
   return null;
 }
 
+function http_get_with_basic_auth($url, $consumerKey, $consumerSecret) {
+  $err = '';
+  $status = 0;
+  $body = false;
+
+  if (function_exists('curl_init')) {
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+    curl_setopt($ch, CURLOPT_USERPWD, $consumerKey . ':' . $consumerSecret);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+    curl_setopt($ch, CURLOPT_HEADER, false);
+
+    $body = curl_exec($ch);
+    $err = curl_error($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+  } else if (filter_var(ini_get('allow_url_fopen'), FILTER_VALIDATE_BOOLEAN)) {
+    $auth = base64_encode($consumerKey . ':' . $consumerSecret);
+    $context = stream_context_create([
+      'http' => [
+        'method' => 'GET',
+        'header' => "Authorization: Basic $auth\r\n",
+        'timeout' => 20,
+      ],
+    ]);
+    $body = @file_get_contents($url, false, $context);
+    if ($body === false) {
+      $err = 'file_get_contents failed';
+    }
+    if (isset($http_response_header) && is_array($http_response_header)) {
+      foreach ($http_response_header as $h) {
+        if (preg_match('/^HTTP\/\\S+\\s+(\\d+)/', $h, $m)) {
+          $status = intval($m[1]);
+          break;
+        }
+      }
+    }
+  } else {
+    $err = 'curl not available and allow_url_fopen is disabled';
+  }
+
+  return [$status, $body, $err];
+}
+
 function lm_get_license_data_or_exit($apiBase, $endpoint, $licenseKey, $consumerKey, $consumerSecret) {
   $url = $apiBase . '/licenses/' . $endpoint . '/' . rawurlencode($licenseKey);
 
-  $ch = curl_init($url);
-  curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-  curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-  curl_setopt($ch, CURLOPT_USERPWD, $consumerKey . ':' . $consumerSecret);
-  curl_setopt($ch, CURLOPT_TIMEOUT, 20);
-  curl_setopt($ch, CURLOPT_HEADER, false);
-
-  $body = curl_exec($ch);
-  $err = curl_error($ch);
-  $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-  curl_close($ch);
+  [$status, $body, $err] = http_get_with_basic_auth($url, $consumerKey, $consumerSecret);
 
   if ($body === false) {
     http_response_code(502);
@@ -239,17 +391,7 @@ if ($action === '' && isset($_GET['action'])) {
 if (isset($_GET['selftest']) && $_GET['selftest'] === '1') {
   $testUrl = $apiBase . '/licenses?per_page=1';
 
-  $tch = curl_init($testUrl);
-  curl_setopt($tch, CURLOPT_RETURNTRANSFER, true);
-  curl_setopt($tch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-  curl_setopt($tch, CURLOPT_USERPWD, $consumerKey . ':' . $consumerSecret);
-  curl_setopt($tch, CURLOPT_TIMEOUT, 20);
-  curl_setopt($tch, CURLOPT_HEADER, false);
-
-  $tBody = curl_exec($tch);
-  $tErr = curl_error($tch);
-  $tStatus = curl_getinfo($tch, CURLINFO_HTTP_CODE);
-  curl_close($tch);
+  [$tStatus, $tBody, $tErr] = http_get_with_basic_auth($testUrl, $consumerKey, $consumerSecret);
 
   if ($tBody === false) {
     http_response_code(502);
@@ -257,13 +399,23 @@ if (isset($_GET['selftest']) && $_GET['selftest'] === '1') {
     exit;
   }
 
-  $snippet = substr(str_replace(["\r", "\n"], ' ', $tBody), 0, 260);
-  echo json_encode([
+  $parsed = json_decode($tBody, true);
+  $out = [
     "success" => ($tStatus >= 200 && $tStatus < 300),
     "mode" => "selftest",
     "store_status" => $tStatus,
-    "body_snippet" => $snippet,
-  ]);
+  ];
+
+  // Avoid leaking license keys in normal success responses. Only include a redacted snippet when something looks wrong.
+  if (!is_array($parsed) || $tStatus < 200 || $tStatus >= 300) {
+    $snippet = substr(str_replace(["\r", "\n"], ' ', $tBody), 0, 260);
+    $out["body_snippet"] = redact_license_key_fields($snippet);
+  } else {
+    $samplePid = extract_product_id_from_validate($parsed);
+    if ($samplePid !== '') $out["sample_product_id"] = $samplePid;
+  }
+
+  echo json_encode($out);
   exit;
 }
 
@@ -286,6 +438,10 @@ if (count($allowedProductIds) === 0) {
 $validateParsed = lm_get_license_data_or_exit($apiBase, 'validate', $licenseKey, $consumerKey, $consumerSecret);
 
 $actualProductId = extract_product_id_from_validate($validateParsed);
+if ($actualProductId === '') {
+  // Some LMFWC versions return a minimal validate response (no productId). In that case, look it up via the licenses list.
+  $actualProductId = lm_find_product_id_fallback($apiBase, $licenseKey, $consumerKey, $consumerSecret);
+}
 if ($actualProductId === '') {
   http_response_code(502);
   echo json_encode(["success" => false, "reason" => "upstream_shape", "message" => "Store response missing productId"]);
@@ -317,8 +473,10 @@ if ($action === 'activate') {
   }
 
   $activateParsed = lm_get_license_data_or_exit($apiBase, 'activate', $licenseKey, $consumerKey, $consumerSecret);
+  // Some LMFWC activate responses omit productId. We already validated the product above,
+  // so only enforce this check when the field is actually present.
   $activateProductId = extract_product_id_from_validate($activateParsed);
-  if ($activateProductId === '' || !in_array($activateProductId, $allowedProductIds, true)) {
+  if ($activateProductId !== '' && !in_array($activateProductId, $allowedProductIds, true)) {
     http_response_code(401);
     echo json_encode([
       "success" => false,

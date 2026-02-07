@@ -32,7 +32,7 @@ param(
   # For hosted/PWA use, JSON/GeoJSON is preferred and smaller/faster to package.
   [switch]$IncludeJsPayloads,
 
-  # If set, include server-side helper files (license.php/.htaccess/secrets template) alongside the web build.
+  # If set, include server-side helper files (license.php/.htaccess/README) alongside the web build.
   [switch]$IncludeHelpers,
 
   # If set, also create a .zip file in releases/ containing the entire fileset folder contents.
@@ -196,20 +196,34 @@ if (Test-Path $indexPath) {
 }
 
 # Optional: include server-side helper files used for license validation (and deployment checklist).
-if ($IncludeHelpers) {
+# If AccessMode is license, include these by default so /xcom/license.php exists after upload.
+$includeServerHelpers = $IncludeHelpers -or ($AccessMode -eq 'license')
+if ($includeServerHelpers) {
   $serverDir = Join-Path $repoRoot 'site\xcom\keys etc NOGIT'
   if (Test-Path $serverDir) {
     Write-Host "Including server license proxy files -> $filesetDir" -ForegroundColor Cyan
     $toCopy = @(
       'license.php',
       '.htaccess',
-      '.xcom-license-secrets.php.example',
       'README.md'
     )
     foreach ($f in $toCopy) {
       $src = Join-Path $serverDir $f
       if (Test-Path $src) {
-        Copy-Item -Path $src -Destination (Join-Path $filesetDir $f) -Force
+        if ($f -eq '.htaccess') {
+          $ht = Get-Content -Path $src -Raw -Encoding UTF8
+          $base = $BasePath
+          if (-not $base) { $base = '/' }
+          if (-not $base.StartsWith('/')) { $base = '/' + $base }
+          if (-not $base.EndsWith('/')) { $base = $base + '/' }
+          $indexPath = $base + 'index.html'
+          $ht = $ht -replace 'RewriteRule\s+\.\s+/[^ \t\r\n]+/index\.html\s+\[L\]', ("RewriteRule . {0} [L]" -f $indexPath)
+          $dest = Join-Path $filesetDir $f
+          # Write UTF-8 without BOM to avoid Apache 500s on some hosts.
+          [System.IO.File]::WriteAllText($dest, $ht, (New-Object System.Text.UTF8Encoding($false)))
+        } else {
+          Copy-Item -Path $src -Destination (Join-Path $filesetDir $f) -Force
+        }
       }
     }
   }

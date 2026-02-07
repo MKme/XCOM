@@ -28,6 +28,7 @@ class CommsModule {
 
     this.qrScanner = null
     this._meshUnsub = null
+    this._halowUnsub = null
 
     // Import preview state
     this._importMap = null
@@ -51,6 +52,13 @@ class CommsModule {
     this._lastMeshRxFrom = null
     this._meshLastState = null
 
+    // HaLow auto-receive cursor (traffic log is a ring buffer)
+    this._halowTrafficCursorTs = null
+    this._halowTrafficCursorCountAtTs = 0
+    this._lastHaLowRxAt = null
+    this._lastHaLowRxFrom = null
+    this._halowLastState = null
+
     this.init()
   }
 
@@ -68,7 +76,7 @@ class CommsModule {
       <div class="xModuleIntro">
         <div class="xModuleIntroTitle">What you can do here</div>
         <div class="xModuleIntroText">
-          Create XTOC packets (CLEAR or SECURE), split them for different transport limits, and move them via copy/paste, QR, or Meshtastic.
+          Create XTOC packets (CLEAR or SECURE), split them for different transport limits, and move them via copy/paste, QR, Meshtastic, or MANET (LAN).
         </div>
       </div>
       <div class="commsShell">
@@ -105,6 +113,7 @@ class CommsModule {
               <option value="APRS">APRS (67 chars)</option>
               <option value="HamOther">Ham Other (80 chars)</option>
               <option value="Meshtastic">Meshtastic (180 chars)</option>
+              <option value="HaLow">MANET (LAN)</option>
               <option value="Winlink">Winlink (400 chars)</option>
               <option value="QR">QR</option>
             </select>
@@ -136,6 +145,7 @@ class CommsModule {
           <div class="commsButtonRow commsOutputActions">
             <button id="commsCopyBtn" type="button">Copy</button>
             <button id="commsSendMeshBtn" type="button">Send via Mesh</button>
+            <button id="commsSendHaLowBtn" type="button">Send via MANET</button>
             <button id="commsMakeQrBtn" type="button">Make QR</button>
           </div>
 
@@ -165,6 +175,11 @@ class CommsModule {
                 Auto-receive from mesh
               </label>
               <div class="commsSmallMuted" id="commsMeshRxHint">Mesh: not connected</div>
+              <label class="commsInline commsInline--check">
+                <input type="checkbox" id="commsAutoHaLowRx" checked>
+                Auto-receive from MANET
+              </label>
+              <div class="commsSmallMuted" id="commsHaLowRxHint">MANET: not connected</div>
             </div>
           </div>
 
@@ -229,13 +244,17 @@ class CommsModule {
       this.updateTemplateFields()
       this.updateZoneUiState()
     })
-    if (transportSel) transportSel.addEventListener('change', () => this.updateMeshSendButtonState())
+    if (transportSel) transportSel.addEventListener('change', () => {
+      this.updateMeshSendButtonState()
+      this.updateHaLowSendButtonState()
+    })
 
     // No Team ID / KID inputs in XCOM Comms (keys are purely “active key” based).
 
     document.getElementById('commsGenerateBtn').addEventListener('click', () => this.generate())
     document.getElementById('commsCopyBtn').addEventListener('click', () => this.copyOutput())
     document.getElementById('commsSendMeshBtn').addEventListener('click', () => this.sendViaMesh())
+    document.getElementById('commsSendHaLowBtn').addEventListener('click', () => this.sendViaHaLow())
     document.getElementById('commsMakeQrBtn').addEventListener('click', () => this.makeQr())
 
     document.getElementById('commsReassembleBtn').addEventListener('click', () => this.reassembleAndDecode())
@@ -266,6 +285,20 @@ class CommsModule {
       })
     }
 
+    const autoHaLowRx = document.getElementById('commsAutoHaLowRx')
+    if (autoHaLowRx) {
+      try {
+        const raw = localStorage.getItem('xcom.comms.autoHaLowRx.v1')
+        if (raw === '0') autoHaLowRx.checked = false
+      } catch (_) {
+        // ignore
+      }
+      autoHaLowRx.addEventListener('change', () => {
+        try { localStorage.setItem('xcom.comms.autoHaLowRx.v1', autoHaLowRx.checked ? '1' : '0') } catch (_) { /* ignore */ }
+        try { this.updateHaLowRxHint() } catch (_) { /* ignore */ }
+      })
+    }
+
     document.getElementById('commsImportKeyBtn').addEventListener('click', () => this.importKey())
     document.getElementById('commsScanKeyQrBtn').addEventListener('click', () => this.scanKeyQr())
     document.getElementById('commsDeleteKeyBtn').addEventListener('click', () => this.deleteKey())
@@ -286,6 +319,7 @@ class CommsModule {
 
     // Sync the mesh send button with transport + mesh connection status.
     this.updateMeshSendButtonState()
+    this.updateHaLowSendButtonState()
     try {
       // Avoid accumulating subscriptions across module reloads.
       if (globalThis.__xcomCommsCleanup) {
@@ -294,11 +328,16 @@ class CommsModule {
       } else if (globalThis.__xcomCommsMeshUnsub) {
         try { globalThis.__xcomCommsMeshUnsub() } catch (_) { /* ignore */ }
         globalThis.__xcomCommsMeshUnsub = null
+      } else if (globalThis.__xcomCommsHaLowUnsub) {
+        try { globalThis.__xcomCommsHaLowUnsub() } catch (_) { /* ignore */ }
+        globalThis.__xcomCommsHaLowUnsub = null
       }
 
       globalThis.__xcomCommsCleanup = () => {
         try { if (this._meshUnsub) this._meshUnsub() } catch (_) { /* ignore */ }
         this._meshUnsub = null
+        try { if (this._halowUnsub) this._halowUnsub() } catch (_) { /* ignore */ }
+        this._halowUnsub = null
         try { if (this._importMap) this._importMap.remove() } catch (_) { /* ignore */ }
         this._importMap = null
       }
@@ -309,6 +348,14 @@ class CommsModule {
         })
         globalThis.__xcomCommsMeshUnsub = this._meshUnsub
       }
+
+      if (globalThis.xcomHaLow && typeof globalThis.xcomHaLow.subscribe === 'function') {
+        this._halowUnsub = globalThis.xcomHaLow.subscribe((state) => {
+          try { this.updateHaLowSendButtonState() } catch (_) { /* ignore */ }
+          try { this.onHaLowState(state) } catch (_) { /* ignore */ }
+        })
+        globalThis.__xcomCommsHaLowUnsub = this._halowUnsub
+      }
     } catch (_) {
       // ignore
     }
@@ -316,6 +363,7 @@ class CommsModule {
     // Initial import UI state
     try { this.refreshImportMessageList({ keepSelection: false, preferLatestComplete: true }) } catch (_) { /* ignore */ }
     try { this.updateMeshRxHint() } catch (_) { /* ignore */ }
+    try { this.updateHaLowRxHint() } catch (_) { /* ignore */ }
     try { this.ensureImportMapInitialized() } catch (_) { /* ignore */ }
   }
 
@@ -767,6 +815,41 @@ class CommsModule {
 
     btn.textContent = ready ? 'Send via Mesh' : 'Connect + Send'
     btn.title = ready ? 'Send packet line(s) directly over Meshtastic' : 'Connect, then send over Meshtastic'
+  }
+
+  updateHaLowSendButtonState() {
+    const btn = document.getElementById('commsSendHaLowBtn')
+    if (!btn) return
+
+    const transport = String(document.getElementById('commsTransport')?.value || '').trim()
+    const shouldShow = transport === 'HaLow'
+    btn.style.display = shouldShow ? '' : 'none'
+    if (!shouldShow) return
+
+    const hasApi =
+      globalThis.xcomHaLow &&
+      typeof globalThis.xcomHaLow.getState === 'function' &&
+      typeof globalThis.halowConnect === 'function' &&
+      typeof globalThis.halowSendPacketText === 'function'
+
+    if (!hasApi) {
+      btn.disabled = true
+      btn.textContent = 'MANET Unavailable'
+      btn.title = 'MANET transport not loaded. Reload or open the MANET module once.'
+      return
+    }
+
+    btn.disabled = false
+    let ready = false
+    try {
+      const s = globalThis.xcomHaLow.getState().status
+      ready = !!s?.connected
+    } catch (_) {
+      ready = false
+    }
+
+    btn.textContent = ready ? 'Send via MANET' : 'Connect + Send'
+    btn.title = ready ? 'Send packet text over MANET LAN link' : 'Connect, then send over MANET LAN link'
   }
 
   importKey() {
@@ -1253,6 +1336,94 @@ class CommsModule {
       console.error(e)
       this.updateMeshSendButtonState()
       alert(`Mesh send failed: ${formatMeshError(e)}`)
+    }
+  }
+
+  async sendViaHaLow() {
+    const formatHaLowError = (e) => {
+      if (e == null) return 'Unknown error'
+      if (typeof e === 'string') return e
+      if (typeof e === 'number' || typeof e === 'boolean' || typeof e === 'bigint') return String(e)
+      if (e instanceof Error) return e.message ? `${e.name}: ${e.message}` : e.name
+      try {
+        const json = JSON.stringify(e)
+        return json && json !== '{}' ? json : Object.prototype.toString.call(e)
+      } catch (_) {
+        return Object.prototype.toString.call(e)
+      }
+    }
+
+    const transport = String(document.getElementById('commsTransport')?.value || '').trim()
+    if (transport !== 'HaLow') {
+      alert('Set Transport to MANET first.')
+      return
+    }
+
+    const text = String(document.getElementById('commsOutput').value || '').trim()
+    if (!text) {
+      alert('Nothing to send. Generate a packet first.')
+      return
+    }
+
+    const halow = globalThis.xcomHaLow
+    const canConnect = typeof globalThis.halowConnect === 'function'
+    const canSend = typeof globalThis.halowSendPacketText === 'function'
+    if (!halow || typeof halow.getState !== 'function' || !canConnect || !canSend) {
+      alert('MANET transport not available. Reload or open the MANET module once.')
+      return
+    }
+
+    // If not connected, prompt to connect.
+    try {
+      const s = halow.getState().status
+      const ready = !!s?.connected
+      if (!ready) {
+        const ok = confirm('MANET not connected.\n\nConnect now?')
+        if (!ok) return
+        try {
+          await globalThis.halowConnect()
+        } catch (e) {
+          this.updateHaLowSendButtonState()
+          alert(`MANET connect failed: ${formatHaLowError(e)}`)
+          return
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    // Re-check ready
+    {
+      const s = halow.getState().status
+      const ready = !!s?.connected
+      this.updateHaLowSendButtonState()
+      if (!ready) {
+        alert('MANET not connected. Open MANET and click Connect first.')
+        return
+      }
+    }
+
+    // Basic validation: ensure at least one wrapper line is present.
+    const lines = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+    const parsedList = typeof window.parsePacket === 'function' ? lines.map((l) => window.parsePacket(l)).filter(Boolean) : []
+    if (parsedList.length === 0) {
+      alert('Paste or generate a valid XCOM packet wrapper first.')
+      return
+    }
+
+    if (text.length > 180000) {
+      const ok = confirm('This payload is very large and may be rejected by the bridge.\n\nSend anyway?')
+      if (!ok) return
+    }
+
+    try {
+      await globalThis.halowSendPacketText(text)
+      window.radioApp.updateStatus('Sent via MANET')
+      this.updateHaLowSendButtonState()
+    } catch (e) {
+      console.error(e)
+      this.updateHaLowSendButtonState()
+      alert(`MANET send failed: ${formatHaLowError(e)}`)
     }
   }
 
@@ -1922,6 +2093,11 @@ class CommsModule {
     return el ? !!el.checked : true
   }
 
+  isAutoHaLowRxEnabled() {
+    const el = document.getElementById('commsAutoHaLowRx')
+    return el ? !!el.checked : true
+  }
+
   updateMeshRxHint(state = null) {
     const el = document.getElementById('commsMeshRxHint')
     if (!el) return
@@ -1947,6 +2123,33 @@ class CommsModule {
     }
 
     el.textContent = `Mesh: ${connected ? 'connected' : 'not connected'} • auto-receive ${auto ? 'ON' : 'OFF'}${tail}`
+  }
+
+  updateHaLowRxHint(state = null) {
+    const el = document.getElementById('commsHaLowRxHint')
+    if (!el) return
+
+    let s = state
+    if (!s) {
+      try { s = globalThis.xcomHaLow?.getState?.() } catch (_) { s = null }
+    }
+
+    const status = s?.status || {}
+    const connected = !!status?.connected
+    const auto = this.isAutoHaLowRxEnabled()
+
+    let tail = ''
+    if (this._lastHaLowRxAt) {
+      try {
+        const t = new Date(Number(this._lastHaLowRxAt)).toLocaleTimeString()
+        const from = this._lastHaLowRxFrom != null ? ` from ${String(this._lastHaLowRxFrom)}` : ''
+        tail = ` â€¢ last rx ${t}${from}`
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    el.textContent = `MANET: ${connected ? 'connected' : 'not connected'} â€¢ auto-receive ${auto ? 'ON' : 'OFF'}${tail}`
   }
 
   _meshSetTrafficCursorToEnd(traffic) {
@@ -1980,6 +2183,54 @@ class CommsModule {
     }
 
     const cursorCount = Number(this._meshTrafficCursorCountAtTs || 0)
+    let seenAtTs = 0
+
+    for (let i = 0; i < arr.length; i++) {
+      const ts = Number(arr[i]?.ts || 0)
+      if (ts < cursorTs) continue
+      if (ts === cursorTs) {
+        seenAtTs++
+        if (seenAtTs <= cursorCount) continue
+        return i
+      }
+      // ts > cursorTs
+      return i
+    }
+
+    return arr.length
+  }
+
+  _halowSetTrafficCursorToEnd(traffic) {
+    const arr = Array.isArray(traffic) ? traffic : []
+    if (arr.length === 0) {
+      this._halowTrafficCursorTs = 0
+      this._halowTrafficCursorCountAtTs = 0
+      return
+    }
+
+    const lastTs = Number(arr[arr.length - 1]?.ts || 0)
+    let count = 0
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const ts = Number(arr[i]?.ts || 0)
+      if (ts !== lastTs) break
+      count++
+    }
+
+    this._halowTrafficCursorTs = lastTs
+    this._halowTrafficCursorCountAtTs = count
+  }
+
+  _halowComputeTrafficStartIndex(traffic) {
+    const arr = Array.isArray(traffic) ? traffic : []
+    const cursorTs = this._halowTrafficCursorTs
+
+    // First call: don't import history; set cursor to end.
+    if (cursorTs == null) {
+      this._halowSetTrafficCursorToEnd(arr)
+      return arr.length
+    }
+
+    const cursorCount = Number(this._halowTrafficCursorCountAtTs || 0)
     let seenAtTs = 0
 
     for (let i = 0; i < arr.length; i++) {
@@ -2118,6 +2369,72 @@ class CommsModule {
     this._meshLastState = state || null
     this.updateMeshRxHint(state)
     this.processIncomingMeshTraffic(state)
+  }
+
+  processIncomingHaLowTraffic(state) {
+    const s = state || null
+    const traffic = Array.isArray(s?.traffic) ? s.traffic : []
+
+    const status = s?.status || {}
+    const connected = !!status?.connected
+    if (!connected) {
+      this._halowSetTrafficCursorToEnd(traffic)
+      return
+    }
+
+    if (!this.isAutoHaLowRxEnabled()) {
+      this._halowSetTrafficCursorToEnd(traffic)
+      return
+    }
+
+    const startIdx = this._halowComputeTrafficStartIndex(traffic)
+    const slice = traffic.slice(startIdx)
+
+    // Advance cursor immediately so even if decoding throws, we don't re-import the same entries forever.
+    this._halowSetTrafficCursorToEnd(traffic)
+
+    const lines = []
+    for (const e of slice) {
+      if (!e || typeof e !== 'object') continue
+      if (e.dir !== 'in') continue
+      if (String(e.kind || '') !== 'packet') continue
+      const text = e.text
+      if (typeof text !== 'string' || !text.trim()) continue
+      const extracted = this.extractPacketLinesFromText(text)
+      for (const line of extracted) lines.push(line)
+
+      if (extracted.length) {
+        this._lastHaLowRxAt = Date.now()
+        try {
+          const from = e.from || {}
+          this._lastHaLowRxFrom = from?.label || from?.client_id || from?.clientId || null
+        } catch (_) {
+          this._lastHaLowRxFrom = null
+        }
+      }
+    }
+
+    if (lines.length === 0) return
+
+    const added = this.appendImportLines(lines)
+    if (added > 0) {
+      try { window.radioApp?.updateStatus?.(`Received ${added} packet line(s) from MANET`) } catch (_) { /* ignore */ }
+      try { this.updateHaLowRxHint(s) } catch (_) { /* ignore */ }
+
+      const touchedAt = Number(this._importSelectionTouchedAt || 0)
+      const recentlyTouched = touchedAt > 0 && (Date.now() - touchedAt) < 8000
+      if (!recentlyTouched) {
+        this.maybeAutoDecodeLatestComplete()
+      } else {
+        this.refreshImportMessageList({ keepSelection: true, preferLatestComplete: false })
+      }
+    }
+  }
+
+  onHaLowState(state) {
+    this._halowLastState = state || null
+    this.updateHaLowRxHint(state)
+    this.processIncomingHaLowTraffic(state)
   }
 
   reassembleAndDecode(opts = {}) {

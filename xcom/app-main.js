@@ -21,6 +21,21 @@ const LS_LICENSE_OK = 'xcom.license.ok';
 const LS_LICENSE_KEY = 'xcom.license.key';
 const LS_LICENSE_CHECKED_AT = 'xcom.license.checkedAt';
 
+function looksLikeHtmlMessage(value) {
+    const s = String(value || '').trim();
+    if (!s) return false;
+    return /<\s*(?:!doctype|html|head|meta|body|script|style)\b/i.test(s);
+}
+
+function normalizeLicenseErrorMessage(message, reason) {
+    const raw = String(message || '').trim();
+    const isInvalid = String(reason || '').toLowerCase() === 'invalid' || /license\s*invalid|invalid\s*license/i.test(raw);
+    if (!raw || looksLikeHtmlMessage(raw) || isInvalid) {
+        return 'License invalid. Contact support if this is an error.';
+    }
+    return raw;
+}
+
 function isLocalhost() {
     try {
         return (
@@ -126,62 +141,171 @@ function isLicensedCached() {
 }
 
 async function validateLicenseKeyOnceDetailed(licenseKey, opts = {}) {
+    async function callProxyDetailedJson(licenseKey, action, opts = {}) {
+        const key = String(licenseKey || '').trim();
+        const proxyUrl = getLicenseProxyUrl();
+        const timeoutMs = Number.isFinite(opts.timeoutMs) ? Number(opts.timeoutMs) : 20_000;
+        const actionRaw = (action || 'validate') + '';
+        const mode = actionRaw.trim().toLowerCase() === 'activate' ? 'activate' : 'validate';
+
+        if (!key) {
+            return { ok: false, reason: 'missing', message: 'Missing license key', proxyUrl };
+        }
+
+        let ctrl = null;
+        let t = null;
+        try {
+            if (typeof AbortController !== 'undefined' && timeoutMs > 0) {
+                ctrl = new AbortController();
+                t = setTimeout(() => {
+                    try { ctrl.abort(); } catch (_) { /* ignore */ }
+                }, timeoutMs);
+            }
+
+            const res = await fetch(proxyUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ license_key: key, action: mode }),
+                signal: ctrl ? ctrl.signal : undefined,
+            });
+
+            const text = await res.text();
+            let json = null;
+            try { json = JSON.parse(text); } catch (_) { json = null; }
+
+            if (!res.ok) {
+                const msg = (json && (json.message || json.error)) || text || `HTTP ${res.status}`;
+                const reason = (json && json.reason) || (res.status === 401 ? 'invalid' : 'http');
+                const safeMsg = normalizeLicenseErrorMessage(String(msg), String(reason));
+                return { ok: false, reason: String(reason), message: safeMsg, status: res.status, proxyUrl };
+            }
+
+            if (!json || json.success !== true) {
+                const msg = (json && (json.message || json.error)) || 'License invalid';
+                const reason = (json && json.reason) || 'invalid';
+                const safeMsg = normalizeLicenseErrorMessage(String(msg), String(reason));
+                return { ok: false, reason: String(reason), message: safeMsg, status: res.status, proxyUrl };
+            }
+
+            return { ok: true, status: res.status, proxyUrl };
+        } catch (e) {
+            const name = e && e.name ? String(e.name) : '';
+            const aborted = name === 'AbortError';
+            return {
+                ok: false,
+                reason: aborted ? 'timeout' : 'network',
+                message: aborted ? 'Timed out' : (e && e.message ? String(e.message) : String(e)),
+                proxyUrl,
+            };
+        } finally {
+            if (t) clearTimeout(t);
+        }
+    }
+
+    async function callProxyDetailedForm(licenseKey, action, opts = {}) {
+        const key = String(licenseKey || '').trim();
+        const proxyUrl = getLicenseProxyUrl();
+        const timeoutMs = Number.isFinite(opts.timeoutMs) ? Number(opts.timeoutMs) : 20_000;
+        const actionRaw = (action || 'validate') + '';
+        const mode = actionRaw.trim().toLowerCase() === 'activate' ? 'activate' : 'validate';
+
+        if (!key) {
+            return { ok: false, reason: 'missing', message: 'Missing license key', proxyUrl };
+        }
+
+        let ctrl = null;
+        let t = null;
+        try {
+            if (typeof AbortController !== 'undefined' && timeoutMs > 0) {
+                ctrl = new AbortController();
+                t = setTimeout(() => {
+                    try { ctrl.abort(); } catch (_) { /* ignore */ }
+                }, timeoutMs);
+            }
+
+            const body = (typeof URLSearchParams !== 'undefined')
+                ? new URLSearchParams({ license_key: key, action: mode }).toString()
+                : (`license_key=${encodeURIComponent(key)}&action=${encodeURIComponent(mode)}`);
+            const res = await fetch(proxyUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body,
+                signal: ctrl ? ctrl.signal : undefined,
+            });
+
+            const text = await res.text();
+            let json = null;
+            try { json = JSON.parse(text); } catch (_) { json = null; }
+
+            if (!res.ok) {
+                const msg = (json && (json.message || json.error)) || text || `HTTP ${res.status}`;
+                const reason = (json && json.reason) || (res.status === 401 ? 'invalid' : 'http');
+                const safeMsg = normalizeLicenseErrorMessage(String(msg), String(reason));
+                return { ok: false, reason: String(reason), message: safeMsg, status: res.status, proxyUrl };
+            }
+
+            if (!json || json.success !== true) {
+                const msg = (json && (json.message || json.error)) || 'License invalid';
+                const reason = (json && json.reason) || 'invalid';
+                const safeMsg = normalizeLicenseErrorMessage(String(msg), String(reason));
+                return { ok: false, reason: String(reason), message: safeMsg, status: res.status, proxyUrl };
+            }
+
+            return { ok: true, status: res.status, proxyUrl };
+        } catch (e) {
+            const name = e && e.name ? String(e.name) : '';
+            const aborted = name === 'AbortError';
+            return {
+                ok: false,
+                reason: aborted ? 'timeout' : 'network',
+                message: aborted ? 'Timed out' : (e && e.message ? String(e.message) : String(e)),
+                proxyUrl,
+            };
+        } finally {
+            if (t) clearTimeout(t);
+        }
+    }
+
     const key = String(licenseKey || '').trim();
-    const proxyUrl = getLicenseProxyUrl();
     const timeoutMs = Number.isFinite(opts.timeoutMs) ? Number(opts.timeoutMs) : 20_000;
     const actionRaw = (opts.action || 'validate') + '';
     const action = actionRaw.trim().toLowerCase() === 'activate' ? 'activate' : 'validate';
 
     if (!key) {
-        return { ok: false, reason: 'missing', message: 'Missing license key', proxyUrl };
+        return { ok: false, reason: 'missing', message: 'Missing license key', proxyUrl: getLicenseProxyUrl() };
     }
 
-    let ctrl = null;
-    let t = null;
-    try {
-        if (typeof AbortController !== 'undefined' && timeoutMs > 0) {
-            ctrl = new AbortController();
-            t = setTimeout(() => {
-                try { ctrl.abort(); } catch (_) { /* ignore */ }
-            }, timeoutMs);
+    if (action === 'validate') {
+        const r1 = await callProxyDetailedJson(key, 'validate', { timeoutMs });
+        if (r1.ok) return r1;
+
+        // Fallback: some hosts/WAFs choke on JSON POST bodies or strip them.
+        if (r1.reason === 'missing_license_key' || r1.reason === 'network' || r1.reason === 'timeout') {
+            const r2 = await callProxyDetailedForm(key, 'validate', { timeoutMs });
+            if (r2.ok) return r2;
         }
 
-        const res = await fetch(proxyUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ license_key: key, action }),
-            signal: ctrl ? ctrl.signal : undefined,
-        });
-
-        const text = await res.text();
-        let json = null;
-        try { json = JSON.parse(text); } catch (_) { json = null; }
-
-        if (!res.ok) {
-            const msg = (json && (json.message || json.error)) || text || `HTTP ${res.status}`;
-            const reason = (json && json.reason) || (res.status === 401 ? 'invalid' : 'http');
-            return { ok: false, reason, message: String(msg), status: res.status, proxyUrl };
-        }
-
-        if (!json || json.success !== true) {
-            const msg = (json && (json.message || json.error)) || 'License invalid';
-            const reason = (json && json.reason) || 'invalid';
-            return { ok: false, reason, message: String(msg), status: res.status, proxyUrl };
-        }
-
-        return { ok: true, status: res.status, proxyUrl };
-    } catch (e) {
-        const name = e && e.name ? String(e.name) : '';
-        const aborted = name === 'AbortError';
-        return {
-            ok: false,
-            reason: aborted ? 'timeout' : 'network',
-            message: aborted ? 'Timed out' : (e && e.message ? String(e.message) : String(e)),
-            proxyUrl,
-        };
-    } finally {
-        if (t) clearTimeout(t);
+        return r1;
     }
+
+    // action === 'activate'
+    const r1 = await callProxyDetailedJson(key, 'activate', { timeoutMs });
+    if (r1.ok) return r1;
+
+    // If the server tells us it didn't receive the key, retry activation using form encoding.
+    if (r1.reason === 'missing_license_key') {
+        const r2 = await callProxyDetailedForm(key, 'activate', { timeoutMs });
+        if (r2.ok) return r2;
+    }
+
+    // If activation fails due to a network-level error, avoid double-consuming activations.
+    // In this case we accept a successful *validate* result as sufficient to unlock the app.
+    if (r1.reason === 'network' || r1.reason === 'timeout') {
+        const v = await callProxyDetailedForm(key, 'validate', { timeoutMs });
+        if (v.ok) return v;
+    }
+
+    return r1;
 }
 
 async function validateLicenseKeyOnce(licenseKey, opts = {}) {
@@ -244,6 +368,18 @@ function createLicenseGateElement() {
     wrap.innerHTML = `
         <div class="xLicenseCard">
             <h1 class="xLicenseTitle">${XCOM_APP_NAME} — License Activation</h1>
+            <div class="xPill xLicenseImportant">
+                <div><strong>IMPORTANT:</strong> You MUST install the portable web app (PWA) after registration. After you activate your key, install it and launch it from the app icon. Do not rely on running ${XCOM_APP_NAME} from the server URL.</div>
+                <div style="margin-top:8px;">
+                    <strong>Install it:</strong>
+                    <ul>
+                        <li><strong>iPhone/iPad (Safari):</strong> Share &gt; Add to Home Screen</li>
+                        <li><strong>Android (Chrome):</strong> Menu (3 dots) &gt; Install app (or Add to Home screen)</li>
+                        <li><strong>Desktop (Chrome/Edge):</strong> Install icon in the address bar &gt; Install (or Menu &gt; Install)</li>
+                    </ul>
+                </div>
+            </div>
+
             <p class="xLicenseSubtitle">
                 Enter your WooCommerce license key once. After activation, ${XCOM_APP_NAME} works offline forever on this device.
             </p>
@@ -549,6 +685,8 @@ class RadioApp {
                     'modules/shared/xtoc/keyImport.js',
                     // Shared mesh transport (so Comms can Connect + Send without opening Mesh module)
                     'modules/shared/mesh/meshTransport.js',
+                    // Shared HaLow transport (so Comms can Connect + Send without opening HaLow module)
+                    'modules/shared/halow/halowTransport.js',
                     // Module
                     'modules/comms/comms.js'
                 ],
@@ -577,6 +715,18 @@ class RadioApp {
                     'assets/vendor/maplibre-gl/maplibre-gl.js',
                     'assets/vendor/maplibre-gl/maplibre-gl.css'
                 ]
+            },
+            'halow': {
+                name: 'MANET',
+                description: 'MANET LAN bridge (HaLow/Open MANET) for XTOC master <-> XCOM clients with topology + traffic',
+                scripts: [
+                    // Shared HaLow transport
+                    'modules/shared/halow/halowTransport.js',
+                    // Module
+                    'modules/halow/halow.js'
+                ],
+                styles: ['styles/modules/halow.css'],
+                dependencies: []
             }
             // Additional modules will be added here
         };
@@ -685,6 +835,8 @@ class RadioApp {
                 window.commsModule = new CommsModule();
             } else if (moduleId === 'mesh' && typeof MeshModule === 'function') {
                 window.meshModule = new MeshModule();
+            } else if (moduleId === 'halow' && typeof HaLowModule === 'function') {
+                window.halowModule = new HaLowModule();
             }
             
             this.currentModule = moduleId;

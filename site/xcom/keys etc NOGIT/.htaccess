@@ -1,11 +1,13 @@
 RewriteEngine On
 
+# IMPORTANT: Save as UTF-8 *without* BOM. A leading BOM can cause HTTP 500 on some hosts.
+
 # Block the secrets file from being downloaded
 <Files ".xcom-license-secrets.php">
   Require all denied
 </Files>
 
-# Don’t let a SPA fallback rewrite steal the proxy endpoint
+# Don't let the SPA fallback rewrite steal the proxy endpoint
 RewriteRule ^license\.php$ - [L]
 RewriteRule ^\.xcom-license-secrets\.php$ - [L]
 
@@ -13,4 +15,3 @@ RewriteRule ^\.xcom-license-secrets\.php$ - [L]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule . /xcom/index.html [L]
-

@@ -1,0 +1,175 @@
+.halowShell {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.halowCard {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.halowCardTitle {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-bottom: 10px;
+}
+
+.halowRow {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.halowGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.halowRow label {
+  font-size: 12px;
+  color: rgba(233, 238, 248, 0.85);
+}
+
+.halowRow input,
+.halowRow select,
+.halowRow textarea {
+  width: 100%;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #e9eef8;
+  border-radius: 10px;
+  padding: 10px;
+  outline: none;
+}
+
+.halowButtonRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.halowButtonRow button {
+  border-radius: 10px;
+}
+
+.halowButtonRow button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+}
+
+.halowSmallMuted {
+  font-size: 12px;
+  color: rgba(233, 238, 248, 0.7);
+  line-height: 1.4;
+}
+
+.halowInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.halowStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  width: fit-content;
+}
+
+.halowStatusPill.ok {
+  border-color: rgba(88, 214, 141, 0.55);
+  color: rgba(88, 214, 141, 0.95);
+}
+
+.halowStatusPill.warn {
+  border-color: rgba(255, 209, 102, 0.55);
+  color: rgba(255, 209, 102, 0.95);
+}
+
+.halowPre {
+  margin: 0;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 220px;
+  max-height: 420px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.halowClientRow {
+  padding: 10px 0;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.halowLinkRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+/* QR scanner modal */
+.halowQrOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.halowQrModal {
+  width: min(680px, 95vw);
+  background: #0f1622;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.halowQrModalTitle {
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+
+.halowQrModal video {
+  width: 100%;
+  max-height: 60vh;
+  border-radius: 12px;
+  background: #000;
+}
+
+@media (max-width: 900px) {
+  .halowGrid2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 900px) {
+  .halowShell {
+    grid-template-columns: 1fr 1fr;
+  }
+  .halowShell .halowCard:nth-child(1) {
+    grid-column: 1 / -1;
+  }
+  .halowShell .halowCard:nth-child(5) {
+    grid-column: 1 / -1;
+  }
+}

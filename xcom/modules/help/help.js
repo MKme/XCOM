@@ -190,7 +190,7 @@ class HelpModule {
                     <h2>XTOC Comm Module</h2>
                     <h3>Overview</h3>
                     <p>
-                        XTOC Comm is an XTOC-compatible packet workshop: create standardized reports, chunk them for transport limits, and move them via copy/paste, QR, or Mesh.
+                        XTOC Comm is an XTOC-compatible packet workshop: create standardized reports, chunk them for transport limits, and move them via copy/paste, QR, Mesh, or MANET (LAN).
                         It also supports importing packets for local decode/reassembly.
                     </p>
 
@@ -198,7 +198,7 @@ class HelpModule {
                     <ul>
                         <li><strong>Templates:</strong> T=1&ndash;7 (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE).</li>
                         <li><strong>Modes:</strong> <strong>CLEAR</strong> (human-readable fields) or <strong>SECURE</strong> (encrypted).</li>
-                        <li><strong>Transport profiles:</strong> choose Copy/Paste, JS8/APRS, Winlink, Meshtastic, or QR &mdash; then click <strong>Generate</strong>.</li>
+                        <li><strong>Transport profiles:</strong> choose Copy/Paste, JS8/APRS, Winlink, Meshtastic, MANET (LAN), or QR &mdash; then click <strong>Generate</strong>.</li>
                         <li><strong>Location tools:</strong> <strong>Pick Location</strong> and <strong>Draw Zone</strong> open a mini-map so you can embed coordinates/areas into packets.</li>
                     </ul>
 
@@ -214,7 +214,24 @@ class HelpModule {
                         <li><strong>Make QR</strong> renders a scannable QR for the first packet line (best for QR/Copy-Paste transports).</li>
                         <li><strong>Scan QR</strong> (Import/Reassemble) reads packet lines from camera and decodes them.</li>
                         <li><strong>Send via Mesh</strong> sends each generated packet line as a Meshtastic text message (requires Mesh connected).</li>
+                        <li><strong>Send via MANET</strong> sends the generated packet text over LAN via the XTOC MANET bridge (requires MANET connected).</li>
                     </ul>
+                </div>
+
+                <div class="help-section help-upgrade">
+                    <h2>Upgrade: Get XTOC&trade; (complete the comms loop)</h2>
+                    <p>
+                        XCOM is the field toolkit. XTOC&trade; is the Tactical Operations Center app that receives what you send and turns it into a shared picture.
+                        Together they make your comms complete: field reports &rarr; transport &rarr; TOC timeline + tactical map.
+                    </p>
+                    <ul>
+                        <li><strong>Import + organize:</strong> ingest packets and keep a local incident log.</li>
+                        <li><strong>Map + timelines:</strong> see check-ins, reports, zones, and missions on a shared operational picture.</li>
+                        <li><strong>Local-first:</strong> install it and it keeps working offline (no accounts, no server required).</li>
+                    </ul>
+                    <p>
+                        <a class="xTopbarBtn" href="https://store.mkme.org/product/xtoc-tactical-operations-center-software-suite/" target="_blank" rel="noopener noreferrer" title="Buy XTOC (Tactical Operations Center)">Get XTOC</a>
+                    </p>
                 </div>
 
                 <div class="help-section">
@@ -282,6 +299,34 @@ class HelpModule {
                         <li>If the browser cannot see your device, confirm Bluetooth is on and the device is not already connected to another client.</li>
                         <li>If messages appear truncated, choose the <strong>Meshtastic (180 chars)</strong> transport profile in XTOC Comm before generating.</li>
                         <li>Traffic and settings are stored locally under <code>xcom.mesh.*</code> keys in localStorage.</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h2>MANET Module</h2>
+                    <h3>Overview</h3>
+                    <p>
+                        The MANET module connects XCOM to the XTOC MANET bridge over an IP network (Wi-Fi HaLow / Open MANET / trusted LAN).
+                        It provides a simple LAN link for sending and receiving XTOC packet text without chunking (recommended for fast local field networks).
+                    </p>
+
+                    <h3>How to Use</h3>
+                    <ol>
+                        <li>On the XTOC (master) laptop, start the bridge: <code>halow-bridge/Start-XTOC-MANET-Bridge.cmd</code> (or <code>halow-bridge/Start-XTOC-HaLow-Bridge.ps1</code>) (bind to <code>0.0.0.0:8095</code>). The browser app cannot start this for you.</li>
+                        <li>On the XTOC laptop, open <strong>MANET</strong> and click <strong>Share Bridge QR</strong>.</li>
+                        <li>On this device, open <strong>MANET</strong> and click <strong>Scan Bridge QR</strong> (recommended; allow camera access) or set Bridge URL to the XTOC IP (example: <code>http://10.0.0.5:8095</code>).</li>
+                        <li>Click <strong>Connect</strong> and confirm your device appears in the Topology list.</li>
+                        <li>In <strong>XTOC Comm</strong>, select <strong>MANET (LAN)</strong> and click <strong>Send via MANET</strong>.</li>
+                    </ol>
+
+                    <h3>Notes</h3>
+                    <ul>
+                        <li>This is designed for trusted LANs only (the bridge has permissive CORS and no authentication by design).</li>
+                        <li>Bridge URL cannot be <code>0.0.0.0</code> (bind address). Use the XTOC laptop IP or <code>http://127.0.0.1:8095</code> on the laptop.</li>
+                        <li>If <strong>Share Bridge QR</strong> / <strong>Scan Bridge QR</strong> says <em>Failed to fetch</em>, the bridge is usually not running yet, the Bridge URL is wrong, or the browser is blocking the request.</li>
+                        <li>Troubleshooting: from any device browser, open <code>http://&lt;XTOC-IP&gt;:8095/health</code>. If it wonâ€™t load, check that both devices are on the same MANET/LAN and that Windows Firewall allows inbound port 8095.</li>
+                        <li>If the app is running on <code>https://</code> and the bridge is <code>http://</code>, some browsers may block the connection. For field use, run the apps from the local web fileset (<code>http://localhost</code> / LAN HTTP) or use a secure bridge origin.</li>
+                        <li>Traffic and settings are stored locally under <code>xcom.halow.*</code> keys in localStorage.</li>
                     </ul>
                 </div>
 
@@ -474,7 +519,7 @@ class HelpModule {
                 
                 <div class="help-section">
                     <h2>About</h2>
-                    <p>XCOM™ v1.0.20</p>
+                    <p>XCOM™ v1.0.25</p>
                     <p>&copy; 2025 - All rights reserved</p>
                     <p>This application is designed for amateur radio operators to assist with various radio-related tasks. It is continually being improved with new features and modules.</p>
 
@@ -485,7 +530,7 @@ class HelpModule {
                         | 🌍 <a href="https://mkme.org/xcom/">mkme.org/xcom</a><br>
                         <br>
                         Support this project and become a patron on <a href="https://www.patreon.com/EricWilliam">Patreon</a>.<br>
-                        Chat: <a href="https://discord.gg/j9S4Fgv">Discord</a>!
+                        Chat: <a href="https://mkme.org/discord" target="_blank" rel="noreferrer">Discord</a>!
                     </p>
                 </div>
             </div>
