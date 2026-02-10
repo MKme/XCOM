@@ -9,6 +9,11 @@ const KEY_MAP_DEFAULT_LAT = 'xtoc.map.defaultLat'
 const KEY_MAP_DEFAULT_LON = 'xtoc.map.defaultLon'
 const KEY_MAP_DEFAULT_ZOOM = 'xtoc.map.defaultZoom'
 
+// Tactical map overlays
+const KEY_TACTICAL_LAYER_IMPORTED = 'xtoc.tacticalMap.layers.imported'
+const KEY_TACTICAL_LAYER_IMPORTED_LAST7 = 'xtoc.tacticalMap.layers.imported.last7d'
+const KEY_TACTICAL_LAYER_IMPORTED_TPL_PREFIX = 'xtoc.tacticalMap.layers.imported.tpl.'
+
 // Map base style: online vector styles (dark/light) or offline raster.
 // Keep values identical to XTOC for code reuse.
 // 'offlineRasterDark' is a UI hint only; the offline style is raster.
@@ -58,6 +63,37 @@ function setMapDefaultZoom(z) {
   localStorage.setItem(KEY_MAP_DEFAULT_ZOOM, String(z))
 }
 
+// Imported overlay (defaults ON if unset)
+function getTacticalMapImportedEnabled() {
+  return localStorage.getItem(KEY_TACTICAL_LAYER_IMPORTED) !== '0'
+}
+
+function setTacticalMapImportedEnabled(enabled) {
+  localStorage.setItem(KEY_TACTICAL_LAYER_IMPORTED, enabled ? '1' : '0')
+}
+
+// Default ON: keep map responsive by hiding older imported markers.
+function getTacticalMapImportedLast7dOnly() {
+  return localStorage.getItem(KEY_TACTICAL_LAYER_IMPORTED_LAST7) !== '0'
+}
+
+function setTacticalMapImportedLast7dOnly(enabled) {
+  localStorage.setItem(KEY_TACTICAL_LAYER_IMPORTED_LAST7, enabled ? '1' : '0')
+}
+
+// Per-template toggles for Imported overlay (defaults ON if unset)
+function getTacticalMapImportedTemplateEnabled(templateId) {
+  const t = Number(templateId || 0)
+  if (!Number.isFinite(t) || t <= 0) return true
+  return localStorage.getItem(`${KEY_TACTICAL_LAYER_IMPORTED_TPL_PREFIX}${String(t)}`) !== '0'
+}
+
+function setTacticalMapImportedTemplateEnabled(templateId, enabled) {
+  const t = Number(templateId || 0)
+  if (!Number.isFinite(t) || t <= 0) return
+  localStorage.setItem(`${KEY_TACTICAL_LAYER_IMPORTED_TPL_PREFIX}${String(t)}`, enabled ? '1' : '0')
+}
+
 // Expose globals (XCOM loads scripts as classic <script>).
 try {
   globalThis.getMapBaseStyle = getMapBaseStyle
@@ -68,6 +104,12 @@ try {
   globalThis.setMapDefaultCoords = setMapDefaultCoords
   globalThis.getMapDefaultZoom = getMapDefaultZoom
   globalThis.setMapDefaultZoom = setMapDefaultZoom
+  globalThis.getTacticalMapImportedEnabled = getTacticalMapImportedEnabled
+  globalThis.setTacticalMapImportedEnabled = setTacticalMapImportedEnabled
+  globalThis.getTacticalMapImportedLast7dOnly = getTacticalMapImportedLast7dOnly
+  globalThis.setTacticalMapImportedLast7dOnly = setTacticalMapImportedLast7dOnly
+  globalThis.getTacticalMapImportedTemplateEnabled = getTacticalMapImportedTemplateEnabled
+  globalThis.setTacticalMapImportedTemplateEnabled = setTacticalMapImportedTemplateEnabled
 } catch (_) {
   // ignore
 }

@@ -522,7 +522,8 @@ class RadioApp {
         this._connectivityLastOkAt = null;
         this._updatingApp = false;
         this.updateBtn = document.getElementById('xUpdateBtn');
-        
+        this.buildBadgeEl = document.getElementById('xBuildBadge');
+         
         // Available modules
         this.modules = {
             'repeater-map': {
@@ -656,6 +657,8 @@ class RadioApp {
                     'modules/shared/xtoc/offlineTiles.js',
                     'modules/shared/xtoc/ao.js',
                     'modules/shared/xtoc/maplibre.js',
+                    'modules/shared/xtoc/teamRoster.js',
+                    'modules/shared/xtoc/importedPackets.js',
                     // Module
                     'modules/map/map.js'
                 ],
@@ -681,6 +684,9 @@ class RadioApp {
                     'modules/shared/xtoc/secure.js',
                     'modules/shared/xtoc/secureTemplates.js',
                     'modules/shared/xtoc/storage.js',
+                    'modules/shared/xtoc/packetStore.js',
+                    'modules/shared/xtoc/teamRoster.js',
+                    'modules/shared/xtoc/importedPackets.js',
                     'modules/shared/xtoc/keyBundle.js',
                     'modules/shared/xtoc/keyImport.js',
                     // Shared mesh transport (so Comms can Connect + Send without opening Mesh module)
@@ -695,6 +701,19 @@ class RadioApp {
                     'assets/vendor/maplibre-gl/maplibre-gl.js',
                     'assets/vendor/maplibre-gl/maplibre-gl.css'
                 ]
+            },
+            'xtoc-data': {
+                name: 'XTOC Data',
+                description: 'Stored XTOC packets (list + search)',
+                scripts: [
+                    'modules/shared/xtoc/settings.js',
+                    'modules/shared/xtoc/packetStore.js',
+                    'modules/shared/xtoc/teamRoster.js',
+                    'modules/shared/xtoc/importedPackets.js',
+                    'modules/xtoc-data/xtoc-data.js'
+                ],
+                styles: ['styles/modules/xtoc-data.css'],
+                dependencies: []
             },
             'mesh': {
                 name: 'Mesh',
@@ -833,11 +852,16 @@ class RadioApp {
                 window.mapModule = new MapModule();
             } else if (moduleId === 'comms' && typeof CommsModule === 'function') {
                 window.commsModule = new CommsModule();
+            } else if (moduleId === 'xtoc-data' && typeof XtocDataModule === 'function') {
+                window.xtocDataModule = new XtocDataModule();
             } else if (moduleId === 'mesh' && typeof MeshModule === 'function') {
                 window.meshModule = new MeshModule();
             } else if (moduleId === 'halow' && typeof HaLowModule === 'function') {
                 window.halowModule = new HaLowModule();
             }
+
+            // Add UI affordances shared across modules (ex: hide/show the "What you can do here" intro).
+            try { this.decorateModuleIntros(moduleId); } catch (_) { /* ignore */ }
             
             this.currentModule = moduleId;
             this.saveCurrentModule(moduleId);
@@ -934,6 +958,7 @@ class RadioApp {
         this.setupClocks();
         this.setupConnectivityStatus();
         this.setupUpdateButton();
+        this.setupBuildBadge();
     }
 
     setupUpdateButton() {
@@ -941,6 +966,202 @@ class RadioApp {
         this.updateBtn.addEventListener('click', () => this.updateAppAndReload());
     }
 
+    setupBuildBadge() {
+        if (!this.buildBadgeEl) return;
+
+        const el = this.buildBadgeEl;
+
+        const getBuildLabel = () => {
+            // Preferred: injected at build/package time (XTOC-style).
+            try {
+                const v = String(globalThis.XCOM_BUILD_LABEL || '').trim();
+                if (v) return v;
+            } catch (_) { /* ignore */ }
+
+            // Fallback: whatever is already in the DOM (kept up to date by make-release.js).
+            try {
+                return String(el.textContent || '').trim();
+            } catch (_) {
+                return '';
+            }
+        };
+
+        const getSwBuildShort = (v) => {
+            const s = String(v || '').trim();
+            if (!s) return 'unknown';
+            if (s === '…' || s === 'off' || s === 'unknown') return s;
+            return s.length > 12 ? s.slice(0, 8) : s;
+        };
+
+        const render = (swBuildVersion) => {
+            const label = getBuildLabel();
+            if (label) {
+                const semver = label.match(/(\d+\.\d+\.\d+)/)?.[1] || '';
+                const text = semver ? `v${semver}` : label;
+
+                const titleParts = [];
+                if (semver) {
+                    titleParts.push(`App version: ${semver}`);
+                    const normalized = label === semver || label === `v${semver}` ? '' : label;
+                    if (normalized) titleParts.push(`Build label: ${normalized}`);
+                } else {
+                    titleParts.push(`Build label: ${label}`);
+                }
+                if (swBuildVersion && swBuildVersion !== '…' && swBuildVersion !== 'off' && swBuildVersion !== 'unknown') {
+                    titleParts.push(`SW build: ${swBuildVersion}`);
+                }
+                const title = titleParts.join(' — ');
+
+                try { el.textContent = text; } catch (_) { /* ignore */ }
+                try { el.title = title; } catch (_) { /* ignore */ }
+                try { el.setAttribute('aria-label', title); } catch (_) { /* ignore */ }
+                return;
+            }
+
+            const title = `Service worker build: ${String(swBuildVersion || 'unknown')}`;
+            const short = getSwBuildShort(swBuildVersion);
+            try { el.textContent = `SW ${short}`; } catch (_) { /* ignore */ }
+            try { el.title = title; } catch (_) { /* ignore */ }
+            try { el.setAttribute('aria-label', title); } catch (_) { /* ignore */ }
+        };
+
+        const withTimeout = async (p, ms) => {
+            let t = null;
+            try {
+                return await Promise.race([
+                    p,
+                    new Promise((resolve) => {
+                        t = setTimeout(() => resolve(null), ms);
+                    }),
+                ]);
+            } finally {
+                if (t) clearTimeout(t);
+            }
+        };
+
+        const requestSwBuildVersion = async (sw, timeoutMs = 1500) => {
+            return await new Promise((resolve) => {
+                const requestId = Math.random().toString(36).slice(2);
+
+                const cleanup = () => {
+                    clearTimeout(t);
+                    try { navigator.serviceWorker.removeEventListener('message', onMessage); } catch (_) { /* ignore */ }
+                };
+
+                const onMessage = (e) => {
+                    const d = e && e.data;
+                    if (!d || d.type !== 'SW_BUILD_VERSION' || typeof d.version !== 'string') return;
+                    const id = d.requestId ?? d.id;
+                    if (id && id !== requestId) return;
+                    cleanup();
+                    resolve(d.version);
+                };
+
+                const t = setTimeout(() => {
+                    cleanup();
+                    resolve(null);
+                }, timeoutMs);
+
+                // Fallback path: listen for a global SW message response (works even without MessageChannel support).
+                try { navigator.serviceWorker.addEventListener('message', onMessage); } catch (_) { /* ignore */ }
+
+                // Preferred: MessageChannel reply (avoids interference from other SW messages).
+                if (typeof MessageChannel !== 'undefined') {
+                    try {
+                        const ch = new MessageChannel();
+                        ch.port1.onmessage = (e) => onMessage(e);
+                        try { ch.port1.start?.(); } catch (_) { /* ignore */ }
+                        sw.postMessage({ type: 'GET_SW_BUILD_VERSION', requestId }, [ch.port2]);
+                        return;
+                    } catch (_) {
+                        // Fall through to non-MessageChannel path.
+                    }
+                }
+
+                try {
+                    sw.postMessage({ type: 'GET_SW_BUILD_VERSION', requestId });
+                } catch (_) {
+                    cleanup();
+                    resolve(null);
+                }
+            });
+        };
+
+        const inferSwBuildVersionFromCaches = async () => {
+            try {
+                if (!('caches' in window)) return null;
+                const keys = await caches.keys();
+
+                const versions = new Set();
+                for (const k of keys || []) {
+                    if (typeof k !== 'string') continue;
+                    if (!k.startsWith('xcom.sw.')) continue;
+                    const i = k.lastIndexOf('.');
+                    const v = i > 0 ? k.slice(0, i) : k;
+                    if (v) versions.add(v);
+                }
+
+                const all = Array.from(versions);
+                if (!all.length) return null;
+
+                // Prefer the highest numeric "xcom.sw.vN" if present.
+                let best = null;
+                let bestNum = null;
+                for (const v of all) {
+                    const m = v.match(/^xcom\\.sw\\.v(\\d+)$/);
+                    if (!m) continue;
+                    const n = Number(m[1]);
+                    if (!Number.isFinite(n)) continue;
+                    if (bestNum === null || n > bestNum) {
+                        bestNum = n;
+                        best = v;
+                    }
+                }
+                if (best) return best;
+
+                all.sort();
+                return all[all.length - 1] || null;
+            } catch (_) {
+                return null;
+            }
+        };
+
+        const refresh = async () => {
+            if (!('serviceWorker' in navigator)) {
+                render('off');
+                return;
+            }
+
+            render('…');
+
+            const reg =
+                (await withTimeout(navigator.serviceWorker.getRegistration(), 1500)) ||
+                (await withTimeout(navigator.serviceWorker.ready, 2000));
+            const sw = navigator.serviceWorker.controller || reg?.active || reg?.waiting || reg?.installing || null;
+            if (!sw) {
+                render('off');
+                return;
+            }
+
+            const v = await requestSwBuildVersion(sw);
+            if (v) {
+                render(v);
+                return;
+            }
+
+            // Backward-compat: if the active SW is older and doesn't support the message, infer from Cache Storage.
+            const inferred = await inferSwBuildVersionFromCaches();
+            render(inferred || 'unknown');
+        };
+
+        void refresh();
+
+        const onController = () => void refresh();
+        try {
+            navigator.serviceWorker.addEventListener('controllerchange', onController);
+        } catch (_) { /* ignore */ }
+    }
+ 
     async updateAppAndReload() {
         // Mirror XTOC: a single click should ensure SW is registered, trigger an update check, then reload.
         if (this._updatingApp) return;
@@ -1081,6 +1302,86 @@ class RadioApp {
         } catch (_) {
             // ignore
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Module intro ("What you can do here") hide (XTOC-style)
+    // ---------------------------------------------------------------------
+
+    getModuleIntroHiddenKey(moduleId) {
+        const id = String(moduleId || '').trim();
+        return id ? `xcom.intro.hidden.${id}` : 'xcom.intro.hidden.unknown';
+    }
+
+    isModuleIntroHidden(moduleId) {
+        try {
+            return localStorage.getItem(this.getModuleIntroHiddenKey(moduleId)) === '1';
+        } catch (_) {
+            return false;
+        }
+    }
+
+    setModuleIntroHidden(moduleId, hidden) {
+        try {
+            localStorage.setItem(this.getModuleIntroHiddenKey(moduleId), hidden ? '1' : '0');
+        } catch (_) {
+            // ignore
+        }
+    }
+
+    removeModuleIntros(root) {
+        const intros = Array.from(root.querySelectorAll('.xModuleIntro'));
+        for (const intro of intros) {
+            try {
+                intro.remove();
+            } catch (_) {
+                try { intro.style.display = 'none'; } catch (_) { /* ignore */ }
+            }
+        }
+    }
+
+    decorateModuleIntros(moduleId) {
+        const root = document.getElementById(moduleId);
+        if (!root) return;
+
+        const intros = Array.from(root.querySelectorAll('.xModuleIntro'));
+        if (intros.length === 0) return;
+
+        // If the user already hid this card, don't show it again.
+        if (this.isModuleIntroHidden(moduleId)) {
+            this.removeModuleIntros(root);
+            return;
+        }
+
+        // Ensure each intro has a Hide button (mirrors XTOC).
+        for (const intro of intros) {
+            if (intro.querySelector('.xModuleIntroHideBtn')) continue;
+
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'xModuleIntroHideBtn';
+            btn.setAttribute('data-module-intro-hide', String(moduleId || ''));
+            btn.title = 'Hide this help card';
+            btn.setAttribute('aria-label', 'Hide this help card');
+            btn.textContent = 'Hide';
+            intro.insertBefore(btn, intro.firstChild);
+        }
+
+        // Bind once per module root (module DOM is replaced on navigation).
+        if (root.getAttribute('data-intro-hide-bound') === '1') return;
+        root.setAttribute('data-intro-hide-bound', '1');
+
+        root.addEventListener('click', (e) => {
+            const t = e?.target;
+            const btn = t && typeof t.closest === 'function' ? t.closest('.xModuleIntroHideBtn') : null;
+            if (!btn) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            this.setModuleIntroHidden(moduleId, true);
+            this.removeModuleIntros(root);
+        });
     }
 
     setupClocks() {

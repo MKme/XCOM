@@ -92,9 +92,8 @@ $repoRoot = Resolve-Path (Join-Path $root '..')             # .../XCOM
 $outDir = Join-Path $root 'releases'
 
 $safeBase = Get-SafeBaseName $BasePath
-$filesetDir = Join-Path $outDir ("xcom-web-fileset-{0}-{1}" -f $Label, $safeBase)
 
-Write-Host "Building webserver fileset: $filesetDir" -ForegroundColor Cyan
+Write-Host "Preparing webserver fileset..." -ForegroundColor Cyan
 Write-Host "BASE_PATH=$BasePath" -ForegroundColor Cyan
 Write-Host "ACCESS_MODE=$AccessMode" -ForegroundColor Cyan
 if ($LicenseProxyUrl) { Write-Host "LICENSE_PROXY_URL=$LicenseProxyUrl" -ForegroundColor Cyan }
@@ -117,10 +116,6 @@ finally {
 }
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-if (Test-Path $filesetDir) {
-  Remove-Item $filesetDir -Recurse -Force
-}
-New-Item -ItemType Directory -Force -Path $filesetDir | Out-Null
 
 # Find the release folder we just built.
 $pkg = Get-JsonValue (Join-Path $root 'package.json')
@@ -138,6 +133,40 @@ if (-not $releaseDir) {
 if (-not $releaseDir) {
   throw "No release folders found under $outDir. Run `npm run build` first."
 }
+
+# If we packaged a different release folder than package.json indicates (common when -SkipBuild is used),
+# prefer the release folder version for naming so the fileset directory reflects what was actually copied.
+try {
+  $leaf = Split-Path $releaseDir -Leaf
+  if ($leaf -match '^xcom-(\d+\.\d+\.\d+.*)$') {
+    $xcomVersion = [string]$Matches[1]
+  }
+} catch { }
+
+# Include the app version in the output folder name, unless the label already contains one.
+# Examples:
+# - Label=dev, Version=1.0.28 -> xcom-web-fileset-1.0.28-dev-xcom
+# - Label=1.0.28-license -> xcom-web-fileset-1.0.28-license-xcom (no duplication)
+$labelHasVersion = $false
+if ($Label -match '(?<!\d)\d+\.\d+\.\d+(?!\d)') { $labelHasVersion = $true }
+
+$nameParts = @('xcom-web-fileset')
+if (($xcomVersion) -and (-not $labelHasVersion)) {
+  $nameParts += $xcomVersion
+}
+if ($Label) {
+  $nameParts += $Label
+}
+$nameParts += $safeBase
+
+$filesetDir = Join-Path $outDir ($nameParts -join '-')
+
+Write-Host "Building webserver fileset: $filesetDir" -ForegroundColor Cyan
+
+if (Test-Path $filesetDir) {
+  Remove-Item $filesetDir -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $filesetDir | Out-Null
 
 Write-Host "Copying $releaseDir/* -> $filesetDir" -ForegroundColor Cyan
 Copy-Item -Path (Join-Path $releaseDir '*') -Destination $filesetDir -Recurse -Force

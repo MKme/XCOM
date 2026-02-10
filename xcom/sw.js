@@ -11,7 +11,7 @@
 */
 
 // Bump this any time you change styling/assets and need clients to refresh caches.
-const VERSION = 'xcom.sw.v18'
+const VERSION = 'xcom.sw.v21'
 const APP_CACHE = `${VERSION}.app`
 const TILE_CACHE = `${VERSION}.tiles`
 
@@ -69,13 +69,61 @@ self.addEventListener('activate', (event) => {
   )
 })
 
-// Allow the page to trigger an update immediately.
-self.addEventListener('message', (event) => {
-  if (event && event.data && event.data.type === 'SKIP_WAITING') {
+function reply(event, msg) {
+  // Prefer MessageChannel reply when provided.
+  const port = event && event.ports && event.ports[0]
+  if (port) {
     try {
-      self.skipWaiting()
-    } catch (_) {}
+      port.postMessage(msg)
+      return
+    } catch {
+      // Fall through.
+    }
   }
+
+  // Fallback: reply to the sender client.
+  try {
+    if (event && event.source && typeof event.source.postMessage === 'function') {
+      event.source.postMessage(msg)
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// Allow the page to trigger an update immediately and query the SW build version.
+self.addEventListener('message', (event) => {
+  const data = event && event.data
+  if (!data) return
+
+  const type = typeof data === 'string' ? data : data.type
+
+  if (type === 'SKIP_WAITING') {
+    event.waitUntil(
+      (async () => {
+        try {
+          await self.skipWaiting()
+        } catch {
+          // ignore
+        }
+        try {
+          await self.clients?.claim?.()
+        } catch {
+          // ignore
+        }
+      })(),
+    )
+    return
+  }
+
+  if (type !== 'GET_SW_BUILD_VERSION') return
+
+  event.waitUntil(
+    (async () => {
+      const requestId = data && (data.requestId ?? data.id)
+      reply(event, { type: 'SW_BUILD_VERSION', version: VERSION, requestId })
+    })(),
+  )
 })
 
 self.addEventListener('fetch', (event) => {

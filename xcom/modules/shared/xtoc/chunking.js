@@ -15,6 +15,9 @@ function getTransportMaxPacketChars(profile) {
       return 400
     case 'Meshtastic':
       return 180
+    case 'MeshCore':
+      // MeshCore text payload max is 160 bytes; keep chunking conservative.
+      return 160
     case 'HaLow':
       // IP LAN (HaLow/Open MANET/etc). Chunking generally not required.
       return 50000

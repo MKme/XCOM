@@ -1,0 +1,215 @@
+#xtoc-data .xtocDataShell {
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: 14px;
+  align-items: start;
+}
+
+#xtoc-data .xtocDataCard {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  min-width: 0;
+}
+
+#xtoc-data .xtocDataTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+#xtoc-data .xtocDataTitle {
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+#xtoc-data .xtocDataActions {
+  display: inline-flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+#xtoc-data .xtocBtn {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+#xtoc-data .xtocBtn:hover {
+  border-color: rgba(46, 230, 166, 0.28);
+  background: rgba(46, 230, 166, 0.08);
+}
+
+#xtoc-data .xtocBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+}
+
+#xtoc-data .xtocBtn.danger {
+  border-color: rgba(255, 77, 79, 0.5);
+  background: rgba(255, 77, 79, 0.12);
+}
+
+#xtoc-data .xtocInput {
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  min-width: 0;
+}
+
+#xtoc-data .xtocSmallMuted {
+  font-size: 12px;
+  color: rgba(159, 178, 198, 0.85);
+}
+
+#xtoc-data .muted {
+  color: var(--muted);
+}
+
+#xtoc-data .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+}
+
+#xtoc-data .xtocDataFilters {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+#xtoc-data .xtocInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(214, 227, 240, 0.95);
+  white-space: nowrap;
+}
+
+#xtoc-data .xtocDataTableWrap {
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#xtoc-data .xtocDataTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+#xtoc-data .xtocDataTable thead th {
+  text-align: left;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  color: rgba(159, 178, 198, 0.95);
+  background: rgba(17, 24, 36, 0.55);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#xtoc-data .xtocDataTable tbody td {
+  padding: 9px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  vertical-align: top;
+}
+
+#xtoc-data .xtocDataTable tbody tr {
+  cursor: pointer;
+}
+
+#xtoc-data .xtocDataTable tbody tr:hover {
+  background: rgba(46, 230, 166, 0.07);
+}
+
+#xtoc-data .xtocDataTable tbody tr.selected {
+  outline: 2px solid rgba(46, 230, 166, 0.22);
+  outline-offset: -2px;
+  background: rgba(46, 230, 166, 0.08);
+}
+
+#xtoc-data .xtocTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid rgba(46, 230, 166, 0.35);
+  background: rgba(46, 230, 166, 0.08);
+  color: rgba(46, 230, 166, 0.95);
+  margin-right: 6px;
+}
+
+#xtoc-data .xtocWarn {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(246, 201, 69, 0.35);
+  background: rgba(246, 201, 69, 0.08);
+  color: rgba(246, 201, 69, 0.95);
+  margin-top: 10px;
+}
+
+#xtoc-data .xtocSummary {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(46, 230, 166, 0.22);
+  background: rgba(46, 230, 166, 0.06);
+}
+
+#xtoc-data .xtocKv {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+#xtoc-data .xtocDetails {
+  margin-top: 10px;
+}
+
+#xtoc-data .xtocDetails summary {
+  cursor: pointer;
+  color: rgba(214, 227, 240, 0.95);
+}
+
+#xtoc-data .xtocPre {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.22);
+  overflow: auto;
+  max-height: 42vh;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  #xtoc-data .xtocDataShell {
+    grid-template-columns: 1fr;
+  }
+
+  #xtoc-data .xtocDataFilters {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  #xtoc-data .xtocBtn,
+  #xtoc-data .xtocInput {
+    min-height: 44px;
+  }
+}
+

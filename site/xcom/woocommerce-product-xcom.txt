@@ -13,7 +13,7 @@ XCOM™ - Offline Radio Reference + Mapping (PWA)
 - Docs/product page: [LINK TO YOUR XCOM™.html PAGE]
 
 [SECTION: Short Description]
-XCOM™ is an offline-first radio reference + mapping toolkit built for bad connectivity. Install it as a PWA on iOS/Android/Desktop and keep operating with no signal. It includes an offline Repeater Map (USA/Canada), Packet Stations directory, worldwide Shortwave Broadcasts schedule browser, Predict (offline callsign lookup + path tools), plus field utilities like XTOC Comm (copy/paste + QR packets), Meshtastic mesh integration, a QSO Logbook, and more. Activate once with your license key while online, then keep using it offline on that device.
+XCOM™ is an offline-first radio reference + mapping toolkit built for bad connectivity. Install it as a PWA on iOS/Android/Desktop and keep operating with no signal. It includes an offline Repeater Map (USA/Canada), Packet Stations directory, worldwide Shortwave Broadcasts schedule browser, Predict (offline callsign lookup + path tools), plus field utilities like XTOC Comm + XTOC Data (structured packets, QR, Mesh/MANET, XTOC backup import, and a tactical map Imported overlay for recent XTOC markers/zones), Meshtastic mesh integration, a QSO Logbook, and more. Activate once with your license key while online, then keep using it offline on that device.
 
 [SECTION: Long Description]
 WHAT YOU'RE GETTING
@@ -27,8 +27,9 @@ KEY MODULES
 - Repeaters: find repeaters by radius/band/mode and view tones, offsets, notes, and distance.
 - Packet Stations: map packet nodes/BBS and keep a personal local list.
 - Shortwave Broadcasts: browse worldwide HF schedules by time ("what's on now") or by frequency.
-- Map: AO selection + offline raster tile caching.
-- XTOC Comm: create/import structured packets (CLEAR or SECURE), chunk for tight message limits, and move by copy/paste, QR, or mesh.
+- Map: XTOC-style tactical map + offline raster tile caching, plus an Imported overlay for XTOC packet markers/zones (type toggles; last 7 days rendered by default).
+- XTOC Comm: create/import structured packets (CLEAR or SECURE), chunk for tight message limits, move by copy/paste/QR/mesh/MANET (LAN), and import XTOC backups (roster + keys + packets) into XCOM.
+- XTOC Data: local-first packet archive - browse/search all stored XTOC packets (including non-location) and import geo packets to the Map overlay.
 - Mesh: connect to a Meshtastic radio (Web Bluetooth) and send/receive messages.
 - Logbook: fast QSO logging with ADIF/CSV export.
 

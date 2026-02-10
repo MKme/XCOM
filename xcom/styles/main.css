@@ -248,6 +248,15 @@ select optgroup {
     min-width: 0;
 }
 
+.swBuild {
+    font-size: 11px;
+    line-height: 1;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    user-select: text;
+    white-space: nowrap;
+}
+
 .xMobileNavBtn {
     display: none;
     align-items: center;
@@ -577,12 +586,42 @@ body.xGateOpen {
     margin-bottom: 14px;
     width: 100%;
     box-sizing: border-box;
+    position: relative;
 }
 
 #module-container .module:not(#ham-clock) .xModuleIntroTitle {
     font-weight: 800;
     letter-spacing: 0.03em;
     margin-bottom: 6px;
+    padding-right: 70px; /* room for Hide button */
+}
+
+#module-container .module:not(#ham-clock) .xModuleIntroTitleText {
+    min-width: 0;
+}
+
+#module-container .module:not(#ham-clock) .xModuleIntroHideBtn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(0, 0, 0, 0.18);
+    color: rgba(159, 178, 198, 0.95);
+    cursor: pointer;
+}
+
+#module-container .module:not(#ham-clock) .xModuleIntroHideBtn:hover {
+    border-color: rgba(46, 230, 166, 0.35);
+    color: var(--text);
+}
+
+#module-container .module:not(#ham-clock) .xModuleIntroHideBtn:focus-visible {
+    outline: none;
+    border-color: rgba(46, 230, 166, 0.55);
+    box-shadow: 0 0 0 3px rgba(46, 230, 166, 0.14);
 }
 
 #module-container .module:not(#ham-clock) .xModuleIntroText {

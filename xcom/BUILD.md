@@ -82,7 +82,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\make-web-fileset.p
 
 Output:
 
-- `releases/xcom-web-fileset-<label>-<base>/` (plus optional `.zip` if you pass `-Zip`)
+- `releases/xcom-web-fileset-<version>-<label>-<base>/` (plus optional `.zip` if you pass `-Zip`)
+  - If your `-Label` already contains a version (e.g. `1.0.19-license`), it won't be duplicated.
 
 Tip: if a previous run already created `releases/xcom-<version>/` and you only want to re-package without bumping the patch version again, pass `-SkipBuild`.
 

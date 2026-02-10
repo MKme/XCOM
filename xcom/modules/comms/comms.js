@@ -59,6 +59,10 @@ class CommsModule {
     this._lastHaLowRxFrom = null
     this._halowLastState = null
 
+    // Source hint for storing decoded packets (mesh/manet/manual/etc)
+    this._importAutoSourceHint = null
+    this._importStoredKeys = new Set()
+
     this.init()
   }
 
@@ -66,7 +70,9 @@ class CommsModule {
     this.createModuleStructure()
     this.bindEvents()
     this.updateKeySummary()
+    try { this.updateRosterStatus() } catch (_) { /* ignore */ }
     this.updateTemplateFields()
+    try { this.refreshImportedRawList() } catch (_) { /* ignore */ }
     window.radioApp.updateStatus('XTOC Comm module loaded')
   }
 
@@ -74,10 +80,10 @@ class CommsModule {
     const root = document.getElementById('comms')
     root.innerHTML = `
       <div class="xModuleIntro">
-        <div class="xModuleIntroTitle">What you can do here</div>
-        <div class="xModuleIntroText">
-          Create XTOC packets (CLEAR or SECURE), split them for different transport limits, and move them via copy/paste, QR, Meshtastic, or MANET (LAN).
-        </div>
+          <div class="xModuleIntroTitle">What you can do here</div>
+          <div class="xModuleIntroText">
+          Create XTOC packets (CLEAR or SECURE), split them for different transport limits, and move them via copy/paste, QR, Meshtastic/MeshCore, or MANET (LAN).
+          </div>
       </div>
       <div class="commsShell">
         <div class="commsCard commsCard--create">
@@ -93,6 +99,7 @@ class CommsModule {
               <option value="5">T=5 RESOURCE</option>
               <option value="6">T=6 ASSET</option>
               <option value="7">T=7 ZONE</option>
+              <option value="8">T=8 MISSION</option>
             </select>
           </div>
 
@@ -113,6 +120,7 @@ class CommsModule {
               <option value="APRS">APRS (67 chars)</option>
               <option value="HamOther">Ham Other (80 chars)</option>
               <option value="Meshtastic">Meshtastic (180 chars)</option>
+              <option value="MeshCore">MeshCore (160 bytes)</option>
               <option value="HaLow">MANET (LAN)</option>
               <option value="Winlink">Winlink (400 chars)</option>
               <option value="QR">QR</option>
@@ -166,6 +174,7 @@ class CommsModule {
             <textarea id="commsImportText" rows="10" placeholder="Paste packet(s) here (multi-line supported)"></textarea>
             <div class="commsButtonRow">
               <button id="commsReassembleBtn" type="button">Reassemble</button>
+              <button id="commsImportToMapBtn" type="button" class="primary" title="Import the selected decoded packet so it appears on the Map under the Imported overlay" disabled>Import</button>
               <button id="commsScanQrBtn" type="button">Scan QR</button>
               <button id="commsClearImportBtn" type="button" class="danger">Clear</button>
             </div>
@@ -216,6 +225,47 @@ class CommsModule {
           </div>
         </div>
 
+        <div class="commsCard commsCard--imported">
+          <div class="commsCardTitle">Imported (raw)</div>
+          <div class="commsRow">
+            <label for="commsImportedRaw">Raw list</label>
+            <textarea id="commsImportedRaw" rows="4" placeholder="Imported packet wrappers will appear here" readonly></textarea>
+            <div class="commsButtonRow">
+              <button id="commsCopyImportedBtn" type="button">Copy</button>
+              <button id="commsClearImportedBtn" type="button" class="danger">Clear Imported</button>
+            </div>
+            <div class="commsSmallMuted">These appear on the Map module under the Imported overlay.</div>
+          </div>
+        </div>
+
+        <div class="commsCard commsCard--xtocImport">
+          <div class="commsCardTitle">XTOC -&gt; XCOM Import</div>
+          <div class="commsCardSub">Merges the full roster (including personal fields; prefers <code>label</code>), SECURE keys (KID), and ALL XTOC packets (location + non-location) into this device. Does not wipe existing XCOM data.</div>
+
+          <div class="commsRow" style="margin-top:10px">
+            <label>XTOC Backup (.json)</label>
+            <div class="commsButtonRow">
+              <button id="commsImportXtocBackupBtn" type="button" class="primary">Import Backup</button>
+            </div>
+            <div class="commsSmallMuted">Use XTOC Topbar Export (e.g. <code>xtoc-backup-*.json</code>). XCOM merges roster/keys/packets and ignores XTOC settings/missions/KML layers.</div>
+            <div class="commsSmallMuted" id="commsXtocImportStatus"></div>
+          </div>
+
+          <div class="commsDivider"></div>
+
+          <div class="commsRow">
+            <label for="commsTeamBundle">Team roster bundle</label>
+            <textarea id="commsTeamBundle" rows="2" placeholder="XTOC-TEAM.&lt;base64(json)&gt;"></textarea>
+            <div class="commsButtonRow">
+              <button id="commsImportTeamBtn" type="button">Import Team</button>
+              <button id="commsScanTeamQrBtn" type="button">Scan Team QR</button>
+              <button id="commsClearTeamBtn" type="button" class="danger">Clear</button>
+              <button id="commsClearRosterBtn" type="button" class="danger">Clear Roster</button>
+            </div>
+            <div class="commsSmallMuted" id="commsRosterStatus">Roster: none loaded</div>
+          </div>
+        </div>
+
         <div class="commsCard commsCard--keys">
           <div class="commsCardTitle">Key Bundle Import</div>
           <textarea id="commsKeyBundle" rows="3" placeholder="Paste XTOC-KEY... bundle here"></textarea>
@@ -258,6 +308,7 @@ class CommsModule {
     document.getElementById('commsMakeQrBtn').addEventListener('click', () => this.makeQr())
 
     document.getElementById('commsReassembleBtn').addEventListener('click', () => this.reassembleAndDecode())
+    document.getElementById('commsImportToMapBtn').addEventListener('click', () => this.importSelectedToMap())
     document.getElementById('commsClearImportBtn').addEventListener('click', () => this.clearImport())
 
     const importText = document.getElementById('commsImportText')
@@ -303,6 +354,15 @@ class CommsModule {
     document.getElementById('commsScanKeyQrBtn').addEventListener('click', () => this.scanKeyQr())
     document.getElementById('commsDeleteKeyBtn').addEventListener('click', () => this.deleteKey())
     document.getElementById('commsClearKeyBtn').addEventListener('click', () => (document.getElementById('commsKeyBundle').value = ''))
+
+    document.getElementById('commsCopyImportedBtn').addEventListener('click', () => this.copyImportedRaw())
+    document.getElementById('commsClearImportedBtn').addEventListener('click', () => this.clearImported())
+
+    document.getElementById('commsImportXtocBackupBtn').addEventListener('click', () => void this.importXtocBackup())
+    document.getElementById('commsImportTeamBtn').addEventListener('click', () => this.importTeamRoster())
+    document.getElementById('commsScanTeamQrBtn').addEventListener('click', () => this.scanTeamQr())
+    document.getElementById('commsClearTeamBtn').addEventListener('click', () => (document.getElementById('commsTeamBundle').value = ''))
+    document.getElementById('commsClearRosterBtn').addEventListener('click', () => this.clearRoster())
 
     document.getElementById('commsPickLocBtn').addEventListener('click', () => {
       this.openMapPicker('loc')
@@ -711,6 +771,40 @@ class CommsModule {
       return
     }
 
+    if (t === 8) {
+      wrap.innerHTML = `
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Mission ID</label><input id="t_mission_id" type="text" placeholder="(optional)" /></div>
+          <div class="commsRow"><label>Status</label>
+            <select id="t_mission_status">
+              <option value="PLANNED">PLANNED</option>
+              <option value="ASSIGNED">ASSIGNED</option>
+              <option value="IN_PROGRESS">IN_PROGRESS</option>
+              <option value="ON_HOLD">ON_HOLD</option>
+              <option value="COMPLETE">COMPLETE</option>
+              <option value="ABORTED">ABORTED</option>
+            </select>
+          </div>
+        </div>
+        <div class="commsRow"><label>Title</label><input id="t_mission_title" type="text" placeholder="\"Deliver supplies\" / \"Recon\" / ..." /></div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Pri</label><input id="t_pri" type="number" min="0" max="3" step="1" value="0" /></div>
+          <div class="commsRow"><label>Assigned To (unit #)</label><input id="t_assigned_to" type="number" min="0" step="1" value="0" /></div>
+        </div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Lat</label><input id="t_lat" type="number" step="0.00001" placeholder="" /></div>
+          <div class="commsRow"><label>Lon</label><input id="t_lon" type="number" step="0.00001" placeholder="" /></div>
+        </div>
+        <div class="commsRow"><label>Location label</label><input id="t_location_label" type="text" placeholder="(optional)" /></div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Due At (ms)</label><input id="t_due_at" type="number" value="" placeholder="(optional)" /></div>
+          <div class="commsRow"><label>Time (ms)</label><input id="t_time" type="number" value="${now}" /></div>
+        </div>
+        <div class="commsRow"><label>Notes</label><input id="t_note" type="text" placeholder="(optional)" /></div>
+      `
+      return
+    }
+
     if (t === 6) {
       wrap.innerHTML = `
         <div class="commsGrid2">
@@ -787,9 +881,12 @@ class CommsModule {
     if (!btn) return
 
     const transport = String(document.getElementById('commsTransport')?.value || '').trim()
-    const shouldShow = transport === 'Meshtastic'
+    const shouldShow = transport === 'Meshtastic' || transport === 'MeshCore'
     btn.style.display = shouldShow ? '' : 'none'
     if (!shouldShow) return
+
+    const meshLabel = transport === 'MeshCore' ? 'MeshCore' : 'Meshtastic'
+    const desiredDriver = transport === 'MeshCore' ? 'meshcore' : 'meshtastic'
 
     const hasApi =
       globalThis.xcomMesh &&
@@ -808,13 +905,15 @@ class CommsModule {
     let ready = false
     try {
       const s = globalThis.xcomMesh.getState().status
-      ready = !!s?.connected || !!s?.linkConnected
+      const connected = !!s?.connected || !!s?.linkConnected
+      const driverOk = String(s?.driver || '') === desiredDriver
+      ready = connected && driverOk
     } catch (_) {
       ready = false
     }
 
     btn.textContent = ready ? 'Send via Mesh' : 'Connect + Send'
-    btn.title = ready ? 'Send packet line(s) directly over Meshtastic' : 'Connect, then send over Meshtastic'
+    btn.title = ready ? `Send packet line(s) directly over ${meshLabel}` : `Connect, then send over ${meshLabel}`
   }
 
   updateHaLowSendButtonState() {
@@ -1009,6 +1108,7 @@ class CommsModule {
     if (templateId === 5) return `X1.5.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeResourceClear(payloadObj)}`
     if (templateId === 3) return `X1.3.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeTaskClear(payloadObj)}`
     if (templateId === 2) return `X1.2.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeContactClear(payloadObj)}`
+    if (templateId === 8) return `X1.8.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeMissionClear(payloadObj)}`
     return `X1.1.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeSitrepClear(payloadObj)}`
   }
 
@@ -1018,6 +1118,7 @@ class CommsModule {
     const maxChars = this.getTransportMax()
 
     try {
+      const now = Date.now()
       let clearPacket
       let payloadObj
       if (templateId === 4) {
@@ -1051,6 +1152,25 @@ class CommsModule {
         }
         payloadObj = payload
         clearPacket = `X1.7.C.${window.generatePacketId(8)}.1/1.${window.encodeZoneClear(payload)}`
+      } else if (templateId === 8) {
+        const tVal = Number(document.getElementById('t_time')?.value || now)
+        const ts = (Number.isFinite(tVal) && tVal > 0) ? tVal : now
+        const payload = {
+          id: String(document.getElementById('t_mission_id')?.value || '').trim(),
+          createdAt: ts,
+          updatedAt: ts,
+          title: String(document.getElementById('t_mission_title')?.value || '').trim(),
+          status: String(document.getElementById('t_mission_status')?.value || 'PLANNED').trim() || 'PLANNED',
+          pri: Number(document.getElementById('t_pri')?.value || 0) || 0,
+          assignedTo: Number(document.getElementById('t_assigned_to')?.value || 0) || 0,
+          lat: Number(document.getElementById('t_lat')?.value),
+          lon: Number(document.getElementById('t_lon')?.value),
+          locationLabel: String(document.getElementById('t_location_label')?.value || '').trim(),
+          dueAt: Number(document.getElementById('t_due_at')?.value || 0) || 0,
+          notes: String(document.getElementById('t_note')?.value || '').trim(),
+        }
+        payloadObj = payload
+        clearPacket = `X1.8.C.${window.generatePacketId(8)}.1/1.${window.encodeMissionClear(payload)}`
       } else if (templateId === 6) {
         const payload = {
           src: Number(document.getElementById('t_src').value || 1),
@@ -1138,6 +1258,26 @@ class CommsModule {
       window.radioApp.updateStatus(`Generated ${lines.length} packet(s)`)
       this.makeQr()
       this.scrollOutputIntoView()
+
+      // Persist generated packet (full, pre-chunk wrapper) for history + XTOC Data module.
+      try {
+        const receivedAt = Date.now()
+        const key = this.makeXtocPacketStoreKey(parsedFinal)
+        const summary = this.summaryFromDecoded(parsedFinal, payloadObj)
+        const feats = this.buildImportedFeatures({ key, wrapper: parsedFinal, decodedObj: payloadObj, summary, receivedAt })
+        void this.storeXtocPacketToDb({
+          key,
+          wrapper: parsedFinal,
+          decodedObj: payloadObj,
+          summary,
+          receivedAt,
+          source: 'commsOut',
+          features: feats,
+          hasGeo: feats.length > 0,
+        })
+      } catch (_) {
+        // ignore
+      }
     } catch (e) {
       console.error(e)
       alert(e.message || String(e))
@@ -1226,9 +1366,21 @@ class CommsModule {
     }
 
     const transport = String(document.getElementById('commsTransport')?.value || '').trim()
-    if (transport !== 'Meshtastic') {
-      alert('Set Transport to Meshtastic first.')
+    const meshLabel = transport === 'MeshCore' ? 'MeshCore' : 'Meshtastic'
+    const desiredDriver = transport === 'MeshCore' ? 'meshcore' : 'meshtastic'
+
+    if (transport !== 'Meshtastic' && transport !== 'MeshCore') {
+      alert('Set Transport to Meshtastic or MeshCore first.')
       return
+    }
+
+    // Keep mesh driver aligned with the selected transport profile.
+    try {
+      if (typeof globalThis.setMeshConfig === 'function') {
+        globalThis.setMeshConfig({ driver: desiredDriver })
+      }
+    } catch (_) {
+      // ignore
     }
 
     const text = String(document.getElementById('commsOutput').value || '').trim()
@@ -1248,9 +1400,14 @@ class CommsModule {
     // If not connected, prompt to connect (must be a user gesture for Web Bluetooth).
     try {
       const s = mesh.getState().status
-      const ready = !!s?.connected || !!s?.linkConnected
+      const connected = !!s?.connected || !!s?.linkConnected
+      const driverOk = String(s?.driver || '') === desiredDriver
+      const ready = connected && driverOk
       if (!ready) {
-        const ok = confirm('Mesh not connected.\n\nConnect now?')
+        const prompt = connected && !driverOk
+          ? `Mesh is connected using ${String(s?.driver || 'unknown')}, but Transport is set to ${meshLabel}.\n\nSwitch and reconnect now?`
+          : `Mesh not connected.\n\nConnect now?`
+        const ok = confirm(prompt)
         if (!ok) return
         try {
           await globalThis.meshConnect()
@@ -1267,61 +1424,91 @@ class CommsModule {
     // Re-check ready
     {
       const s = mesh.getState().status
-      const ready = !!s?.connected || !!s?.linkConnected
+      const connected = !!s?.connected || !!s?.linkConnected
+      const driverOk = String(s?.driver || '') === desiredDriver
+      const ready = connected && driverOk
       this.updateMeshSendButtonState()
       if (!ready) {
-        alert('Mesh not connected. Open Mesh and click Connect first.')
+        alert(`Mesh not connected to ${meshLabel}. Open Mesh and click Connect first.`)
         return
       }
     }
 
-    // Send each line (chunk) as its own mesh text message.
-    // This keeps the mesh messages aligned with the transport max profile.
     const lines = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
     if (lines.length === 0) {
       alert('Nothing to send')
       return
     }
 
-    const parsedList = typeof window.parsePacket === 'function' ? lines.map((l) => window.parsePacket(l)).filter(Boolean) : []
+    const parseFn = window.parsePacket
+    const chunkFn = globalThis.chunkPacketByMaxChars
+    const parsedList = typeof parseFn === 'function' ? lines.map((l) => parseFn(l)).filter(Boolean) : []
     if (parsedList.length === 0) {
       alert('Paste or generate a valid XCOM packet wrapper first.')
       return
     }
 
-    // If a single unchunked wrapper is present, chunk it to the Meshtastic target length.
-    const meshMax = window.getTransportMaxPacketChars ? window.getTransportMaxPacketChars('Meshtastic') : 180
-    let sendLines = lines
-    if (lines.length === 1) {
-      try {
-        const parseFn = window.parsePacket
-        const chunkFn = globalThis.chunkPacketByMaxChars
-        if (typeof parseFn === 'function' && typeof chunkFn === 'function') {
-          const p = parsedList[0] || parseFn(lines[0])
-          if (p && Number(p.total) > 1) {
-            const ok = confirm(`This looks like 1 part of a multi-part packet (${p.part}/${p.total}).\n\nSend this part anyway?`)
-            if (!ok) return
-          } else if (p && Number(p.total) === 1) {
-            const parts = chunkFn(p, meshMax)
-            if (Array.isArray(parts) && parts.length > 0) {
-              sendLines = parts.map((s) => String(s || '').trim()).filter(Boolean)
-            }
-          }
-        }
-      } catch (_) {
-        // ignore
+    // Chunk any single-part wrappers to the selected transport max so sends are reliable.
+    const meshMax = window.getTransportMaxPacketChars ? window.getTransportMaxPacketChars(transport) : (transport === 'MeshCore' ? 160 : 180)
+    const sendLines = []
+
+    if (lines.length === 1 && parsedList.length === 1) {
+      const p = parsedList[0]
+      if (p && Number(p.total) > 1) {
+        const ok = confirm(`This looks like 1 part of a multi-part packet (${p.part}/${p.total}).\n\nSend this part anyway?`)
+        if (!ok) return
       }
+    }
+
+    for (const p of parsedList) {
+      if (!p) continue
+      const raw = String(p.raw || '').trim()
+      if (!raw) continue
+
+      // Already multi-part: send as-is (user likely has all parts in Output).
+      if (Number(p.total) > 1) {
+        sendLines.push(raw)
+        continue
+      }
+
+      // Single-part wrapper: chunk if it exceeds the target.
+      if (raw.length > meshMax && typeof chunkFn === 'function') {
+        try {
+          const parts = chunkFn(p, meshMax)
+          if (Array.isArray(parts) && parts.length > 0) {
+            for (const part of parts) {
+              const t = String(part || '').trim()
+              if (t) sendLines.push(t)
+            }
+            continue
+          }
+        } catch (_) {
+          // ignore
+        }
+      }
+
+      sendLines.push(raw)
+    }
+
+    if (sendLines.length === 0) {
+      alert('Nothing to send')
+      return
     }
 
     // Confirm batch sends so users don't accidentally spam the mesh.
     if (sendLines.length > 1) {
-      const ok = confirm(`Send ${sendLines.length} line(s) via mesh? (Each line is sent as its own Meshtastic message.)`)
+      const ok = confirm(`Send ${sendLines.length} line(s) via mesh? (Each line is sent as its own ${meshLabel} message.)`)
       if (!ok) return
     }
 
-    // Basic guard: if someone is about to send very long lines, warn about truncation.
-    const tooLong = sendLines.find((l) => l.length > 200)
-    if (tooLong) {
+    // Guard: MeshCore hard limit is 160 bytes; Meshtastic can truncate on long payloads.
+    const overMax = sendLines.find((l) => String(l || '').length > meshMax)
+    if (overMax && transport === 'MeshCore') {
+      alert(`One or more lines exceed the MeshCore limit (${meshMax}).\n\nChoose a shorter template/note, or use a different transport.`)
+      return
+    }
+    const tooLong = sendLines.find((l) => String(l || '').length > 200)
+    if (tooLong && transport === 'Meshtastic') {
       const ok = confirm('Some lines are longer than ~200 chars.\nMeshtastic text may truncate.\n\nSend anyway?')
       if (!ok) return
     }
@@ -1445,7 +1632,507 @@ class CommsModule {
 
     try { this.setImportMapFeatures([]) } catch (_) { /* ignore */ }
     try { this.refreshImportMessageList({ keepSelection: false, preferLatestComplete: true }) } catch (_) { /* ignore */ }
+    try { this.updateImportToMapButtonState(null) } catch (_) { /* ignore */ }
     try { window.radioApp?.updateStatus?.('Import cleared') } catch (_) { /* ignore */ }
+  }
+
+  refreshImportedRawList() {
+    const el = document.getElementById('commsImportedRaw')
+    if (!el) return
+    if (typeof globalThis.getImportedPackets !== 'function') {
+      el.value = ''
+      return
+    }
+    try {
+      const entries = globalThis.getImportedPackets()
+      const lines = Array.isArray(entries)
+        ? entries.map((e) => String(e?.raw || '').trim()).filter(Boolean)
+        : []
+      el.value = lines.join('\n')
+    } catch (_) {
+      el.value = ''
+    }
+  }
+
+  async copyImportedRaw() {
+    const text = String(document.getElementById('commsImportedRaw')?.value || '').trim()
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      window.radioApp.updateStatus('Copied imported list')
+    } catch (_) {
+      alert('Clipboard copy failed (browser permissions).')
+    }
+  }
+
+  clearImported() {
+    const ok = confirm('Clear Imported overlay packets from this device?\n\nThis only clears the Map Imported overlay list (localStorage). Stored packets in XTOC Data remain.')
+    if (!ok) return
+    if (typeof globalThis.clearImportedPackets !== 'function') {
+      alert('Imported storage helpers not loaded')
+      return
+    }
+    try {
+      globalThis.clearImportedPackets()
+      this.refreshImportedRawList()
+      window.radioApp.updateStatus('Imported overlay cleared')
+    } catch (e) {
+      alert(e?.message || String(e))
+    }
+  }
+
+  // -----------------------------
+  // Team roster import (XTOC-TEAM bundle)
+  // -----------------------------
+
+  parseTeamRosterBundle(text) {
+    const t = String(text || '').trim()
+    if (!t.startsWith('XTOC-TEAM.')) return null
+    try {
+      const json = atob(t.slice('XTOC-TEAM.'.length))
+      const obj = JSON.parse(json)
+      if (obj?.v !== 1) return null
+      if (!Array.isArray(obj?.members)) return null
+      return obj
+    } catch (_) {
+      return null
+    }
+  }
+
+  importTeamRoster(opts = {}) {
+    const quiet = !!opts.quiet
+    const input = document.getElementById('commsTeamBundle')
+    const text = String(input?.value || '').trim()
+    if (!text) {
+      if (!quiet) alert('Paste an XTOC-TEAM bundle first.')
+      return
+    }
+
+    const b = this.parseTeamRosterBundle(text)
+    if (!b) {
+      if (!quiet) alert('Invalid roster bundle. Expected: XTOC-TEAM.<base64(json)>')
+      return
+    }
+
+    if (typeof globalThis.xcomUpsertRosterMembers !== 'function') {
+      if (!quiet) alert('Roster helpers not loaded')
+      return
+    }
+
+    const res = globalThis.xcomUpsertRosterMembers(b.members, { replace: false })
+    if (!res?.ok) {
+      if (!quiet) alert(res?.reason || 'Roster import failed')
+      return
+    }
+
+    try { input.value = '' } catch (_) { /* ignore */ }
+    this.updateRosterStatus()
+    if (!quiet) alert(`Imported roster: ${res.total} member(s).`)
+  }
+
+  updateRosterStatus() {
+    const el = document.getElementById('commsRosterStatus')
+    if (!el) return
+
+    if (typeof globalThis.xcomGetTeamRoster !== 'function') {
+      el.textContent = 'Roster: helpers not loaded'
+      return
+    }
+
+    let roster = null
+    try { roster = globalThis.xcomGetTeamRoster() } catch (_) { roster = null }
+    const members = Array.isArray(roster?.members) ? roster.members : []
+    const updatedAt = Number(roster?.updatedAt || 0) || 0
+
+    if (members.length === 0) {
+      el.textContent = 'Roster: none loaded'
+      return
+    }
+
+    let when = '—'
+    if (updatedAt > 0) {
+      try { when = new Date(updatedAt).toLocaleString() } catch (_) { when = '—' }
+    }
+
+    el.textContent = `Roster: ${members.length} member(s) loaded (${when})`
+  }
+
+  clearRoster() {
+    const ok = confirm('Clear roster labels from this device?\n\nThis only removes friendly label mapping (no packets/keys).')
+    if (!ok) return
+
+    try {
+      if (typeof globalThis.xcomClearTeamRoster === 'function') globalThis.xcomClearTeamRoster()
+    } catch (_) {
+      // ignore
+    }
+    this.updateRosterStatus()
+  }
+
+  async scanTeamQr() {
+    if (!globalThis.QrScanner) {
+      alert('QrScanner not loaded')
+      return
+    }
+
+    const overlay = document.createElement('div')
+    overlay.className = 'commsQrOverlay'
+    overlay.innerHTML = `
+      <div class="commsQrModal">
+        <div class="commsQrModalTitle">Scan Team QR</div>
+        <video id="commsTeamQrVideo"></video>
+        <div class="commsButtonRow">
+          <button id="commsTeamQrStopBtn" type="button" class="danger">Stop</button>
+        </div>
+      </div>
+    `
+    document.body.appendChild(overlay)
+    const video = overlay.querySelector('#commsTeamQrVideo')
+    const stopBtn = overlay.querySelector('#commsTeamQrStopBtn')
+
+    let scanner = null
+    const stop = () => {
+      try { scanner && scanner.stop() } catch (_) { /* ignore */ }
+      try { overlay.remove() } catch (_) { /* ignore */ }
+    }
+
+    try {
+      globalThis.QrScanner.WORKER_PATH = 'assets/vendor/qr-scanner-worker.min.js'
+      scanner = new globalThis.QrScanner(
+        video,
+        (result) => {
+          const text = (result && result.data) ? result.data : String(result)
+          const trimmed = String(text || '').trim()
+
+          if (trimmed.startsWith('XTOC-TEAM.')) {
+            document.getElementById('commsTeamBundle').value = trimmed
+            try {
+              this.importTeamRoster()
+            } finally {
+              stop()
+            }
+            return
+          }
+
+          // Be helpful if they scanned a key or packet instead.
+          if (trimmed.startsWith('XTOC-KEY.')) {
+            document.getElementById('commsKeyBundle').value = trimmed
+            try {
+              this.importKey()
+            } finally {
+              stop()
+            }
+            return
+          }
+
+          if (trimmed.startsWith('X1.')) {
+            document.getElementById('commsImportText').value = trimmed
+            this.reassembleAndDecode()
+            stop()
+            return
+          }
+
+          alert('QR did not look like an XTOC-TEAM roster bundle.')
+          stop()
+        },
+        { returnDetailedScanResult: true },
+      )
+      await scanner.start()
+      stopBtn.addEventListener('click', stop)
+    } catch (e) {
+      console.error(e)
+      stop()
+      alert(`QR scan failed: ${e.message || e}`)
+    }
+  }
+
+  // -----------------------------
+  // XTOC backup import (xtoc-backup-*.json)
+  // -----------------------------
+
+  setXtocImportStatus(text) {
+    const el = document.getElementById('commsXtocImportStatus')
+    if (el) el.textContent = String(text || '').trim()
+  }
+
+  readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+      try {
+        if (file && typeof file.text === 'function') {
+          file.text().then(resolve, reject)
+          return
+        }
+      } catch (_) {
+        // ignore, fall back to FileReader
+      }
+
+      const r = new FileReader()
+      r.onerror = () => reject(r.error ?? new Error('Failed to read file'))
+      r.onload = () => resolve(String(r.result ?? ''))
+      r.readAsText(file)
+    })
+  }
+
+  parseXtocBackupJson(jsonText) {
+    const obj = JSON.parse(String(jsonText || '')) || null
+    if (!obj || typeof obj !== 'object') throw new Error('Invalid backup JSON (not an object).')
+    if (obj.v !== 1 || obj.app !== 'xtoc') throw new Error('Not an XTOC backup file (expected v=1 app=xtoc).')
+    if (!Array.isArray(obj.members) || !Array.isArray(obj.teamKeys) || !Array.isArray(obj.packets)) {
+      throw new Error('Invalid XTOC backup file (missing arrays).')
+    }
+    return obj
+  }
+
+  async importXtocBackupObject(backup) {
+    const members = Array.isArray(backup?.members) ? backup.members : []
+    const teamKeys = Array.isArray(backup?.teamKeys) ? backup.teamKeys : []
+    const packets = Array.isArray(backup?.packets) ? backup.packets : []
+
+    // 1) Roster (full member records)
+    let rosterTotal = 0
+    try {
+      if (typeof globalThis.xcomUpsertRosterMembers === 'function') {
+        const res = globalThis.xcomUpsertRosterMembers(members, { replace: false })
+        if (res?.ok) rosterTotal = Number(res.total || 0) || 0
+      }
+    } catch (_) {
+      rosterTotal = 0
+    }
+
+    // 2) Team keys
+    let keysImported = 0
+    let keysFailed = 0
+    if (typeof globalThis.putTeamKey === 'function') {
+      for (const k of teamKeys) {
+        try {
+          const teamId = String(k?.teamId || '').trim()
+          const kid = Number(k?.kid)
+          const keyB64Url = String(k?.keyB64Url || '').trim()
+          if (!teamId || !Number.isFinite(kid) || !keyB64Url) {
+            keysFailed++
+            continue
+          }
+          globalThis.putTeamKey(teamId, kid, keyB64Url)
+          keysImported++
+        } catch (_) {
+          keysFailed++
+        }
+      }
+    }
+
+    // 3) Packets: store ALL packets in IndexedDB, and add geo packets to the Imported overlay
+    let packetsParsed = 0
+    let packetsStored = 0
+    let packetsStoreSkipped = 0
+    let packetsNoGeo = 0
+    let markersAdded = 0
+    let markersDup = 0
+    let zoneDecoded = 0
+    let zoneDecodeFailed = 0
+
+    const parse = globalThis.parsePacket
+    const canStore = typeof globalThis.xcomPutXtocPackets === 'function'
+    const canOverlay = typeof globalThis.addImportedPackets === 'function' || typeof globalThis.addImportedPacket === 'function'
+
+    const toStore = []
+    const toOverlay = []
+
+    for (const rec of packets) {
+      const raw = String(rec?.raw || '').trim()
+      if (!raw) continue
+      if (typeof parse !== 'function') continue
+      const wrapper = parse(raw)
+      if (!wrapper) continue
+      packetsParsed++
+
+      const key = this.makeXtocPacketStoreKey(wrapper)
+      const receivedAt = Number(rec?.createdAt || 0) || Number(backup?.exportedAt || 0) || Date.now()
+      const summaryFromBackup = String(rec?.summary || '').trim()
+      let summary = summaryFromBackup
+      if (!summary) {
+        const modeLabel = wrapper?.mode === 'S' ? 'SECURE' : 'CLEAR'
+        summary = `${this.templateName(wrapper?.templateId)} (${modeLabel}) ID ${String(wrapper?.id || '').trim()}`.trim()
+      }
+
+      let decodedObj = null
+      let decodeError = ''
+      let features = []
+      let hasGeo = false
+
+      // Zones require decode to get geometry.
+      if (Number(wrapper?.templateId) === 7) {
+        try {
+          decodedObj = this.decodeParsedWrapper(wrapper)
+          zoneDecoded++
+          if (!summaryFromBackup) summary = this.summaryFromDecoded(wrapper, decodedObj)
+          features = this.buildImportedFeatures({ key, wrapper, decodedObj, summary, receivedAt })
+          hasGeo = Array.isArray(features) && features.length > 0
+        } catch (e) {
+          zoneDecodeFailed++
+          decodeError = e?.message ? String(e.message) : String(e)
+          features = []
+          hasGeo = false
+        }
+      } else {
+        // Location-bearing templates: use the lat/lon that XTOC already normalized into the backup record.
+        const lat = Number(rec?.lat)
+        const lon = Number(rec?.lon)
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          hasGeo = true
+          const mode = wrapper?.mode === 'S' ? 'S' : 'C'
+          const kid = mode === 'S' ? Number(wrapper?.kid) : undefined
+          const baseProps = {
+            source: 'imported',
+            templateId: Number(wrapper?.templateId) || 0,
+            mode,
+            packetId: String(wrapper?.id || '').trim(),
+            kid: Number.isFinite(kid) ? kid : undefined,
+            summary,
+            note: raw,
+            receivedAt,
+          }
+          features = [
+            {
+              type: 'Feature',
+              id: `imported:${key}:loc`,
+              geometry: { type: 'Point', coordinates: [lon, lat] },
+              properties: { ...baseProps, kind: 'loc' },
+            },
+          ]
+        }
+      }
+
+      if (!hasGeo) packetsNoGeo++
+
+      // Store packet (even without geo)
+      toStore.push({
+        key,
+        templateId: Number(wrapper?.templateId) || 0,
+        mode: wrapper?.mode === 'S' ? 'S' : 'C',
+        id: String(wrapper?.id || '').trim(),
+        ...(wrapper?.mode === 'S' && Number.isFinite(Number(wrapper?.kid)) ? { kid: Number(wrapper.kid) } : {}),
+        part: Number(wrapper?.part) || 1,
+        total: Number(wrapper?.total) || 1,
+        raw,
+        storedAt: Date.now(),
+        receivedAt,
+        source: 'xtocBackup',
+        summary,
+        ...(decodedObj ? { decoded: decodedObj } : {}),
+        ...(decodeError ? { decodeError } : {}),
+        hasGeo,
+        features: Array.isArray(features) ? features : [],
+      })
+
+      // Map overlay (Imported) - batch to avoid N localStorage rewrites for large imports.
+      if (hasGeo && canOverlay) {
+        toOverlay.push({
+          key,
+          raw,
+          templateId: wrapper.templateId,
+          mode: wrapper.mode,
+          packetId: wrapper.id,
+          kid: wrapper.mode === 'S' ? wrapper.kid : undefined,
+          summary,
+          features,
+        })
+      }
+    }
+
+    if (canOverlay && toOverlay.length > 0) {
+      try {
+        if (typeof globalThis.addImportedPackets === 'function') {
+          const addRes = globalThis.addImportedPackets(toOverlay)
+          if (addRes?.ok) {
+            markersAdded = Number(addRes.added || 0) || 0
+            markersDup = Number(addRes.dup || 0) || 0
+          }
+        } else if (typeof globalThis.addImportedPacket === 'function') {
+          for (const e of toOverlay) {
+            try {
+              const addRes = globalThis.addImportedPacket(e)
+              if (addRes?.ok) {
+                if (addRes.added) markersAdded++
+                else markersDup++
+              }
+            } catch (_) {
+              // ignore
+            }
+          }
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    if (canStore && toStore.length > 0) {
+      const putRes = await globalThis.xcomPutXtocPackets(toStore, { mergeSources: true })
+      if (putRes?.ok) {
+        packetsStored = Number(putRes.put || 0) || 0
+        packetsStoreSkipped = Number(putRes.skipped || 0) || 0
+        this.notifyXtocPacketsUpdated()
+      } else {
+        packetsStored = 0
+        packetsStoreSkipped = toStore.length
+      }
+    }
+
+    return {
+      ok: true,
+      rosterTotal,
+      keysImported,
+      keysFailed,
+      packetsParsed,
+      packetsStored,
+      packetsStoreSkipped,
+      packetsNoGeo,
+      markersAdded,
+      markersDup,
+      zoneDecoded,
+      zoneDecodeFailed,
+    }
+  }
+
+  async importXtocBackup() {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json,application/json'
+
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0]
+      if (!file) return
+
+      try {
+        this.setXtocImportStatus('Importing...')
+        const text = await this.readFileAsText(file)
+        const backup = this.parseXtocBackupJson(text)
+        const res = await this.importXtocBackupObject(backup)
+
+        // Refresh UI bits that rely on localStorage
+        try { this.updateKeySummary() } catch (_) { /* ignore */ }
+        try { this.updateRosterStatus() } catch (_) { /* ignore */ }
+        try { this.refreshImportedRawList() } catch (_) { /* ignore */ }
+
+        const msg =
+          `Imported XTOC backup: ` +
+          `${res.rosterTotal ? `${res.rosterTotal} roster member(s), ` : ''}` +
+          `${res.keysImported} key(s), ` +
+          `${res.packetsStored || 0} packet(s), ` +
+          `${res.markersAdded} marker(s)` +
+          `${res.markersDup ? ` (${res.markersDup} already present)` : ''}.`
+
+        this.setXtocImportStatus(msg)
+        alert(msg)
+      } catch (e) {
+        const msg = e?.message ? String(e.message) : String(e)
+        this.setXtocImportStatus(`Import failed: ${msg}`)
+        alert(msg)
+      } finally {
+        try { input.value = '' } catch (_) { /* ignore */ }
+      }
+    }, { once: true })
+
+    input.click()
   }
 
   scheduleImportRefresh() {
@@ -1455,6 +2142,7 @@ class CommsModule {
     this._importParseTimer = setTimeout(() => {
       this._importParseTimer = null
       try { this.refreshImportMessageList({ keepSelection: true, preferLatestComplete: false }) } catch (_) { /* ignore */ }
+      try { this.updateImportToMapButtonState(null) } catch (_) { /* ignore */ }
     }, 150)
   }
 
@@ -1468,8 +2156,84 @@ class CommsModule {
       case 5: return 'RESOURCE'
       case 6: return 'ASSET'
       case 7: return 'ZONE'
+      case 8: return 'MISSION'
       default: return `T=${String(templateId)}`
     }
+  }
+
+  notifyXtocPacketsUpdated() {
+    try {
+      globalThis.dispatchEvent(new Event('xcomXtocPacketsUpdated'))
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  makeXtocPacketStoreKey(wrapper) {
+    const tpl = Number(wrapper?.templateId) || 0
+    const mode = wrapper?.mode === 'S' ? 'S' : 'C'
+    const id = String(wrapper?.id || '').trim()
+    const kid = mode === 'S' ? Number(wrapper?.kid) : undefined
+
+    if (mode === 'S' && Number.isFinite(kid)) return `X1:${tpl}:${mode}:${id}:${kid}`
+    return `X1:${tpl}:${mode}:${id}`
+  }
+
+  packetAtFromDecoded(wrapper, decodedObj) {
+    try {
+      const tpl = Number(wrapper?.templateId) || 0
+      if (!decodedObj || typeof decodedObj !== 'object') return null
+      const n = tpl === 8 ? Number(decodedObj?.updatedAt) : Number(decodedObj?.t)
+      return Number.isFinite(n) && n > 0 ? n : null
+    } catch (_) {
+      return null
+    }
+  }
+
+  async storeXtocPacketToDb(args) {
+    if (typeof globalThis.xcomPutXtocPacket !== 'function') return { ok: false, reason: 'Packet store helpers not loaded' }
+
+    const wrapper = args?.wrapper
+    const raw = String(wrapper?.raw || '').trim()
+    if (!raw) return { ok: false, reason: 'Missing wrapper raw' }
+
+    const storedAt = Date.now()
+    const receivedAt = Number(args?.receivedAt || 0) || storedAt
+
+    const templateId = Number(wrapper?.templateId) || 0
+    const mode = wrapper?.mode === 'S' ? 'S' : 'C'
+    const packetId = String(wrapper?.id || '').trim()
+    const kid = mode === 'S' ? Number(wrapper?.kid) : undefined
+
+    const packetAt = this.packetAtFromDecoded(wrapper, args?.decodedObj)
+
+    const decodeError = args?.decodeError ? String(args.decodeError) : ''
+    const features = Array.isArray(args?.features) ? args.features : []
+    const hasGeo = args?.hasGeo === true ? true : (features.length > 0)
+
+    const rec = {
+      key: String(args?.key || this.makeXtocPacketStoreKey(wrapper)),
+      templateId,
+      mode,
+      id: packetId,
+      ...(mode === 'S' && Number.isFinite(kid) ? { kid } : {}),
+      part: Number(wrapper?.part) || 1,
+      total: Number(wrapper?.total) || 1,
+      raw,
+      storedAt,
+      receivedAt,
+      ...(packetAt != null ? { packetAt } : {}),
+      source: String(args?.source || 'unknown'),
+      ...(args?.summary ? { summary: String(args.summary) } : {}),
+      ...(args?.decodedObj ? { decoded: args.decodedObj } : {}),
+      ...(decodeError ? { decodeError } : {}),
+      hasGeo,
+      features,
+    }
+
+    const res = await globalThis.xcomPutXtocPacket(rec)
+    if (res?.ok && args?.notify !== false) this.notifyXtocPacketsUpdated()
+    return res
   }
 
   escapeHtml(s) {
@@ -1489,6 +2253,344 @@ class CommsModule {
     return {
       local: d.toLocaleString(),
       utc: d.toISOString(),
+    }
+  }
+
+  summaryFromDecoded(wrapper, decoded) {
+    const tpl = Number(wrapper?.templateId) || 0
+    const isSecure = wrapper?.mode === 'S'
+
+    const priLabel = (n) => {
+      const i = Math.max(0, Math.min(3, Math.floor(Number(n) || 0)))
+      return ['P1', 'P2', 'P3', 'UNK'][i] || 'UNK'
+    }
+    const statusLabel = (n) => {
+      const i = Math.max(0, Math.min(3, Math.floor(Number(n) || 0)))
+      return ['OK', 'HELP', 'RTB', 'UNK'][i] || 'UNK'
+    }
+
+    if (tpl === 4) {
+      const unitId = Number(decoded?.unitId)
+      const lat = Number(decoded?.lat)
+      const lon = Number(decoded?.lon)
+      if (isSecure) return `SECURE CHECKIN U${Number.isFinite(unitId) ? unitId : ''}`.trim()
+      if (Number.isFinite(lat) && Number.isFinite(lon) && Number.isFinite(unitId)) {
+        return `CHECKIN U${unitId} ${lat.toFixed(4)},${lon.toFixed(4)}`
+      }
+      return `CHECKIN${Number.isFinite(unitId) ? ` U${unitId}` : ''}`.trim()
+    }
+
+    if (tpl === 1) {
+      const pri = priLabel(decoded?.pri)
+      const st = statusLabel(decoded?.status)
+      const src = Number(decoded?.src)
+      const dst = Number(decoded?.dst)
+      const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
+      const head = `${pri} ${st} FROM U${Number.isFinite(src) ? src : ''} TO ${dst === 0 ? 'ALL' : `U${Number.isFinite(dst) ? dst : ''}`}`.trim()
+      if (isSecure) return `SECURE ${head}`.trim()
+      return `${head}${note ? ` — ${note}` : ''}`.trim()
+    }
+
+    if (tpl === 2) {
+      const pri = priLabel(decoded?.pri)
+      const src = Number(decoded?.src)
+      const typeCode = Number(decoded?.typeCode)
+      const count = Number(decoded?.count)
+      const dir = Number(decoded?.dir)
+      const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
+      const head = `${pri} CONTACT U${Number.isFinite(src) ? src : ''} type=${Number.isFinite(typeCode) ? typeCode : ''} count=${Number.isFinite(count) ? count : ''} dir=${Number.isFinite(dir) ? dir : ''}`.trim()
+      if (isSecure) return `SECURE ${head}`.trim()
+      return `${head}${note ? ` — ${note}` : ''}`.trim()
+    }
+
+    if (tpl === 3) {
+      const pri = priLabel(decoded?.pri)
+      const src = Number(decoded?.src)
+      const dst = Number(decoded?.dst)
+      const actionCode = Number(decoded?.actionCode)
+      const dueMins = Number(decoded?.dueMins)
+      const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
+      const head = `${pri} TASK U${Number.isFinite(src) ? src : ''}→${dst === 0 ? 'ALL' : `U${Number.isFinite(dst) ? dst : ''}`} action=${Number.isFinite(actionCode) ? actionCode : ''} due=${Number.isFinite(dueMins) ? dueMins : ''}m`.trim()
+      if (isSecure) return `SECURE ${head}`.trim()
+      return `${head}${note ? ` — ${note}` : ''}`.trim()
+    }
+
+    if (tpl === 5) {
+      const pri = priLabel(decoded?.pri)
+      const src = Number(decoded?.src)
+      const itemCode = Number(decoded?.itemCode)
+      const qty = Number(decoded?.qty)
+      const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
+      const head = `${pri} RESOURCE U${Number.isFinite(src) ? src : ''} item=${Number.isFinite(itemCode) ? itemCode : ''} qty=${Number.isFinite(qty) ? qty : ''}`.trim()
+      if (isSecure) return `SECURE ${head}`.trim()
+      return `${head}${note ? ` — ${note}` : ''}`.trim()
+    }
+
+    if (tpl === 6) {
+      const src = Number(decoded?.src)
+      const condition = Number(decoded?.condition)
+      const typeCode = Number(decoded?.typeCode)
+      const label = String(decoded?.label || '').trim()
+      const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
+      const head = `ASSET U${Number.isFinite(src) ? src : ''} cond=${Number.isFinite(condition) ? condition : ''} type=${Number.isFinite(typeCode) ? typeCode : ''}`.trim()
+      if (isSecure) return `SECURE ${head}${label ? ` \"${label}\"` : ''}`.trim()
+      return `${head}${label ? ` \"${label}\"` : ''}${note ? ` — ${note}` : ''}`.trim()
+    }
+
+    if (tpl === 7) {
+      const threat = Number(decoded?.threat)
+      const meaningCode = Number(decoded?.meaningCode)
+      const label = String(decoded?.label || '').trim()
+      const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
+      const src = Number(decoded?.src)
+
+      const threatLabel = ['SAFE', 'DANGER', 'UNKNOWN'][Math.max(0, Math.min(2, Math.floor(threat || 0)))] || 'UNKNOWN'
+      const head = `${threatLabel} ZONE${Number.isFinite(src) ? ` U${src}` : ''} meaning=${Number.isFinite(meaningCode) ? meaningCode : ''}`.trim()
+
+      if (isSecure) return `SECURE ${head}${label ? ` \"${label}\"` : ''}`.trim()
+      return `${head}${label ? ` \"${label}\"` : ''}${note ? ` — ${note}` : ''}`.trim()
+    }
+
+    if (tpl === 8) {
+      const pri = priLabel(decoded?.pri)
+      const status = String(decoded?.status || '').trim() || 'PLANNED'
+      const missionId = String(decoded?.id || '').trim()
+      const title = String(decoded?.title || '').trim()
+      const notes = !isSecure && decoded?.notes ? String(decoded.notes).trim() : ''
+
+      const head = `${pri} ${status} MISSION`.trim()
+      const mid = missionId ? ` ${missionId}` : ''
+      const quotedTitle = title ? ` \"${title}\"` : ''
+
+      if (isSecure) return `SECURE ${head}${mid}${quotedTitle}`.trim()
+      return `${head}${mid}${quotedTitle}${notes ? ` — ${notes}` : ''}`.trim()
+    }
+
+    const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
+    return `${isSecure ? 'SECURE ' : ''}T=${String(tpl || '')}${note ? ` — ${note}` : ''}`.trim()
+  }
+
+  buildImportedFeatures(args) {
+    const key = String(args?.key || '')
+    const wrapper = args?.wrapper
+    const decodedObj = args?.decodedObj
+    const summary = String(args?.summary || '').trim()
+    const receivedAtRaw = Number(args?.receivedAt || 0)
+    const receivedAt = (Number.isFinite(receivedAtRaw) && receivedAtRaw > 0) ? receivedAtRaw : Date.now()
+
+    const t = Number(wrapper?.templateId)
+    const mode = wrapper?.mode === 'S' ? 'S' : 'C'
+    const packetId = String(wrapper?.id || '').trim()
+    const kid = mode === 'S' ? Number(wrapper?.kid) : undefined
+    const raw = String(wrapper?.raw || '').trim()
+
+    const packetAt = this.packetAtFromDecoded(wrapper, decodedObj)
+
+    const baseProps = {
+      source: 'imported',
+      templateId: Number.isFinite(t) ? t : 0,
+      mode,
+      packetId,
+      kid: Number.isFinite(kid) ? kid : undefined,
+      summary,
+      note: raw,
+      receivedAt,
+      ...(packetAt != null ? { packetAt } : {}),
+    }
+
+    const feats = []
+
+    if (t === 7 && decodedObj && typeof decodedObj === 'object') {
+      const z = decodedObj
+      const shape = z?.shape
+      const threat = Number(z?.threat)
+      const meaningCode = Number(z?.meaningCode)
+      const label = z?.label ? String(z.label).trim() : ''
+      const zNote = z?.note ? String(z.note).trim() : ''
+
+      const zoneProps = {
+        ...baseProps,
+        kind: 'zone',
+        threat: Number.isFinite(threat) ? threat : undefined,
+        meaningCode: Number.isFinite(meaningCode) ? meaningCode : undefined,
+        label: label || undefined,
+        note: zNote || baseProps.note,
+      }
+
+      if (shape && shape.kind === 'circle' && Number.isFinite(shape.centerLat) && Number.isFinite(shape.centerLon) && Number.isFinite(shape.radiusM)) {
+        const ring = this.circleToPolygon(shape.centerLat, shape.centerLon, shape.radiusM, 72)
+        if (Array.isArray(ring) && ring.length >= 4) {
+          feats.push({
+            type: 'Feature',
+            id: `imported:${key}:zone`,
+            geometry: { type: 'Polygon', coordinates: [ring] },
+            properties: zoneProps,
+          })
+        }
+        feats.push({
+          type: 'Feature',
+          id: `imported:${key}:zoneCenter`,
+          geometry: { type: 'Point', coordinates: [Number(shape.centerLon), Number(shape.centerLat)] },
+          properties: { ...zoneProps, kind: 'zoneCenter' },
+        })
+        return feats
+      }
+
+      if (shape && (shape.kind === 'poly' || shape.kind === 'polygon')) {
+        const pts = Array.isArray(shape.points) ? shape.points : []
+        const ring = pts
+          .filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
+          .map((p) => [Number(p.lon), Number(p.lat)])
+        if (ring.length >= 3) {
+          ring.push(ring[0])
+          feats.push({
+            type: 'Feature',
+            id: `imported:${key}:zone`,
+            geometry: { type: 'Polygon', coordinates: [ring] },
+            properties: zoneProps,
+          })
+
+          const avg = ring.slice(0, -1).reduce((acc, c) => {
+            acc.lon += Number(c[0])
+            acc.lat += Number(c[1])
+            acc.n += 1
+            return acc
+          }, { lon: 0, lat: 0, n: 0 })
+          if (avg.n > 0) {
+            feats.push({
+              type: 'Feature',
+              id: `imported:${key}:zoneCenter`,
+              geometry: { type: 'Point', coordinates: [avg.lon / avg.n, avg.lat / avg.n] },
+              properties: { ...zoneProps, kind: 'zoneCenter' },
+            })
+          }
+          return feats
+        }
+      }
+
+      return feats
+    }
+
+    if (decodedObj && typeof decodedObj === 'object' && Number.isFinite(decodedObj?.lat) && Number.isFinite(decodedObj?.lon)) {
+      feats.push({
+        type: 'Feature',
+        id: `imported:${key}:loc`,
+        geometry: { type: 'Point', coordinates: [Number(decodedObj.lon), Number(decodedObj.lat)] },
+        properties: { ...baseProps, kind: 'loc' },
+      })
+    }
+
+    return feats
+  }
+
+  getActiveImportWrapper() {
+    const messages = this.refreshImportMessageList({ keepSelection: true, preferLatestComplete: true })
+    const selKey = String(document.getElementById('commsImportMsgSelect')?.value || '').trim()
+    const active = messages.find((m) => m.key === selKey) || messages[0] || null
+    if (!active) throw new Error('No valid packets found')
+
+    if (!active.complete) {
+      throw new Error(`Selected packet is incomplete (missing: ${active.missingParts.join(', ')}).`)
+    }
+
+    let parsed = null
+    if (active.total === 1) {
+      parsed = active.parts.get(1) || Array.from(active.parts.values())[0] || null
+    } else {
+      if (typeof window.reassemblePackets !== 'function' || typeof window.parsePacket !== 'function') {
+        throw new Error('Chunking helpers not loaded')
+      }
+      const res = window.reassemblePackets(Array.from(active.parts.values()))
+      if (!res.ok) throw new Error(res.reason)
+      parsed = window.parsePacket(res.packet)
+      if (!parsed) throw new Error('Failed to parse reassembled packet')
+    }
+
+    return { active, wrapper: parsed }
+  }
+
+  getActiveImportDecoded() {
+    const res = this.getActiveImportWrapper()
+    const obj = this.decodeParsedWrapper(res.wrapper)
+    return { active: res.active, wrapper: res.wrapper, decodedObj: obj }
+  }
+
+  updateImportToMapButtonState(args) {
+    const btn = document.getElementById('commsImportToMapBtn')
+    if (!btn) return
+
+    try {
+      if (!args?.wrapper || !args?.decodedObj) {
+        btn.disabled = true
+        return
+      }
+      const key = 'preview'
+      const summary = this.summaryFromDecoded(args.wrapper, args.decodedObj)
+      const feats = this.buildImportedFeatures({ key, wrapper: args.wrapper, decodedObj: args.decodedObj, summary })
+      btn.disabled = feats.length === 0
+    } catch (_) {
+      btn.disabled = true
+    }
+  }
+
+  importSelectedToMap() {
+    try {
+      const decoded = this.getActiveImportDecoded()
+      const key = this.makeXtocPacketStoreKey(decoded.wrapper)
+      const receivedAt = Date.now()
+      const summary = this.summaryFromDecoded(decoded.wrapper, decoded.decodedObj)
+      const feats = this.buildImportedFeatures({ key, wrapper: decoded.wrapper, decodedObj: decoded.decodedObj, summary, receivedAt })
+
+      if (feats.length === 0) {
+        alert('This packet has no location/zone to show on the map.')
+        return
+      }
+
+      if (typeof globalThis.addImportedPacket !== 'function') {
+        throw new Error('Imported storage helpers not loaded')
+      }
+
+      const res = globalThis.addImportedPacket({
+        key,
+        raw: decoded.wrapper.raw,
+        templateId: decoded.wrapper.templateId,
+        mode: decoded.wrapper.mode,
+        packetId: decoded.wrapper.id,
+        kid: decoded.wrapper.mode === 'S' ? decoded.wrapper.kid : undefined,
+        summary,
+        features: feats,
+      })
+
+      if (!res?.ok) throw new Error(res?.reason || 'Import failed')
+
+      try {
+        if (typeof globalThis.setTacticalMapImportedEnabled === 'function') {
+          globalThis.setTacticalMapImportedEnabled(true)
+        }
+      } catch (_) {
+        // ignore
+      }
+
+      this.refreshImportedRawList()
+      window.radioApp.updateStatus(res.added ? 'Imported to map' : 'Already imported')
+
+      // Also persist in the XTOC packet store for list/search/history.
+      try {
+        void this.storeXtocPacketToDb({
+          key,
+          wrapper: decoded.wrapper,
+          decodedObj: decoded.decodedObj,
+          summary,
+          receivedAt,
+          source: 'comms',
+          features: feats,
+          hasGeo: true,
+        })
+      } catch (_) {
+        // ignore
+      }
+    } catch (e) {
+      alert(e?.message || String(e))
     }
   }
 
@@ -1658,7 +2760,11 @@ class CommsModule {
     const modeLabel = wrapper?.mode === 'S' ? 'SECURE' : 'CLEAR'
     const templateLabel = this.templateName(wrapper?.templateId)
 
-    const time = this.formatTimeParts(decodedObj?.t)
+    const t = Number(wrapper?.templateId)
+    const at = t === 8
+      ? (decodedObj?.updatedAt ?? decodedObj?.createdAt ?? decodedObj?.t)
+      : decodedObj?.t
+    const time = this.formatTimeParts(at)
     const title = `${templateLabel} (${modeLabel})`
 
     const kv = []
@@ -1675,7 +2781,6 @@ class CommsModule {
     addKV('Timestamp (Local)', time.local)
     addKV('Timestamp (UTC)', time.utc)
 
-    const t = Number(wrapper?.templateId)
     if (t === 4) {
       addKV('Unit ID', decodedObj?.unitId)
       addKV('Status code', decodedObj?.status)
@@ -1746,6 +2851,21 @@ class CommsModule {
         const pts = Array.isArray(shape.points) ? shape.points : []
         addKV('Zone shape', `Polygon (${pts.length} points)`)
       }
+    } else if (t === 8) {
+      addKV('Mission ID', decodedObj?.id)
+      addKV('Title', decodedObj?.title)
+      addKV('Status', decodedObj?.status)
+      addKV('Priority', decodedObj?.pri)
+      addKV('Assigned To', decodedObj?.assignedTo)
+      if (Number.isFinite(decodedObj?.lat) && Number.isFinite(decodedObj?.lon)) {
+        addKV('Location', `${Number(decodedObj.lat).toFixed(5)}, ${Number(decodedObj.lon).toFixed(5)}`)
+      }
+      if (decodedObj?.locationLabel) addKV('Location label', decodedObj.locationLabel)
+      if (Number.isFinite(decodedObj?.dueAt) && Number(decodedObj.dueAt) > 0) {
+        addKV('Due (Local)', this.formatTimeParts(decodedObj.dueAt).local)
+        addKV('Due (UTC)', this.formatTimeParts(decodedObj.dueAt).utc)
+      }
+      if (decodedObj?.notes) addKV('Notes', decodedObj.notes)
     }
 
     const rowsHtml = kv
@@ -2291,7 +3411,7 @@ class CommsModule {
     return add.length
   }
 
-  maybeAutoDecodeLatestComplete() {
+  maybeAutoDecodeLatestComplete(opts = {}) {
     const messages = this.refreshImportMessageList({ keepSelection: false, preferLatestComplete: true })
     const sel = document.getElementById('commsImportMsgSelect')
     if (!sel) return
@@ -2305,7 +3425,63 @@ class CommsModule {
     const active = messages.find((m) => m.key === key) || null
     if (!active || !active.complete) return
 
-    this.reassembleAndDecode({ auto: true })
+    this.reassembleAndDecode({ auto: true, ...(opts?.source ? { source: String(opts.source) } : {}) })
+  }
+
+  maybeStoreCompleteImportMessages(messages, source) {
+    const list = Array.isArray(messages) ? messages : []
+    if (list.length === 0) return
+
+    // Best-effort: store the newest few complete packets even if we skip auto-decoding
+    // (e.g., user recently touched the selection and we don't want to steal focus).
+    let stored = 0
+    const limit = 4
+
+    for (const m of list) {
+      if (!m?.complete) continue
+      const msgKey = String(m?.key || '').trim()
+      if (!msgKey) continue
+      if (this._importStoredKeys && this._importStoredKeys.has(msgKey)) continue
+
+      let wrapper = null
+      try {
+        if (m.total === 1) {
+          wrapper = m.parts.get(1) || Array.from(m.parts.values())[0] || null
+        } else if (typeof window.reassemblePackets === 'function' && typeof window.parsePacket === 'function') {
+          const res = window.reassemblePackets(Array.from(m.parts.values()))
+          if (res.ok) wrapper = window.parsePacket(res.packet)
+        }
+      } catch (_) {
+        wrapper = null
+      }
+      if (!wrapper) continue
+
+      const storeKey = this.makeXtocPacketStoreKey(wrapper)
+      const summary = `${this.templateName(wrapper?.templateId)} (${wrapper?.mode === 'S' ? 'SECURE' : 'CLEAR'}) ID ${String(wrapper?.id || '').trim()}`.trim()
+
+      try {
+        if (this._importStoredKeys) this._importStoredKeys.add(msgKey)
+        if (this._importStoredKeys && this._importStoredKeys.size > 6000) this._importStoredKeys.clear()
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        void this.storeXtocPacketToDb({
+          key: storeKey,
+          wrapper,
+          summary,
+          receivedAt: Date.now(),
+          source: String(source || 'unknown'),
+          notify: true,
+        })
+      } catch (_) {
+        // ignore
+      }
+
+      stored++
+      if (stored >= limit) break
+    }
   }
 
   processIncomingMeshTraffic(state) {
@@ -2357,10 +3533,12 @@ class CommsModule {
       const touchedAt = Number(this._importSelectionTouchedAt || 0)
       const recentlyTouched = touchedAt > 0 && (Date.now() - touchedAt) < 8000
       if (!recentlyTouched) {
-        this.maybeAutoDecodeLatestComplete()
+        this._importAutoSourceHint = 'mesh'
+        this.maybeAutoDecodeLatestComplete({ source: 'mesh' })
       } else {
         // Still refresh list so the new message appears.
-        this.refreshImportMessageList({ keepSelection: true, preferLatestComplete: false })
+        const msgs = this.refreshImportMessageList({ keepSelection: true, preferLatestComplete: false })
+        this.maybeStoreCompleteImportMessages(msgs, 'mesh')
       }
     }
   }
@@ -2424,9 +3602,11 @@ class CommsModule {
       const touchedAt = Number(this._importSelectionTouchedAt || 0)
       const recentlyTouched = touchedAt > 0 && (Date.now() - touchedAt) < 8000
       if (!recentlyTouched) {
-        this.maybeAutoDecodeLatestComplete()
+        this._importAutoSourceHint = 'manet'
+        this.maybeAutoDecodeLatestComplete({ source: 'manet' })
       } else {
-        this.refreshImportMessageList({ keepSelection: true, preferLatestComplete: false })
+        const msgs = this.refreshImportMessageList({ keepSelection: true, preferLatestComplete: false })
+        this.maybeStoreCompleteImportMessages(msgs, 'manet')
       }
     }
   }
@@ -2464,11 +3644,58 @@ class CommsModule {
         if (!parsed) throw new Error('Failed to parse reassembled packet')
       }
 
-      const obj = this.decodeParsedWrapper(parsed)
-      if (decoded) decoded.textContent = JSON.stringify({ wrapper: parsed, decoded: obj }, null, 2)
+      const receivedAt = Date.now()
+      const source = opts?.source
+        ? String(opts.source)
+        : ((opts?.auto && this._importAutoSourceHint) ? String(this._importAutoSourceHint) : 'comms')
 
-      this.renderDecodedHuman(parsed, obj)
-      try { this.updateImportMapPreview(parsed, obj) } catch (_) { /* ignore */ }
+      let obj = null
+      let decodeError = ''
+      try {
+        obj = this.decodeParsedWrapper(parsed)
+      } catch (e) {
+        decodeError = e?.message ? String(e.message) : String(e)
+        obj = null
+      }
+
+      if (obj) {
+        if (decoded) decoded.textContent = JSON.stringify({ wrapper: parsed, decoded: obj }, null, 2)
+        this.renderDecodedHuman(parsed, obj)
+        try { this.updateImportMapPreview(parsed, obj) } catch (_) { /* ignore */ }
+        try { this.updateImportToMapButtonState({ wrapper: parsed, decodedObj: obj }) } catch (_) { /* ignore */ }
+      } else {
+        const msg = decodeError || 'Decode failed'
+        if (decoded) decoded.textContent = `Error: ${msg}`
+        const human = document.getElementById('commsDecodedHuman')
+        if (human) {
+          human.innerHTML = `<div class="commsWarn">Error: ${this.escapeHtml(msg)}</div>`
+        }
+        try { this.setImportMapFeatures([]) } catch (_) { /* ignore */ }
+        try { this.updateImportToMapButtonState(null) } catch (_) { /* ignore */ }
+      }
+
+      // Persist ALL packets (even if decode failed) to IndexedDB for XTOC Data module/history.
+      try {
+        const key = this.makeXtocPacketStoreKey(parsed)
+        const summary = obj
+          ? this.summaryFromDecoded(parsed, obj)
+          : `${this.templateName(parsed?.templateId)} (${parsed?.mode === 'S' ? 'SECURE' : 'CLEAR'}) ID ${String(parsed?.id || '').trim()}`.trim()
+        const feats = obj ? this.buildImportedFeatures({ key, wrapper: parsed, decodedObj: obj, summary, receivedAt }) : []
+
+        void this.storeXtocPacketToDb({
+          key,
+          wrapper: parsed,
+          ...(obj ? { decodedObj: obj } : {}),
+          ...(decodeError ? { decodeError } : {}),
+          summary,
+          receivedAt,
+          source,
+          features: feats,
+          hasGeo: feats.length > 0,
+        })
+      } catch (_) {
+        // ignore
+      }
 
       this._lastDecodedKey = active?.key || selKey || null
     } catch (e) {
@@ -2479,6 +3706,7 @@ class CommsModule {
         human.innerHTML = `<div class="commsWarn">Error: ${this.escapeHtml(msg)}</div>`
       }
       try { this.setImportMapFeatures([]) } catch (_) { /* ignore */ }
+      try { this.updateImportToMapButtonState(null) } catch (_) { /* ignore */ }
     }
   }
 
@@ -2498,6 +3726,8 @@ class CommsModule {
         return window.decodeAssetClear(payloadB64Url)
       case 7:
         return window.decodeZoneClear(payloadB64Url)
+      case 8:
+        return window.decodeMissionClear(payloadB64Url)
       default:
         return { payloadB64Url }
     }

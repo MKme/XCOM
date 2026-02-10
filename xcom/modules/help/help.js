@@ -109,7 +109,11 @@ class HelpModule {
                         </div>
                         <div class="module-card">
                             <h3>XTOC Comm</h3>
-                            <p>XTOC-compatible packet workshop: generate CLEAR/SECURE packets, chunk for transport limits, QR export/scan, and optional Meshtastic send.</p>
+                            <p>XTOC-compatible packet workshop + import bridge: generate CLEAR/SECURE packets, chunk for transport limits, QR export/scan, mesh/MANET send, and import XTOC backups (roster + keys + packets).</p>
+                        </div>
+                        <div class="module-card">
+                            <h3>XTOC Data</h3>
+                            <p>Local packet archive: browse/search all stored XTOC packets (including non-location), copy raw wrappers/summaries, and import geo packets to the tactical map.</p>
                         </div>
                         <div class="module-card">
                             <h3>Logbook</h3>
@@ -125,11 +129,11 @@ class HelpModule {
                         </div>
                         <div class="module-card">
                             <h3>Mesh</h3>
-                            <p>Connect to a Meshtastic device (Web Bluetooth), configure destination/channel, send test messages, and view inbound/outbound traffic. XTOC Comm can send generated packets directly over the mesh.</p>
+                            <p>Connect to a Meshtastic or MeshCore device (Web Bluetooth), configure destination/channel, send test messages, and view inbound/outbound traffic. XTOC Comm can send generated packets directly over the mesh.</p>
                         </div>
                         <div class="module-card">
                             <h3>Map</h3>
-                            <p>XTOC-style tactical map with optional offline raster tile caching. Pan/zoom to set your AO and download tiles for offline use.</p>
+                            <p>XTOC-style tactical map with optional offline raster tile caching, plus an Imported overlay for XTOC packet markers/zones with XTOC-style icons and per-type toggles (last 7 days rendered by default).</p>
                         </div>
                         <div class="module-card">
                             <h3>Help</h3>
@@ -190,21 +194,21 @@ class HelpModule {
                     <h2>XTOC Comm Module</h2>
                     <h3>Overview</h3>
                     <p>
-                        XTOC Comm is an XTOC-compatible packet workshop: create standardized reports, chunk them for transport limits, and move them via copy/paste, QR, Mesh, or MANET (LAN).
-                        It also supports importing packets for local decode/reassembly.
+                        XTOC Comm is an XTOC-compatible packet workshop and import bridge: create standardized reports, chunk them for transport limits, and move them via copy/paste, QR, Mesh, or MANET (LAN).
+                        It also supports importing XTOC exports so field devices have roster labels, SECURE keys (KID), and packet history for offline operations.
                     </p>
 
                     <h3>Creating packets</h3>
                     <ul>
-                        <li><strong>Templates:</strong> T=1&ndash;7 (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE).</li>
+                        <li><strong>Templates:</strong> T=1&ndash;8 (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION).</li>
                         <li><strong>Modes:</strong> <strong>CLEAR</strong> (human-readable fields) or <strong>SECURE</strong> (encrypted).</li>
-                        <li><strong>Transport profiles:</strong> choose Copy/Paste, JS8/APRS, Winlink, Meshtastic, MANET (LAN), or QR &mdash; then click <strong>Generate</strong>.</li>
+                        <li><strong>Transport profiles:</strong> choose Copy/Paste, JS8/APRS, Winlink, Meshtastic/MeshCore, MANET (LAN), or QR &mdash; then click <strong>Generate</strong>.</li>
                         <li><strong>Location tools:</strong> <strong>Pick Location</strong> and <strong>Draw Zone</strong> open a mini-map so you can embed coordinates/areas into packets.</li>
                     </ul>
 
                     <h3>SECURE mode (keys)</h3>
                     <ul>
-                        <li>SECURE requires importing an <code>XTOC-KEY</code> bundle (paste or QR scan).</li>
+                        <li>SECURE requires a team key. Import an <code>XTOC-KEY</code> bundle (paste/QR) or import an XTOC backup (keys are matched by <code>KID</code>).</li>
                         <li>Keys are stored locally on your device under the <code>xcom.xtoc.*</code> localStorage namespace.</li>
                     </ul>
 
@@ -213,8 +217,52 @@ class HelpModule {
                         <li><strong>Copy</strong> puts the generated packet lines on your clipboard.</li>
                         <li><strong>Make QR</strong> renders a scannable QR for the first packet line (best for QR/Copy-Paste transports).</li>
                         <li><strong>Scan QR</strong> (Import/Reassemble) reads packet lines from camera and decodes them.</li>
-                        <li><strong>Send via Mesh</strong> sends each generated packet line as a Meshtastic text message (requires Mesh connected).</li>
+                        <li><strong>Send via Mesh</strong> sends each generated packet line as a mesh text message (Meshtastic or MeshCore; requires Mesh connected).</li>
                         <li><strong>Send via MANET</strong> sends the generated packet text over LAN via the XTOC MANET bridge (requires MANET connected).</li>
+                    </ul>
+
+                    <h3>XTOC &rarr; XCOM import (field handoff)</h3>
+                    <p>
+                        Use this when you want to hand field devices everything they need from an XTOC export: team roster labels, SECURE keys (KID), and packet history.
+                        Imports <strong>merge</strong> into existing local data (no wipes).
+                    </p>
+                    <ol>
+                        <li>In XTOC: Topbar &rarr; <strong>Export</strong> to download <code>xtoc-backup-*.json</code>.</li>
+                        <li>In XCOM: <strong>XTOC Comm</strong> &rarr; <strong>XTOC &rarr; XCOM Import</strong> &rarr; <strong>Import Backup</strong>.</li>
+                    </ol>
+                    <ul>
+                        <li><strong>Roster:</strong> imports full member records and prefers <code>label</code> for friendly display.</li>
+                        <li><strong>Keys:</strong> imports team keys by <code>KID</code> so SECURE packets can be decrypted/decoded.</li>
+                        <li><strong>Packets:</strong> stores all packets (including non-location) in <strong>XTOC Data</strong>; geo packets are also added to the Map <strong>Imported</strong> overlay.</li>
+                    </ul>
+                    <p>
+                        <strong>Map note:</strong> Imported overlay hides markers older than 7 days by default (uses packet timestamp when available, otherwise received/import time). Toggle this in <strong>Map</strong> &rarr; <strong>Overlays</strong>.
+                    </p>
+
+                    <h3>Team roster bundle (labels only)</h3>
+                    <p>
+                        If you only need friendly labels (no packets/keys), import the roster bundle from XTOC:
+                    </p>
+                    <ul>
+                        <li>In XTOC: <strong>Team</strong> &rarr; <strong>Transfer</strong> &rarr; copy the <code>XTOC-TEAM.</code> bundle (or show the QR).</li>
+                        <li>In XCOM: <strong>XTOC Comm</strong> &rarr; paste into <strong>Team roster bundle</strong> and click <strong>Import Team</strong> (or <strong>Scan Team QR</strong>).</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h2>XTOC Data Module</h2>
+                    <h3>Overview</h3>
+                    <p>
+                        XTOC Data is a local-first packet archive. It lists and searches <strong>all</strong> stored XTOC packets on this device &mdash; including non-location packets.
+                        Packets are stored in your browser&rsquo;s IndexedDB (no cloud, no accounts).
+                    </p>
+
+                    <h3>What you can do</h3>
+                    <ul>
+                        <li><strong>Browse/search:</strong> filter by time window, source, and whether the packet has GEO.</li>
+                        <li><strong>Inspect:</strong> view raw wrapper, decoded JSON (when available), and any decode errors.</li>
+                        <li><strong>Copy:</strong> copy raw wrapper or summary for sharing.</li>
+                        <li><strong>Import to map:</strong> for packets with GEO features, add them to the Map <strong>Imported</strong> overlay.</li>
                     </ul>
                 </div>
 
@@ -227,6 +275,7 @@ class HelpModule {
                     <ul>
                         <li><strong>Import + organize:</strong> ingest packets and keep a local incident log.</li>
                         <li><strong>Map + timelines:</strong> see check-ins, reports, zones, and missions on a shared operational picture.</li>
+                        <li><strong>Field handoff:</strong> export an XTOC backup and import it into XCOM to preload roster labels, SECURE keys (KID), and packet history for off-grid devices.</li>
                         <li><strong>Local-first:</strong> install it and it keeps working offline (no accounts, no server required).</li>
                     </ul>
                     <p>
@@ -255,6 +304,16 @@ class HelpModule {
                         <li>Tiles are stored in the browser <strong>Cache Storage</strong> cache named <code>xtoc.tiles.v1</code>.</li>
                         <li>Keep AO + zoom ranges reasonable &mdash; tile downloads can get large quickly.</li>
                     </ul>
+
+                    <h3>Imported overlay (XTOC packets)</h3>
+                    <ul>
+                        <li><strong>What it is:</strong> Imported markers/zones are XTOC packet locations/zones that you imported into XCOM.</li>
+                        <li><strong>Where it comes from:</strong> <strong>XTOC Comm</strong> &rarr; <strong>Import</strong> (single packet) and <strong>XTOC Comm</strong> &rarr; <strong>XTOC &rarr; XCOM Import</strong> &rarr; <strong>Import Backup</strong> (roster + keys + packets).</li>
+                        <li><strong>Controls:</strong> open <strong>Map</strong> &rarr; <strong>Overlays</strong> and toggle <strong>Imported</strong>, <strong>Last 7 days only</strong>, and the per-type filters (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION).</li>
+                        <li><strong>7-day filter:</strong> this is render-only (older packets remain stored locally). It uses packet timestamp when available, otherwise received/import time.</li>
+                        <li><strong>Friendly labels:</strong> popups use team roster labels when available (import via <strong>Import Team</strong> or <strong>Scan Team QR</strong>).</li>
+                        <li><strong>Packet archive:</strong> all packets (including non-location) are stored in <strong>XTOC Data</strong>; geo packets can be imported to the map from there too.</li>
+                    </ul>
                 </div>
 
                 <div class="help-section">
@@ -276,20 +335,20 @@ class HelpModule {
                     <h2>Mesh Module</h2>
                     <h3>Overview</h3>
                     <p>
-                        The Mesh module connects XCOM™ to <strong>Meshtastic</strong> radios.
+                        The Mesh module connects XCOM™ to <strong>Meshtastic</strong> or <strong>MeshCore</strong> radios.
                         It is designed for offline field use and stores your mesh settings locally.
                     </p>
 
                     <h3>Requirements</h3>
                     <ul>
                         <li><strong>Web Bluetooth:</strong> works in Chrome/Edge (desktop and Android). Not supported in iOS Safari.</li>
-                        <li>A Meshtastic device with Bluetooth enabled.</li>
+                        <li>A Meshtastic or MeshCore device with Bluetooth enabled.</li>
                     </ul>
 
                     <h3>How to Use</h3>
                     <ol>
                         <li>Open <strong>Mesh</strong> and click <strong>Connect</strong>.</li>
-                        <li>Choose <strong>Broadcast</strong> (channel) or <strong>Direct</strong> (node id), set your channel and ACK preference.</li>
+                        <li>Choose <strong>Broadcast</strong> (channel) or <strong>Direct</strong> (id), set your channel and (Meshtastic only) ACK preference.</li>
                         <li>Send a <strong>Test message</strong> and confirm it appears in the Traffic log.</li>
                         <li>Open <strong>XTOC Comm</strong>, generate packets, then click <strong>Send via Mesh</strong> to transmit each packet line as a mesh text message.</li>
                     </ol>
@@ -297,7 +356,7 @@ class HelpModule {
                     <h3>Notes & Troubleshooting</h3>
                     <ul>
                         <li>If the browser cannot see your device, confirm Bluetooth is on and the device is not already connected to another client.</li>
-                        <li>If messages appear truncated, choose the <strong>Meshtastic (180 chars)</strong> transport profile in XTOC Comm before generating.</li>
+                        <li>If messages appear truncated, choose the <strong>Meshtastic (180 chars)</strong> or <strong>MeshCore (160 bytes)</strong> transport profile in XTOC Comm before generating.</li>
                         <li>Traffic and settings are stored locally under <code>xcom.mesh.*</code> keys in localStorage.</li>
                     </ul>
                 </div>
@@ -519,7 +578,7 @@ class HelpModule {
                 
                 <div class="help-section">
                     <h2>About</h2>
-                    <p>XCOM™ v1.0.25</p>
+                    <p>XCOM™ v1.0.29</p>
                     <p>&copy; 2025 - All rights reserved</p>
                     <p>This application is designed for amateur radio operators to assist with various radio-related tasks. It is continually being improved with new features and modules.</p>
 

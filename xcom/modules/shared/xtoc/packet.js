@@ -711,6 +711,227 @@ function makeZoneClearPacket(p) {
   return `X1.7.C.${id}.1/1.${encoded}`
 }
 
+// -----------------------------
+// Template 8: MISSION (CLEAR)
+// -----------------------------
+
+const MISSION_VERSION = 1
+const MISSION_MAX_ID_BYTES = 32
+const MISSION_MAX_TITLE_BYTES = 96
+const MISSION_MAX_LOC_LABEL_BYTES = 48
+const MISSION_MAX_NOTES_BYTES = 600
+
+const MISSION_STATUS = ['PLANNED', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETE', 'ABORTED']
+
+function missionStatusToCode(status) {
+  const idx = MISSION_STATUS.indexOf(status)
+  return idx >= 0 ? idx : 0
+}
+
+function missionCodeToStatus(code) {
+  return MISSION_STATUS[code] || 'PLANNED'
+}
+
+function encodeMissionClear(m) {
+  const enc = new TextEncoder()
+
+  const idBytesAll = enc.encode(String(m && m.id != null ? m.id : ''))
+  const titleBytesAll = enc.encode(String(m && m.title != null ? m.title : '').trim())
+  const idBytes = idBytesAll.subarray(0, Math.min(idBytesAll.length, MISSION_MAX_ID_BYTES))
+  const titleBytes = titleBytesAll.subarray(0, Math.min(titleBytesAll.length, MISSION_MAX_TITLE_BYTES))
+
+  const locLabelBytesAll = m && m.locationLabel && String(m.locationLabel).trim() ? enc.encode(String(m.locationLabel).trim()) : undefined
+  const locLabelBytes = locLabelBytesAll
+    ? locLabelBytesAll.subarray(0, Math.min(locLabelBytesAll.length, MISSION_MAX_LOC_LABEL_BYTES))
+    : undefined
+
+  const notesBytesAll = m && m.notes && String(m.notes).trim() ? enc.encode(String(m.notes).trim()) : undefined
+  const notesBytes = notesBytesAll ? notesBytesAll.subarray(0, Math.min(notesBytesAll.length, MISSION_MAX_NOTES_BYTES)) : undefined
+
+  const hasAssigned = Number.isFinite(m?.assignedTo) && Number(m.assignedTo || 0) > 0
+  const hasLoc = Number.isFinite(m?.lat) && Number.isFinite(m?.lon)
+  const hasLocLabel = !!locLabelBytes && locLabelBytes.length > 0
+  const hasDue = Number.isFinite(m?.dueAt) && Number(m.dueAt || 0) > 0
+  const hasNotes = !!notesBytes && notesBytes.length > 0
+
+  const baseLen = 12
+  const idLen = 1 + idBytes.length
+  const titleLen = 1 + titleBytes.length
+  const assignedLen = hasAssigned ? 2 : 0
+  const locLen = hasLoc ? 8 : 0
+  const locLabelLen = hasLocLabel ? 1 + locLabelBytes.length : 0
+  const dueLen = hasDue ? 4 : 0
+  const notesLen = hasNotes ? 2 + notesBytes.length : 0
+
+  const buf = new Uint8Array(baseLen + idLen + titleLen + assignedLen + locLen + locLabelLen + dueLen + notesLen)
+  const dv = new DataView(buf.buffer)
+
+  dv.setUint8(0, MISSION_VERSION)
+  dv.setUint32(1, Math.floor(Number(m?.updatedAt ?? Date.now()) / 60000), false)
+  dv.setUint32(5, Math.floor(Number(m?.createdAt ?? Date.now()) / 60000), false)
+
+  dv.setUint8(9, missionStatusToCode(String(m?.status || 'PLANNED')))
+  dv.setUint8(10, Number(m?.pri || 0) & 3)
+
+  let flags = 0
+  if (hasAssigned) flags |= 1
+  if (hasLoc) flags |= 2
+  if (hasLocLabel) flags |= 4
+  if (hasDue) flags |= 8
+  if (hasNotes) flags |= 16
+  dv.setUint8(11, flags)
+
+  let o = 12
+
+  dv.setUint8(o, idBytes.length)
+  o += 1
+  buf.set(idBytes, o)
+  o += idBytes.length
+
+  dv.setUint8(o, titleBytes.length)
+  o += 1
+  buf.set(titleBytes, o)
+  o += titleBytes.length
+
+  if (hasAssigned) {
+    dv.setUint16(o, Number(m.assignedTo), false)
+    o += 2
+  }
+
+  if (hasLoc) {
+    dv.setInt32(o, Math.round(Number(m.lat) * 1e5), false)
+    o += 4
+    dv.setInt32(o, Math.round(Number(m.lon) * 1e5), false)
+    o += 4
+  }
+
+  if (hasLocLabel) {
+    dv.setUint8(o, locLabelBytes.length)
+    o += 1
+    buf.set(locLabelBytes, o)
+    o += locLabelBytes.length
+  }
+
+  if (hasDue) {
+    dv.setUint32(o, Math.floor(Number(m.dueAt) / 60000), false)
+    o += 4
+  }
+
+  if (hasNotes) {
+    dv.setUint16(o, notesBytes.length, false)
+    o += 2
+    buf.set(notesBytes, o)
+    o += notesBytes.length
+  }
+
+  return encodeBase64Url(buf)
+}
+
+function decodeMissionClear(b64) {
+  const bytes = decodeBase64Url(b64)
+  if (bytes.length < 12) throw new Error('MISSION payload too short')
+
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const ver = dv.getUint8(0)
+  if (ver !== MISSION_VERSION) throw new Error(`Unsupported MISSION version ${ver}`)
+
+  const updatedUnixMinutes = dv.getUint32(1, false)
+  const createdUnixMinutes = dv.getUint32(5, false)
+  const statusCode = dv.getUint8(9)
+  const pri = dv.getUint8(10) & 3
+  const flags = dv.getUint8(11)
+
+  const hasAssigned = (flags & 1) !== 0
+  const hasLoc = (flags & 2) !== 0
+  const hasLocLabel = (flags & 4) !== 0
+  const hasDue = (flags & 8) !== 0
+  const hasNotes = (flags & 16) !== 0
+
+  let o = 12
+  const dec = new TextDecoder()
+
+  if (bytes.length < o + 1) throw new Error('MISSION id truncated')
+  const idLen = dv.getUint8(o)
+  o += 1
+  if (bytes.length < o + idLen) throw new Error('MISSION id truncated')
+  const id = dec.decode(bytes.subarray(o, o + idLen))
+  o += idLen
+
+  if (bytes.length < o + 1) throw new Error('MISSION title truncated')
+  const titleLen = dv.getUint8(o)
+  o += 1
+  if (bytes.length < o + titleLen) throw new Error('MISSION title truncated')
+  const title = dec.decode(bytes.subarray(o, o + titleLen))
+  o += titleLen
+
+  let assignedTo
+  if (hasAssigned) {
+    if (bytes.length < o + 2) throw new Error('MISSION assignedTo truncated')
+    const v = dv.getUint16(o, false)
+    o += 2
+    assignedTo = v > 0 ? v : undefined
+  }
+
+  let lat
+  let lon
+  if (hasLoc) {
+    if (bytes.length < o + 8) throw new Error('MISSION location truncated')
+    lat = dv.getInt32(o, false) / 1e5
+    o += 4
+    lon = dv.getInt32(o, false) / 1e5
+    o += 4
+  }
+
+  let locationLabel
+  if (hasLocLabel) {
+    if (bytes.length < o + 1) throw new Error('MISSION location label truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n) throw new Error('MISSION location label truncated')
+    locationLabel = dec.decode(bytes.subarray(o, o + n))
+    o += n
+  }
+
+  let dueAt
+  if (hasDue) {
+    if (bytes.length < o + 4) throw new Error('MISSION dueAt truncated')
+    const dueUnixMinutes = dv.getUint32(o, false)
+    o += 4
+    dueAt = dueUnixMinutes * 60000
+  }
+
+  let notes
+  if (hasNotes) {
+    if (bytes.length < o + 2) throw new Error('MISSION notes truncated')
+    const n = dv.getUint16(o, false)
+    o += 2
+    if (bytes.length < o + n) throw new Error('MISSION notes truncated')
+    notes = dec.decode(bytes.subarray(o, o + n))
+    o += n
+  }
+
+  return {
+    id,
+    createdAt: createdUnixMinutes * 60000,
+    updatedAt: updatedUnixMinutes * 60000,
+    title,
+    status: missionCodeToStatus(statusCode),
+    pri,
+    assignedTo,
+    lat,
+    lon,
+    locationLabel,
+    dueAt,
+    notes,
+  }
+}
+
+function makeMissionClearPacket(m) {
+  const id = generatePacketId(8)
+  const encoded = encodeMissionClear(m)
+  return `X1.8.C.${id}.1/1.${encoded}`
+}
+
 // Make available to non-module scripts (XCOM loads via <script> not ESM).
 try {
   globalThis.parsePacket = parsePacket
@@ -744,6 +965,10 @@ try {
   globalThis.encodeZoneClear = encodeZoneClear
   globalThis.decodeZoneClear = decodeZoneClear
   globalThis.makeZoneClearPacket = makeZoneClearPacket
+
+  globalThis.encodeMissionClear = encodeMissionClear
+  globalThis.decodeMissionClear = decodeMissionClear
+  globalThis.makeMissionClearPacket = makeMissionClearPacket
 } catch (_) {
   // ignore
 }

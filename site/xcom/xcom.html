@@ -1,121 +1,238 @@
-<div class="wrap">
-  <header>
-    <div class="headerRight">
-      <div class="kicker" style="text-align: right;">Offline-first radio reference + mapping toolkit</div>
-    </div>
-  </header>
+<div class="wrap"><header>
+<div class="headerRight"></div>
+</header>
+<div class="grid">
+<div id="seo-intro" class="card section">
+<h2>XCOM™ Offline Radio Communication Suite (PWA)</h2>
+<div class="subtitle">XCOM™ is an <strong>offline-first radio communication suite</strong> and <strong>PWA</strong> for
+<strong>ham radio</strong>, <strong>shortwave</strong>, and modern <strong>mesh radio networks</strong> —
+with a heavy focus on <strong>Meshtastic</strong> and <strong>MeshCore</strong>.
+It’s built as the <strong>field companion to XTOC™</strong> so you can
+<strong>form packets, move updates, and keep a tactical map synced</strong> using almost any method:
+copy/paste, QR, SMS, email, Winlink, Meshtastic, MeshCore, or local MANET links.</div>
+<div class="subtitle" style="margin-top: 10px;">
 
-  <div class="grid">
-    <div id="what" class="card section">
-      <h2>What XCOM&trade; is</h2>
-      <div class="subtitle">XCOM&trade; is an <strong>offline-capable Progressive Web App (PWA)</strong> for <strong>ham radio</strong> and <strong>shortwave</strong> reference, mapping, and field workflow tools.</div>
+<strong>Hot topics it supports:</strong>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li><strong>Meshtastic PWA tools:</strong> connect, message, and map nodes (Web Bluetooth where supported).</li>
+ 	<li><strong>MeshCore support:</strong> import/visualize MeshCore traffic and plot packets on the map.</li>
+ 	<li><strong>Packet workflows to/from XTOC™:</strong> build, chunk, export, import, and overlay field intel.</li>
+ 	<li><strong>Offline maps:</strong> cache AO tiles for use with no signal.</li>
+ 	<li><strong>VOACAP HF prediction:</strong> fast point-to-point propagation planning.</li>
+ 	<li><strong>Offline callsign database:</strong> lookup + path plotting without internet.</li>
+ 	<li><strong>QSO logger:</strong> field logging with ADIF/CSV export.</li>
+</ul>
+</div>
+</div>
+<!-- WHAT -->
+<div id="what" class="card section">
+<h2>What XCOM™ is</h2>
+<div class="subtitle">XCOM™ is an <strong>offline-capable Progressive Web App (PWA)</strong> designed as the
+<strong>field companion to XTOC™</strong>. It lets operators
+<strong>build, move, receive, and visualize operational packets</strong> while also providing
+<strong>Meshtastic + MeshCore mapping</strong>, <strong>radio planning</strong>, and <strong>reference tools</strong> —
+even with <strong>no signal</strong>.</div>
+<div class="subtitle" style="margin-top: 10px;">
 
-      <div class="subtitle" style="margin-top: 10px;">
-        <strong>Use it to (examples):</strong>
-        <ul style="margin: 8px 0 0 18px;">
-          <li>Find <strong>repeaters</strong> near a location and see tones, offsets, modes, and notes on a map.</li>
-          <li>Look up a <strong>callsign offline</strong> (USA/Canada) and plot a path with a quick HF prediction.</li>
-          <li>Browse worldwide <strong>shortwave broadcasts</strong> by <strong>time</strong> ("what's on now") or by <strong>frequency</strong>.</li>
-          <li>Reference <strong>packet radio</strong> nodes/BBS stations and keep a personal local list.</li>
-          <li>Download map tiles for your <strong>Area of Operations</strong> so maps keep working when you go offline.</li>
-        </ul>
-      </div>
-    </div>
+<strong>Use it to (examples):</strong>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li>Create <strong>XTOC-compatible packets</strong> (markers, zones, updates, notes) and move them via copy/paste, QR, SMS, email, Winlink, Meshtastic, MeshCore, or MANET.</li>
+ 	<li>Operate as a <strong>field console</strong>: send updates toward the TOC and import TOC packets back into XCOM.</li>
+ 	<li>Map and review <strong>Meshtastic nodes</strong> and messages; visualize imported mesh traffic for situational awareness.</li>
+ 	<li>Import and visualize <strong>MeshCore packets</strong> (traffic, nodes, events) and overlay them on the tactical map.</li>
+ 	<li>Plot <strong>satellite passes</strong> to identify viable radio communication windows.</li>
+ 	<li>Find <strong>repeaters</strong> by location with tones, offsets, modes, and notes.</li>
+ 	<li>Browse <strong>shortwave broadcasts</strong> by time (“what’s on now”) or frequency.</li>
+ 	<li>Maintain references for <strong>packet radio nodes / BBS</strong> stations.</li>
+ 	<li>Download offline map tiles for your <strong>Area of Operations</strong>.</li>
+</ul>
+</div>
+</div>
+<!-- WHY -->
+<div id="why" class="card section">
+<h2>Built for bad connectivity</h2>
+<div class="subtitle">XCOM™ is <strong>local-first</strong>. Your data stays on your device and the app continues to function
+when connectivity is limited, unreliable, or intentionally avoided.
+That’s why it pairs so well with <strong>Meshtastic</strong> and <strong>MeshCore</strong> — networks designed for real-world conditions.</div>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li><strong>No accounts.</strong> No login, no cloud dependency.</li>
+ 	<li><strong>Offline maps.</strong> Cache raster tiles for your AO and use them later with no signal.</li>
+ 	<li><strong>Offline search.</strong> Cities, QTHs, callsigns, and references from local datasets.</li>
+ 	<li><strong>Store-and-forward mindset.</strong> Build packets now, move them later (perfect for mesh relays).</li>
+</ul>
+</div>
+<!-- XTOC COMPANION -->
+<div id="xtoc-companion" class="card section" style="margin-top: 14px;">
+<h2>XTOC™ companion workflow (field ↔ TOC)</h2>
+<div class="subtitle">XCOM™ runs on devices <strong>away from the TOC</strong>.
+XTOC™ maintains the operational picture. XCOM™ feeds it — including updates moved over <strong>Meshtastic</strong>, <strong>MeshCore</strong>, or any low-connectivity path.</div>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li>Field builds a packet in XCOM → transfers it (Meshtastic / MeshCore / QR / copy / Winlink / email) → TOC imports into XTOC.</li>
+ 	<li>TOC publishes updates/markers/zones → transfers outward → field imports into XCOM overlays.</li>
+ 	<li>Packets are <strong>chunked</strong> to survive tight character limits and “dumb pipes.”</li>
+</ul>
+<div class="pill" style="margin-top: 12px;"><strong>XCOM™ does not replace XTOC™.</strong> It extends it to the edge with mesh-friendly workflows.</div>
+</div>
+<!-- MODULES -->
+<div id="modules" class="card section" style="margin-top: 14px;">
+<h2>What’s inside</h2>
+<div class="subtitle">Purpose-built modules for mesh, field comms, and radio operations:</div>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li><strong>Meshtastic (PWA):</strong> connect to Meshtastic devices (Web Bluetooth where supported),
+view nodes, map positions, and send/receive messages.</li>
+ 	<li><strong>MeshCore support:</strong> import and visualize MeshCore packet logs/traffic and plot nodes/events on the map.</li>
+ 	<li><strong>Mesh Packet Visualization:</strong> overlay imported mesh traffic on the tactical map for situational awareness and after-action review.</li>
+ 	<li><strong>XTOC Comm:</strong> create/import structured packets (CLEAR or SECURE), chunk for tight limits, and move via copy/QR/Meshtastic/MeshCore/MANET.</li>
+ 	<li><strong>XTOC Data Vault:</strong> local packet archive — browse, search, decode, and push geo packets to the map overlay.</li>
+ 	<li><strong>Map (Tactical Field View):</strong> XTOC-style map with offline tile caching and overlays (XTOC markers/zones + mesh layers).</li>
+ 	<li><strong>Satellite Pass Planner:</strong> identify viable radio communication windows for satellite comms planning.</li>
+ 	<li><strong>Repeaters:</strong> searchable repeater map with detailed station info.</li>
+ 	<li><strong>Packet Stations:</strong> packet node/BBS reference + your own local entries.</li>
+ 	<li><strong>Shortwave Broadcasts:</strong> HF schedules by time (“what’s on now”) or by frequency.</li>
+ 	<li><strong>Predict (VOACAP + tools):</strong> offline callsign lookup + path plotting + HF prediction.</li>
+ 	<li><strong>QSO Logbook:</strong> offline-first logging with ADIF/CSV export.</li>
+ 	<li><strong>ASCII Tools:</strong> clean copy/paste banners for packets and BBS posts.</li>
+ 	<li><strong>Ham Clock:</strong> time, band, and operating reference.</li>
+</ul>
+</div>
+<!-- MESHTASTIC SEO SECTION -->
+<div id="meshtastic" class="card section" style="margin-top: 14px;">
+<h2>Meshtastic mapping, messaging &amp; node visualization</h2>
+<div class="subtitle">Meshtastic is one of the most in-demand topics in off-grid comms.
+XCOM™ is built to be <strong>Meshtastic-friendly</strong> with workflows that match real field usage:
+<strong>local-first</strong>, <strong>low bandwidth</strong>, and <strong>store-and-forward</strong>.</div>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li>Connect to a Meshtastic device and <strong>view nodes on a map</strong>.</li>
+ 	<li><strong>Send/receive messages</strong> and keep local records.</li>
+ 	<li>Turn received intel into <strong>XTOC-ready packets</strong> (markers/zones/updates).</li>
+ 	<li>Use mesh as a transfer path for <strong>TOC sync</strong> in constrained environments.</li>
+</ul>
+<div class="pill" style="margin-top: 12px;">Think: <strong>Meshtastic + XTOC</strong> = mesh-to-TOC operational picture.</div>
+</div>
+<!-- MESHCORE SEO SECTION -->
+<div id="meshcore" class="card section" style="margin-top: 14px;">
+<h2>MeshCore support (import, map overlays, packet plotting)</h2>
+<div class="subtitle">XCOM™ also supports <strong>MeshCore</strong> workflows by allowing you to
+<strong>import MeshCore traffic/logs</strong> and visualize packets, nodes, and events on the tactical map.
+This is ideal for operational review, coverage notes, and building a real-world “mesh picture.”</div>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li>Import MeshCore packet data and <strong>plot it on the map</strong>.</li>
+ 	<li>Visualize node activity for <strong>situational awareness</strong> and after-action review.</li>
+ 	<li>Convert relevant observations into <strong>XTOC-compatible packets</strong>.</li>
+</ul>
+</div>
+<!-- VOACAP -->
+<div id="voacap" class="card section" style="margin-top: 14px;">
+<h2>HF propagation &amp; VOACAP prediction</h2>
+<div class="subtitle">XCOM™ includes a <strong>VOACAP-based HF prediction engine</strong> optimized for
+<strong>field decision-making</strong> — fast point-to-point planning without needing a laptop stack of tools.</div>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li>Point-to-point HF path predictions using callsigns or coordinates.</li>
+ 	<li>Band viability by time of day (local &amp; UTC).</li>
+ 	<li>Quick answers to <em>“What band should I try right now?”</em></li>
+ 	<li>Designed for intermittent or no connectivity.</li>
+</ul>
+<div class="pill" style="margin-top: 12px;">Use data, not guesswork, when conditions are marginal.</div>
+</div>
+<!-- CALLSIGN -->
+<div id="callsign" class="card section" style="margin-top: 14px;">
 
-    <div id="why" class="card section">
-      <h2>Built for bad connectivity</h2>
-      <div class="subtitle">
-        XCOM&trade; is <strong>local-first</strong>: your data stays on your device, and the app keeps working with no signal once it's loaded.
-        It's designed for field use, travel, emergency preparedness, and radio operations where the network isn't guaranteed.
-      </div>
+[caption id="attachment_1129" align="alignnone" width="1780"]<a href="https://www.mkme.org/wp-content/uploads/2026/02/Predict.png"><img class="size-full wp-image-1129" src="https://www.mkme.org/wp-content/uploads/2026/02/Predict.png" alt="XCOM™ – Offline Radio Communication Suite" width="1780" height="923" /></a> XCOM™ – Offline Radio Communication Suite[/caption]
+<h2>Offline callsign database (USA &amp; Canada)</h2>
+<div class="subtitle">Built-in <strong>offline callsign database</strong> for fast identification and planning when there’s no internet.</div>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li>Instant local lookup with stored QTH/location data.</li>
+ 	<li>One-tap path plotting and VOACAP prediction integration.</li>
+ 	<li>Useful for HF planning, packet routing, and traffic analysis.</li>
+</ul>
+<p class="muted">Offline databases are snapshots — verify when precision matters.</p>
 
-      <ul style="margin: 8px 0 0 18px;">
-        <li><strong>No accounts.</strong> No login, no cloud dependency, no server required for the core app.</li>
-        <li><strong>Offline maps.</strong> Cache raster tiles for your AO while online, then use them offline later.</li>
-        <li><strong>Offline location search.</strong> Look up cities/QTHs from a local dataset (no live geocoding API required).</li>
-      </ul>
-    </div>
+</div>
+<!-- QSO -->
+<div id="qso" class="card section" style="margin-top: 14px;">
+<h2>QSO logger (offline-first)</h2>
+<div class="subtitle">A <strong>fast, offline-first QSO logbook</strong> built for real operating — ideal for field ops, POTA/SOTA, and emergency use.</div>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li>Log callsign, band, mode, time, reports, and notes.</li>
+ 	<li>Integrated offline callsign lookup for faster entry.</li>
+ 	<li>Works fully offline once installed/loaded.</li>
+ 	<li>Export logs in <strong>ADIF</strong> or <strong>CSV</strong>.</li>
+</ul>
+<div class="pill" style="margin-top: 12px;">Capture the contact now — export later.</div>
+</div>
+<!-- OFFLINE -->
+<div id="offline" class="card section" style="margin-top: 14px;">
+<h2>Quick start (offline)</h2>
+<h3>1) Install as an app</h3>
+<ul>
+ 	<li><strong>iOS:</strong> Safari → Share → Add to Home Screen</li>
+ 	<li><strong>Android:</strong> Chrome → Install app</li>
+ 	<li><strong>Desktop:</strong> Chrome/Edge → Install</li>
+</ul>
+<h3>2) Cache offline maps</h3>
+<ul>
+ 	<li>Open Map → Offline Raster</li>
+ 	<li>Pan/zoom AO</li>
+ 	<li>Download tiles while online</li>
+</ul>
+<h3>3) Run the mesh-to-TOC loop</h3>
+<ul>
+ 	<li>Build packet → transfer over Meshtastic / MeshCore / QR / copy → import into XTOC.</li>
+ 	<li>Import TOC updates → overlay on map → share onward through the mesh.</li>
+</ul>
+</div>
+<!-- COMPLIANCE -->
+<div id="compliance" class="card section" style="margin-top: 14px;">
+<h2>Compliance notes</h2>
+<div class="subtitle">XCOM™ can generate SECURE (encrypted) payloads. You are responsible for legal and regulatory compliance.</div>
+<div class="pill warn" style="margin-top: 12px;">Amateur radio note: Do <strong>not</strong> transmit encrypted/obscured content on ham bands. Use CLEAR mode where appropriate.</div>
+</div>
+<!-- PRIVACY -->
+<div id="privacy" class="card section" style="margin-top: 14px;">
+<h2>Privacy &amp; data</h2>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li><strong>Local-first:</strong> data stored on your device.</li>
+ 	<li><strong>No accounts:</strong> no login, no analytics.</li>
+ 	<li><strong>Offline-friendly:</strong> most features work without internet once installed.</li>
+</ul>
+</div>
+<!-- FAQ -->
+<div id="faq" class="card section" style="margin-top: 14px;">
+<h2>FAQ</h2>
+<strong>Does XCOM™ work with Meshtastic?</strong>
+Yes. XCOM™ supports Meshtastic workflows including mapping nodes, messaging, and mesh-friendly packet transfer paths.
 
-    <div id="modules" class="card section" style="margin-top: 14px;">
-      <h2>What's inside</h2>
-      <div class="subtitle">XCOM&trade; includes purpose-built modules for radio operators:</div>
+<strong>Does XCOM™ support MeshCore?</strong>
+Yes. XCOM™ supports MeshCore workflows by allowing you to import and visualize MeshCore traffic/logs and plot packets/nodes on the map.
 
-      <ul style="margin: 8px 0 0 18px;">
-        <li><strong>Predict:</strong> offline callsign lookup (USA/Canada), path plotting, and a quick HF prediction tool.</li>
-        <li><strong>Shortwave Broadcasts:</strong> browse HF schedules by time or frequency (with Local/UTC views).</li>
-        <li><strong>Packet Stations:</strong> map of packet nodes/BBS + frequency reference + your own local entries.</li>
-        <li><strong>Repeaters:</strong> repeater map with filters (band/mode/radius) and detailed station info.</li>
-        <li><strong>Map:</strong> set your AO and download offline raster tiles for that area.</li>
-        <li><strong>XTOC Comm:</strong> create/import structured packets (CLEAR or SECURE), chunk them for tight limits, and move them via copy/paste, QR, or Meshtastic.</li>
-        <li><strong>Mesh:</strong> connect to a Meshtastic radio (Web Bluetooth), view nodes on a map, and send/receive messages.</li>
-        <li><strong>Logbook:</strong> fast QSO logging with local storage and ADIF/CSV export.</li>
-        <li><strong>ASCII:</strong> generate clean copy/paste ASCII banners for packets, BBS posts, and notes.</li>
-        <li><strong>Ham Clock:</strong> a quick time + operating reference view.</li>
-      </ul>
-    </div>
+<strong>Is XCOM™ just a repeater map?</strong>
+No — it’s a full <strong>offline radio suite</strong> with Meshtastic/MeshCore tools, packet formation, tactical mapping, HF prediction, and logging.
 
-    <div id="offline" class="card section" style="margin-top: 14px;">
-      <h2>Quick start (offline)</h2>
-      <h3>1) Install as an app (recommended)</h3>
-      <ul>
-        <li><strong>iPhone/iPad:</strong> Safari &rarr; Share &rarr; <em>Add to Home Screen</em></li>
-        <li><strong>Android:</strong> Chrome menu &rarr; <em>Install app</em></li>
-        <li><strong>Desktop:</strong> Chrome/Edge install icon &rarr; <em>Install</em></li>
-      </ul>
+<strong>Does XCOM™ require a server?</strong>
+No. The core app is a static PWA and runs locally in your browser once installed/loaded.
 
-      <h3>2) Cache offline maps for your AO</h3>
-      <ul>
-        <li>Open <strong>Map</strong> and select <strong>Offline Raster (cached)</strong>.</li>
-        <li>Pan/zoom to your Area of Operations.</li>
-        <li>Download tiles for that AO while you have internet.</li>
-      </ul>
+<strong>Do I need a license key?</strong>
+On first run (when hosted), XCOM™ may prompt for a license key. Activate once while online, then keep using it offline on that device.
 
-      <p class="muted">Note: public tile servers have usage policies. For serious/off-grid use, point XCOM&trade; at your own tile server.</p>
-    </div>
+<strong>Will it work offline?</strong>
+Yes. Install it as a PWA, and it will keep working offline after it’s loaded. Offline map tiles must be cached while online.
 
-    <div id="compliance" class="card section" style="margin-top: 14px;">
-      <h2>Compliance notes (important)</h2>
-      <div class="subtitle">
-        XCOM&trade; includes tools that can create SECURE (encrypted) payloads for some workflows.
-        You are responsible for following local laws and radio regulations.
-      </div>
-      <div class="pill warn" style="margin-top: 12px;">Ham note: do <strong>not</strong> transmit encrypted/obscured content on amateur radio. Use CLEAR mode on ham where appropriate.</div>
-    </div>
+<strong>Which browsers are recommended?</strong>
+Modern Chrome/Edge/Safari. Mesh features may require Web Bluetooth support (often Chrome/Edge/Android).
 
-    <div id="privacy" class="card section" style="margin-top: 14px;">
-      <h2>Privacy &amp; data</h2>
-      <ul style="margin: 8px 0 0 18px;">
-        <li><strong>Local-first:</strong> your personal lists and log entries live in your browser storage on this device.</li>
-        <li><strong>No tracking:</strong> XCOM&trade; is designed to run without accounts or analytics.</li>
-        <li><strong>Offline friendly:</strong> most features work without internet once installed/loaded.</li>
-      </ul>
-    </div>
+<strong>Are frequencies guaranteed accurate?</strong>
+Treat any directory as a reference. Always listen/verify on-air and follow your local regulations.
 
-    <div id="faq" class="card section" style="margin-top: 14px;">
-      <h2>FAQ</h2>
-
-      <p><strong>Does XCOM&trade; require a server?</strong><br />
-      No. The core app is a static PWA and runs locally in your browser.</p>
-
-      <p><strong>Do I need a license key?</strong><br />
-      On first run (when hosted), XCOM&trade; may prompt for a license key. Activate once while online, then keep using it offline on that device.</p>
-
-      <p><strong>Will it work offline?</strong><br />
-      Yes. Install it as a PWA, and it will keep working offline after it's loaded. Offline map tiles must be cached while online.</p>
-
-      <p><strong>Which browsers are recommended?</strong><br />
-      Modern Chrome/Edge/Safari. The Mesh module uses Web Bluetooth (typically Chrome/Edge/Android).</p>
-
-      <p><strong>Are frequencies guaranteed accurate?</strong><br />
-      Treat any directory as a reference. Always listen/verify on-air and follow your local regulations.</p>
-    </div>
-
-    <div id="cta" class="card section" style="margin-top: 14px;">
-      <h2>Get XCOM&trade;</h2>
-      <div class="subtitle">
-        Download/purchase here: <strong>[LINK TO YOUR STORE PAGE]</strong> (includes license key)<br />
-        Community/support: <strong>https://mkme.org/discord</strong>
-      </div>
-    </div>
-  </div>
+</div>
+<!-- CTA -->
+<div id="cta" class="card section" style="margin-top: 14px;">
+<h2>Get XCOM™</h2>
+<div class="subtitle">Purchase &amp; download:
+<a href="https://store.mkme.org/product/xcom-offline-radio-communication-suite/"><strong>https://store.mkme.org/product/xcom-offline-radio-communication-suite/</strong></a></div>
+<div class="subtitle">Community &amp; support:
+<a href="https://mkme.org/discord"><strong>https://mkme.org/discord</strong></a></div>
+<div>XCOM Packet format and encryption info:</div>
+<div><a href="https://www.mkme.org/xtocapp/">XTOC™ Tactical Operations Center Software Suite - HOME</a></div>
+</div>
+</div>
 </div>

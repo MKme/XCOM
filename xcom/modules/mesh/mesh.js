@@ -130,7 +130,7 @@ class MeshModule {
         <div class="meshCard">
           <div class="meshCardTitle">Mesh</div>
           <div class="meshSmallMuted">
-            Connect XCOM to a Meshtastic device using <strong>Web Bluetooth</strong> (Chrome/Edge/Android).
+            Connect XCOM to a Meshtastic or MeshCore device using <strong>Web Bluetooth</strong> (Chrome/Edge/Android).
             iOS Safari does not currently support Web Bluetooth.
           </div>
 
@@ -150,12 +150,21 @@ class MeshModule {
         <div class="meshCard">
           <div class="meshCardTitle">Send Settings</div>
 
+          <div class="meshRow">
+            <label>Firmware</label>
+            <select id="meshDriver">
+              <option value="meshtastic">Meshtastic</option>
+              <option value="meshcore">MeshCore</option>
+            </select>
+            <div class="meshSmallMuted" id="meshDriverHint"></div>
+          </div>
+
           <div class="meshGrid2">
             <div class="meshRow">
               <label>Destination</label>
               <select id="meshDest">
                 <option value="broadcast">Broadcast (channel)</option>
-                <option value="direct">Direct (node id)</option>
+                <option value="direct">Direct (id)</option>
               </select>
             </div>
             <div class="meshRow">
@@ -165,11 +174,11 @@ class MeshModule {
           </div>
 
           <div class="meshRow">
-            <label>To Node ID (direct only)</label>
+            <label id="meshToNodeIdLabel">To Node ID (direct only)</label>
             <input id="meshToNodeId" type="text" placeholder="!deadbeef or numeric node id" />
           </div>
 
-          <div class="meshRow">
+          <div class="meshRow" id="meshWantAckRow">
             <label class="meshInline"><input id="meshWantAck" type="checkbox" checked /> Request ACK</label>
           </div>
 
@@ -277,18 +286,58 @@ class MeshModule {
     // Persist settings on change
     const updateCfg = () => {
       try {
+        const driver = (document.getElementById('meshDriver')?.value === 'meshcore') ? 'meshcore' : 'meshtastic'
         const dest = document.getElementById('meshDest')?.value || 'broadcast'
-        const channel = Number(document.getElementById('meshChannel')?.value || 0)
+        const rawChannel = Number(document.getElementById('meshChannel')?.value || 0)
+        const channel = driver === 'meshcore'
+          ? Math.max(0, Math.min(255, rawChannel))
+          : Math.max(0, Math.min(7, rawChannel))
         const toNodeId = String(document.getElementById('meshToNodeId')?.value || '').trim()
         const wantAck = !!document.getElementById('meshWantAck')?.checked
         const autoReconnect = !!document.getElementById('meshAutoReconnect')?.checked
         if (globalThis.setMeshConfig) {
-          globalThis.setMeshConfig({ meshtastic: { destination: dest, channel, toNodeId, wantAck }, ui: { autoReconnect } })
+          const patch = { driver, ui: { autoReconnect } }
+          if (driver === 'meshcore') {
+            patch.meshcore = { destination: dest, channel, toNodeId }
+          } else {
+            patch.meshtastic = { destination: dest, channel, toNodeId, wantAck }
+          }
+          globalThis.setMeshConfig(patch)
         }
       } catch (_) {
         // ignore
       }
     }
+
+    const driverSel = document.getElementById('meshDriver')
+    if (driverSel) driverSel.addEventListener('change', async () => {
+      const next = (driverSel.value === 'meshcore') ? 'meshcore' : 'meshtastic'
+      let current = 'meshtastic'
+      try {
+        const cfg = globalThis.getMeshConfig ? globalThis.getMeshConfig() : null
+        current = (cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic'
+      } catch (_) {
+        current = 'meshtastic'
+      }
+
+      try {
+        const s = globalThis.xcomMesh?.getState?.()?.status || {}
+        const connected = !!s.connected || !!s.linkConnected
+        const active = (String(s.driver || current) === 'meshcore') ? 'meshcore' : 'meshtastic'
+        if (connected && active !== next) {
+          const ok = confirm('Switch firmware/driver now?\n\nThis will disconnect; you can reconnect using the new driver.')
+          if (!ok) {
+            driverSel.value = active
+            return
+          }
+          try { if (globalThis.meshDisconnect) await globalThis.meshDisconnect() } catch (_) { /* ignore */ }
+        }
+      } catch (_) {
+        // ignore
+      }
+
+      updateCfg()
+    })
 
     ;['meshDest', 'meshChannel', 'meshToNodeId', 'meshWantAck', 'meshAutoReconnect'].forEach((id) => {
       const el = document.getElementById(id)
@@ -432,17 +481,39 @@ class MeshModule {
 
     // settings
     try {
+      const driver = (cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic'
       const mt = (cfg && cfg.meshtastic) ? cfg.meshtastic : {}
+      const mc = (cfg && cfg.meshcore) ? cfg.meshcore : {}
+      const active = (driver === 'meshcore') ? mc : mt
       const ui = (cfg && cfg.ui) ? cfg.ui : {}
+      const driverEl = document.getElementById('meshDriver')
       const destEl = document.getElementById('meshDest')
       const chEl = document.getElementById('meshChannel')
       const toEl = document.getElementById('meshToNodeId')
+      const toLabelEl = document.getElementById('meshToNodeIdLabel')
+      const hintEl = document.getElementById('meshDriverHint')
+      const ackRowEl = document.getElementById('meshWantAckRow')
       const ackEl = document.getElementById('meshWantAck')
       const arEl = document.getElementById('meshAutoReconnect')
 
-      if (destEl) destEl.value = mt.destination || 'broadcast'
-      if (chEl) chEl.value = String(Number(mt.channel || 0))
-      if (toEl) toEl.value = mt.toNodeId || ''
+      if (driverEl) driverEl.value = driver
+      if (hintEl) {
+        hintEl.textContent = driver === 'meshcore'
+          ? 'MeshCore: direct uses pubkey prefix (12 hex). Text max 160 bytes.'
+          : 'Meshtastic: direct uses node id (!deadbeef) or numeric. Channel 0-7.'
+      }
+      if (toLabelEl) toLabelEl.textContent = driver === 'meshcore' ? 'To pubkey prefix (direct only)' : 'To Node ID (direct only)'
+
+      if (destEl) destEl.value = active.destination || 'broadcast'
+      if (chEl) {
+        chEl.max = driver === 'meshcore' ? '255' : '7'
+        chEl.value = String(Number(active.channel || 0))
+      }
+      if (toEl) {
+        toEl.value = active.toNodeId || ''
+        toEl.placeholder = driver === 'meshcore' ? 'a1b2c3d4e5f6' : '!deadbeef or numeric node id'
+      }
+      if (ackRowEl) ackRowEl.style.display = driver === 'meshcore' ? 'none' : ''
       if (ackEl) ackEl.checked = mt.wantAck !== false
       if (arEl) arEl.checked = ui.autoReconnect !== false
 

@@ -2,7 +2,7 @@
  * Mesh transport layer for XCOM.
  *
  * Goals:
- * - Provide a small, browser-friendly API for Meshtastic devices (and placeholders for MeshCore)
+ * - Provide a small, browser-friendly API for Meshtastic + MeshCore devices (Web Bluetooth)
  * - Persist configuration and recent traffic in localStorage
  * - Expose a global singleton-ish API so other modules (Comms) can send packets
  *
@@ -16,7 +16,10 @@
 const LS_MESH_PREFIX = 'xcom.mesh.'
 const LS_MESH_CONFIG = LS_MESH_PREFIX + 'config.v1'
 const LS_MESH_LOG = LS_MESH_PREFIX + 'traffic.v1'
-const LS_MESH_LAST_DEVICE_ID = LS_MESH_PREFIX + 'lastBleDeviceId.v1'
+// Note: we keep a legacy key for older builds that only supported Meshtastic.
+const LS_MESH_LAST_DEVICE_ID_LEGACY = LS_MESH_PREFIX + 'lastBleDeviceId.v1'
+const LS_MESH_LAST_DEVICE_ID_MT = LS_MESH_PREFIX + 'lastBleDeviceId.meshtastic.v1'
+const LS_MESH_LAST_DEVICE_ID_MC = LS_MESH_PREFIX + 'lastBleDeviceId.meshcore.v1'
 const LS_MESH_NODES = LS_MESH_PREFIX + 'nodes.v1'
 const LS_MESH_COVERAGE = LS_MESH_PREFIX + 'coverage.v1'
 
@@ -58,12 +61,23 @@ function writeString(key, value) {
   }
 }
 
-function getLastBleDeviceId() {
-  return readString(LS_MESH_LAST_DEVICE_ID)
+function lastBleDeviceKey(driver) {
+  return driver === 'meshcore' ? LS_MESH_LAST_DEVICE_ID_MC : LS_MESH_LAST_DEVICE_ID_MT
 }
 
-function setLastBleDeviceId(id) {
-  writeString(LS_MESH_LAST_DEVICE_ID, id)
+function getLastBleDeviceId(driver) {
+  if (driver === 'meshcore') return readString(LS_MESH_LAST_DEVICE_ID_MC)
+
+  // Meshtastic: prefer the new key, fall back to legacy.
+  const next = readString(LS_MESH_LAST_DEVICE_ID_MT)
+  if (next) return next
+  return readString(LS_MESH_LAST_DEVICE_ID_LEGACY)
+}
+
+function setLastBleDeviceId(driver, id) {
+  writeString(lastBleDeviceKey(driver), id)
+  // Keep legacy key in sync for Meshtastic users upgrading from older builds.
+  if (driver !== 'meshcore') writeString(LS_MESH_LAST_DEVICE_ID_LEGACY, id)
 }
 
 function routingErrorLabel(code) {
@@ -152,7 +166,7 @@ function formatError(e) {
 
 function meshDefaultConfig() {
   return {
-    driver: 'meshtastic', // 'meshtastic' | 'meshcore' (placeholder)
+    driver: 'meshtastic', // 'meshtastic' | 'meshcore'
     connection: {
       // 'ble' (Web Bluetooth) is the primary browser-friendly mode.
       // 'serial' (Web Serial) optional; depends on browser.
@@ -169,6 +183,14 @@ function meshDefaultConfig() {
       // Text is what we send for XCOM sitrep/task/etc; we wrap as plain text.
       // If you later want protobuf mesh packets, we can extend.
       appPort: 'TEXT_MESSAGE_APP',
+    },
+    meshcore: {
+      // Where to send:
+      // - 'broadcast' (to channel)
+      // - 'direct' (to pubkey prefix)
+      destination: 'broadcast',
+      toNodeId: '', // 12 hex chars (6-byte pubkey prefix) for direct sends
+      channel: 0, // uint8
     },
     ui: {
       maxLogEntries: 200,
@@ -196,15 +218,20 @@ function meshNormalizeConfig(cfg) {
   const next = { ...defaults, ...raw }
   next.connection = { ...defaults.connection, ...(raw?.connection && typeof raw.connection === 'object' ? raw.connection : {}) }
   next.meshtastic = { ...defaults.meshtastic, ...(raw?.meshtastic && typeof raw.meshtastic === 'object' ? raw.meshtastic : {}) }
+  next.meshcore = { ...defaults.meshcore, ...(raw?.meshcore && typeof raw.meshcore === 'object' ? raw.meshcore : {}) }
   next.ui = { ...defaults.ui, ...(raw?.ui && typeof raw.ui === 'object' ? raw.ui : {}) }
 
-  next.driver = next.driver === 'meshtastic' ? 'meshtastic' : defaults.driver
+  next.driver = next.driver === 'meshcore' ? 'meshcore' : (next.driver === 'meshtastic' ? 'meshtastic' : defaults.driver)
   next.connection.kind = next.connection.kind === 'ble' ? 'ble' : defaults.connection.kind
 
   next.meshtastic.destination = next.meshtastic.destination === 'direct' ? 'direct' : 'broadcast'
   next.meshtastic.toNodeId = String(next.meshtastic.toNodeId || '').trim()
   next.meshtastic.channel = Math.max(0, Math.min(7, Math.floor(Number(next.meshtastic.channel) || 0)))
   next.meshtastic.wantAck = next.meshtastic.wantAck !== false
+
+  next.meshcore.destination = next.meshcore.destination === 'direct' ? 'direct' : 'broadcast'
+  next.meshcore.toNodeId = String(next.meshcore.toNodeId || '').trim()
+  next.meshcore.channel = Math.max(0, Math.min(255, Math.floor(Number(next.meshcore.channel) || 0)))
 
   next.ui.maxLogEntries = Math.max(50, Math.min(5000, Math.floor(Number(next.ui.maxLogEntries) || defaults.ui.maxLogEntries)))
   next.ui.maxNodeEntries = Math.max(25, Math.min(5000, Math.floor(Number(next.ui.maxNodeEntries) || defaults.ui.maxNodeEntries)))
@@ -229,6 +256,7 @@ function _meshConfigSet(partial) {
   // Deep-merge a few known nested objects
   if (partial?.connection) merged.connection = { ...base.connection, ...partial.connection }
   if (partial?.meshtastic) merged.meshtastic = { ...base.meshtastic, ...partial.meshtastic }
+  if (partial?.meshcore) merged.meshcore = { ...base.meshcore, ...partial.meshcore }
   if (partial?.ui) merged.ui = { ...base.ui, ...partial.ui }
 
   const next = meshNormalizeConfig(merged)
@@ -559,7 +587,7 @@ class MeshtasticDriver {
 
     let preferred = opts?.device || null
     if (!preferred) {
-      const lastId = getLastBleDeviceId()
+      const lastId = getLastBleDeviceId('meshtastic')
       if (lastId) {
         try {
           const devs = typeof ble.getDevices === 'function'
@@ -597,7 +625,7 @@ class MeshtasticDriver {
     try {
       this.bleDevice = ble?.device || preferred || null
       const id = this.bleDevice?.id
-      if (typeof id === 'string' && id) setLastBleDeviceId(id)
+      if (typeof id === 'string' && id) setLastBleDeviceId('meshtastic', id)
     } catch (_) {
       // ignore
     }
@@ -699,6 +727,652 @@ class MeshtasticDriver {
 }
 
 // -----------------------------
+// Mesh driver (MeshCore)
+// -----------------------------
+
+// MeshCore uses a Nordic UART Service (NUS)-style BLE service for its command protocol.
+const MESHCORE_NUS_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
+const MESHCORE_NUS_RX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e' // write (central -> device)
+const MESHCORE_NUS_TX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e' // notify (device -> central)
+
+const MESHCORE_BLE_CHUNK = 20
+
+// MeshCore command/response codes (see MeshCore Command Protocol docs).
+const MESHCORE_CMD = Object.freeze({
+  OK: 0x00,
+  GET_DEVICE_QEURY: 0x01,
+  APP_START: 0x02,
+  GET_CONTACTS: 0x03,
+  EXPORT_CONTACT: 0x04,
+  SEND_TXT_MSG: 0x07,
+  SEND_CHANNEL_TXT_MSG: 0x08,
+  SYNC_NEXT_MESSAGE: 0x09,
+  NO_MORE_MESSAGES: 0x0a,
+  CONTACTS_START: 0x0b,
+  CONTACT: 0x0c,
+  END_OF_CONTACTS: 0x0d,
+  GET_CHANNELS: 0x0e,
+  CHANNEL: 0x0f,
+  SEND_LOGIN: 0x10,
+  LOGIN: 0x11,
+  INVALID: 0x12,
+
+  // Push codes
+  PUSH_ADVERT: 0x80,
+  PUSH_PATH_UPDATED: 0x81,
+  PUSH_SEND_CONFIRMED: 0x82,
+  PUSH_MSG_WAITING: 0x83,
+  PUSH_RAW_DATA: 0x84,
+  PUSH_FILE_REQUEST: 0x85,
+  PUSH_FILE_SENT: 0x86,
+  PUSH_FILE_RECV: 0x87,
+  PUSH_FILE_DONE: 0x88,
+  PUSH_NEW_ADVERT: 0x8a,
+  PUSH_LOGIN_FAIL: 0x8b,
+  PUSH_LOG_RX: 0x8c,
+  PUSH_LOG_TX: 0x8d,
+  PUSH_CONTROL_DATA: 0x8e,
+})
+
+const meshcoreTextEncoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null
+const meshcoreTextDecoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8', { fatal: false }) : null
+
+function meshcoreEncodeUtf8(s) {
+  const t = String(s ?? '')
+  if (meshcoreTextEncoder) return meshcoreTextEncoder.encode(t)
+  const out = new Uint8Array(t.length)
+  for (let i = 0; i < t.length; i++) out[i] = t.charCodeAt(i) & 0xff
+  return out
+}
+
+function meshcoreDecodeUtf8(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(0)
+  if (meshcoreTextDecoder) return meshcoreTextDecoder.decode(b)
+  let s = ''
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i])
+  return s
+}
+
+function meshcoreXorChecksum(payload) {
+  let c = 0
+  for (let i = 0; i < payload.length; i++) c ^= payload[i]
+  return c & 0xff
+}
+
+function meshcoreWrapFrame(payload) {
+  const len = payload.length >>> 0
+  const out = new Uint8Array(len + 3)
+  out[0] = len & 0xff
+  out[1] = (len >> 8) & 0xff
+  out.set(payload, 2)
+  out[out.length - 1] = meshcoreXorChecksum(payload)
+  return out
+}
+
+function meshcoreUnwrapFrames(buffer) {
+  let buf = buffer instanceof Uint8Array ? buffer : new Uint8Array(0)
+  const frames = []
+
+  while (buf.length >= 3) {
+    const len = (buf[0] | (buf[1] << 8)) >>> 0
+    const total = len + 3
+    if (buf.length < total) break
+
+    const payload = buf.subarray(2, 2 + len)
+    const chk = buf[2 + len]
+    const expected = meshcoreXorChecksum(payload)
+    if (chk !== expected) {
+      // Desync protection: drop buffer and let the next notification re-seed.
+      buf = new Uint8Array(0)
+      break
+    }
+
+    frames.push(payload)
+    buf = buf.subarray(total)
+  }
+
+  return { frames, buffer: buf }
+}
+
+function meshcoreU32le(n) {
+  const x = Number(n) >>> 0
+  const b = new Uint8Array(4)
+  b[0] = x & 0xff
+  b[1] = (x >> 8) & 0xff
+  b[2] = (x >> 16) & 0xff
+  b[3] = (x >> 24) & 0xff
+  return b
+}
+
+function meshcoreToHex(bytes) {
+  let s = ''
+  for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, '0')
+  return s
+}
+
+function meshcoreParseHexPrefix6(hex) {
+  const raw = String(hex ?? '')
+    .trim()
+    .replace(/^!/, '')
+    .replace(/[^0-9a-fA-F]/g, '')
+    .toLowerCase()
+
+  if (!raw || raw.length !== 12) return null
+
+  const bytes = new Uint8Array(6)
+  for (let i = 0; i < 6; i++) {
+    const v = parseInt(raw.slice(i * 2, i * 2 + 2), 16)
+    if (!Number.isFinite(v)) return null
+    bytes[i] = v & 0xff
+  }
+  return bytes
+}
+
+function meshcoreNodeNumFromPrefix(prefix6) {
+  if (!prefix6 || prefix6.length < 4) return null
+  const n = ((prefix6[0] << 24) | (prefix6[1] << 16) | (prefix6[2] << 8) | prefix6[3]) >>> 0
+  return n > 0 ? n : null
+}
+
+function meshcoreReadNullTerminatedString(bytes) {
+  let end = bytes.length
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0) {
+      end = i
+      break
+    }
+  }
+  return meshcoreDecodeUtf8(bytes.subarray(0, end)).trim()
+}
+
+function meshcoreParseSelfInfo(payload) {
+  if (!(payload instanceof Uint8Array)) return null
+  if (payload.length < 4 + 6 + 1 + 4 + 4 + 4 + 32 + 1 + 1) return null
+
+  const dv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+  let o = 0
+  const nodeId = dv.getUint32(o, true)
+  o += 4
+  const prefix6 = payload.subarray(o, o + 6)
+  o += 6
+  o += 1 // adv_type
+  const latI = dv.getInt32(o, true)
+  o += 4
+  const lonI = dv.getInt32(o, true)
+  o += 4
+  o += 4 // adv_loc_timestamp
+  const nameBytes = payload.subarray(o, o + 32)
+  o += 32
+  o += 1 // adv_gps_pdop
+  const battery = payload[o] ?? null
+
+  const lat = Number.isFinite(latI) ? latI / 1e6 : null
+  const lon = Number.isFinite(lonI) ? lonI / 1e6 : null
+  const name = meshcoreReadNullTerminatedString(nameBytes)
+  const prefixHex = meshcoreToHex(prefix6)
+  const num = meshcoreNodeNumFromPrefix(prefix6)
+
+  return { nodeId, prefix6, prefixHex, num, name, lat, lon, battery: battery == null ? null : Number(battery) }
+}
+
+function meshcoreParseIncomingMessage(payload) {
+  if (!(payload instanceof Uint8Array)) return null
+  if (payload.length < 4 + 6 + 1) return null
+  const dv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+  let o = 0
+  const senderTs = dv.getUint32(o, true)
+  o += 4
+  const prefix6 = payload.subarray(o, o + 6)
+  o += 6
+  const textLen = payload[o] ?? 0
+  o += 1
+  if (payload.length < o + textLen) return null
+  const textBytes = payload.subarray(o, o + textLen)
+  const text = meshcoreDecodeUtf8(textBytes)
+  const prefixHex = meshcoreToHex(prefix6)
+  const num = meshcoreNodeNumFromPrefix(prefix6)
+  return { senderTs, prefix6, prefixHex, num, text }
+}
+
+class MeshCoreDriver {
+  constructor() {
+    this.device = null
+    this.rx = null
+    this.tx = null
+
+    this.connected = false
+    this.lastDeviceInfo = null
+
+    this._onReceive = null
+    this._onLog = null
+    this._onDeviceStatus = null
+    this._onDeviceInfo = null
+
+    this.rxBuffer = new Uint8Array(0)
+    this.inbox = []
+    this.inboxWaiters = []
+    this.queue = Promise.resolve()
+    this.syncQueued = false
+
+    this.boundNotify = null
+    this.boundDisconnected = null
+  }
+
+  _emitLog(level, msg, data) {
+    if (typeof this._onLog === 'function') {
+      try { this._onLog({ level, msg, data, ts: Date.now() }) } catch (_) { /* ignore */ }
+    }
+  }
+
+  onReceive(fn) { this._onReceive = fn }
+  onLog(fn) { this._onLog = fn }
+  onDeviceStatus(fn) { this._onDeviceStatus = fn }
+  onDeviceInfo(fn) { this._onDeviceInfo = fn }
+
+  // Interface compatibility with MeshtasticDriver (no-op in MeshCore)
+  onNodeInfo(_fn) {}
+  onUser(_fn) {}
+  onPosition(_fn) {}
+  onTelemetry(_fn) {}
+
+  _emitDeviceStatus(status) {
+    const s = Number(status)
+    const normalized = Number.isFinite(s) ? s : status
+    const label = meshDeviceStatusLabel(normalized) || String(normalized)
+    const linkConnected = meshIsLinkConnected(normalized)
+    this.connected = linkConnected
+    if (typeof this._onDeviceStatus === 'function') {
+      try { this._onDeviceStatus({ status: normalized, label, linkConnected, ready: linkConnected }) } catch (_) { /* ignore */ }
+    }
+  }
+
+  getBleDevice() {
+    return this.device || null
+  }
+
+  _enqueue(task) {
+    const run = async () => await task()
+    this.queue = this.queue.then(run, run)
+    return this.queue
+  }
+
+  _pushInbox(cmd) {
+    this.inbox.push(cmd)
+    const waiters = this.inboxWaiters.splice(0)
+    for (const w of waiters) {
+      try { w() } catch (_) { /* ignore */ }
+    }
+  }
+
+  async _waitInbox(timeoutMs) {
+    const ms = Math.max(100, Math.floor(Number(timeoutMs) || 5000))
+    return await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('Timed out waiting for MeshCore response')), ms)
+      this.inboxWaiters.push(() => {
+        try { clearTimeout(t) } catch (_) { /* ignore */ }
+        resolve()
+      })
+    })
+  }
+
+  async _nextOf(types, timeoutMs) {
+    const want = new Set(Array.isArray(types) ? types : [])
+    const deadline = Date.now() + Math.max(100, Math.floor(Number(timeoutMs) || 5000))
+
+    while (Date.now() < deadline) {
+      const idx = this.inbox.findIndex((x) => want.has(x.type))
+      if (idx >= 0) return this.inbox.splice(idx, 1)[0]
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) break
+      await this._waitInbox(remaining)
+    }
+
+    throw new Error(`Timed out waiting for MeshCore response (${Array.from(want).map((n) => '0x' + n.toString(16)).join(', ')})`)
+  }
+
+  async _writeWrappedFrame(payload) {
+    if (!this.rx) throw new Error('MeshCore RX characteristic not ready')
+    const wrapped = meshcoreWrapFrame(payload)
+
+    for (let i = 0; i < wrapped.length; i += MESHCORE_BLE_CHUNK) {
+      const chunk = wrapped.subarray(i, i + MESHCORE_BLE_CHUNK)
+      if (typeof this.rx.writeValueWithoutResponse === 'function') {
+        await this.rx.writeValueWithoutResponse(chunk)
+      } else {
+        await this.rx.writeValue(chunk)
+      }
+    }
+  }
+
+  async _sendCommand(type, payload) {
+    const p = payload ?? new Uint8Array(0)
+    const cmd = new Uint8Array(1 + p.length)
+    cmd[0] = type & 0xff
+    cmd.set(p, 1)
+    await this._writeWrappedFrame(cmd)
+  }
+
+  _handleCommandPayload(cmdPayload) {
+    if (!(cmdPayload instanceof Uint8Array)) return
+    if (cmdPayload.length < 1) return
+    const type = cmdPayload[0] & 0xff
+    const payload = cmdPayload.subarray(1)
+
+    // Push codes (asynchronous). Ignore any we don't explicitly handle.
+    if (type >= 0x80) {
+      if (type === MESHCORE_CMD.PUSH_MSG_WAITING) {
+        this._emitLog('info', 'MeshCore: message(s) waiting; syncing…')
+        this._queueSyncMessages()
+        return
+      }
+
+      if (type === MESHCORE_CMD.PUSH_RAW_DATA) {
+        // Structure: rssi(int8), snr(uint8, SNR*4), reserved(2), payload_type(uint8), payload_len(uint8), payload(bytes)
+        try {
+          if (payload.length >= 1 + 1 + 2 + 1 + 1) {
+            const dv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+            let o = 0
+            const rssi = dv.getInt8(o)
+            o += 1
+            const snr = payload[o] / 4
+            o += 1
+            o += 2 // reserved
+            const payloadType = payload[o]
+            o += 1
+            const payloadLen = payload[o]
+            o += 1
+            const data = payload.subarray(o, o + payloadLen)
+
+            const asText = meshcoreDecodeUtf8(data)
+            const looksLikeXtoc = typeof asText === 'string' && asText.includes('X1.')
+
+            if (looksLikeXtoc) {
+              const msg = {
+                from: null,
+                to: null,
+                channel: null,
+                data: asText,
+                rssi,
+                snr,
+                payloadType,
+                bytes: Array.from(data),
+              }
+              if (typeof this._onReceive === 'function') {
+                try { this._onReceive({ kind: 'message', ts: Date.now(), msg }) } catch (_) { /* ignore */ }
+              }
+            } else {
+              // Keep non-text payloads visible in the traffic log.
+              const pkt = {
+                from: null,
+                to: null,
+                channel: null,
+                rxRssi: rssi,
+                rxSnr: snr,
+                decoded: { portnum: payloadType },
+                bytes: Array.from(data),
+              }
+              if (typeof this._onReceive === 'function') {
+                try { this._onReceive({ kind: 'packet', ts: Date.now(), pkt }) } catch (_) { /* ignore */ }
+              }
+            }
+          }
+        } catch (e) {
+          this._emitLog('warn', `MeshCore: failed to parse RAW_DATA push: ${formatError(e)}`, e)
+        }
+        return
+      }
+
+      return
+    }
+
+    // Non-push: enqueue for the current request flow to consume.
+    this._pushInbox({ type, payload, raw: cmdPayload })
+  }
+
+  _onNotifyValue(value) {
+    try {
+      const chunk = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+      const merged = new Uint8Array(this.rxBuffer.length + chunk.length)
+      merged.set(this.rxBuffer, 0)
+      merged.set(chunk, this.rxBuffer.length)
+      this.rxBuffer = merged
+
+      const res = meshcoreUnwrapFrames(this.rxBuffer)
+      this.rxBuffer = res.buffer
+      for (const frame of res.frames) this._handleCommandPayload(frame)
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  _queueSyncMessages() {
+    if (this.syncQueued) return
+    this.syncQueued = true
+    void this._enqueue(async () => {
+      try {
+        await this._syncMessages()
+      } catch (e) {
+        this._emitLog('warn', `MeshCore sync failed: ${formatError(e)}`, e)
+      } finally {
+        this.syncQueued = false
+      }
+    })
+  }
+
+  async _syncMessages() {
+    for (let iter = 0; iter < 200; iter++) {
+      await this._sendCommand(MESHCORE_CMD.SYNC_NEXT_MESSAGE)
+      const cmd = await this._nextOf([MESHCORE_CMD.SYNC_NEXT_MESSAGE, MESHCORE_CMD.NO_MORE_MESSAGES], 10_000)
+      if (cmd.type === MESHCORE_CMD.NO_MORE_MESSAGES) return
+      const msg = meshcoreParseIncomingMessage(cmd.payload)
+      if (msg && typeof this._onReceive === 'function') {
+        const msgObj = {
+          from: msg.num ?? null,
+          to: null,
+          channel: null,
+          data: msg.text,
+          meshcore: msg,
+        }
+        try { this._onReceive({ kind: 'message', ts: Date.now(), msg: msgObj }) } catch (_) { /* ignore */ }
+      }
+    }
+    this._emitLog('warn', 'MeshCore: sync loop stopped after 200 messages (guard)')
+  }
+
+  async _initProtocol(appName) {
+    // Device query (protocol v4 is current in MeshCore docs; older devices may ignore unknown fields)
+    await this._sendCommand(MESHCORE_CMD.GET_DEVICE_QEURY, new Uint8Array([4]))
+    await this._nextOf([MESHCORE_CMD.GET_DEVICE_QEURY], 6000)
+
+    // App start (announce ourselves so the device enables pushes).
+    const nameBytes = meshcoreEncodeUtf8(appName || 'XCOM')
+    const startPayload = new Uint8Array(1 + 6 + nameBytes.length)
+    startPayload[0] = 4 // app_ver
+    startPayload.set([0, 0, 0, 0, 0, 0], 1)
+    startPayload.set(nameBytes, 1 + 6)
+    await this._sendCommand(MESHCORE_CMD.APP_START, startPayload)
+
+    const self = await this._nextOf([MESHCORE_CMD.APP_START], 6000)
+    const info = meshcoreParseSelfInfo(self.payload)
+    if (info) {
+      const label = info.name?.trim() || 'MeshCore'
+      this.lastDeviceInfo = { myNodeNum: info.num ?? undefined, nodeId: info.num ?? undefined, shortName: label, longName: label }
+      if (typeof this._onDeviceInfo === 'function') {
+        try { this._onDeviceInfo(this.lastDeviceInfo) } catch (_) { /* ignore */ }
+      }
+    }
+
+    // Drain any queued messages.
+    await this._syncMessages()
+  }
+
+  async connectBle(opts) {
+    const interactive = opts?.interactive !== false
+    if (!globalThis.navigator?.bluetooth) throw new Error('Web Bluetooth not available')
+
+    let dev = opts?.device || null
+
+    if (!dev && !interactive) {
+      try {
+        const lastId = getLastBleDeviceId('meshcore')
+        if (lastId && typeof globalThis.navigator.bluetooth.getDevices === 'function') {
+          const list = await globalThis.navigator.bluetooth.getDevices()
+          dev = Array.isArray(list) ? (list.find((d) => d?.id === lastId) || null) : null
+        }
+      } catch (_) {
+        dev = null
+      }
+    }
+
+    if (!dev) {
+      if (!interactive) throw new Error('No previously authorized MeshCore device. Use Connect first.')
+      dev = await globalThis.navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [MESHCORE_NUS_SERVICE_UUID],
+      })
+    }
+
+    this.device = dev
+    try {
+      const id = dev?.id
+      if (typeof id === 'string' && id) setLastBleDeviceId('meshcore', id)
+    } catch (_) {
+      // ignore
+    }
+
+    // bind disconnect listener
+    try {
+      if (this.boundDisconnected && this.device) this.device.removeEventListener('gattserverdisconnected', this.boundDisconnected)
+    } catch (_) {
+      // ignore
+    }
+    this.boundDisconnected = () => {
+      this.connected = false
+      this._emitDeviceStatus(2)
+    }
+    try {
+      this.device.addEventListener('gattserverdisconnected', this.boundDisconnected)
+    } catch (_) {
+      // ignore
+    }
+
+    this._emitDeviceStatus(3)
+
+    if (!dev?.gatt) throw new Error('Bluetooth device does not support GATT')
+
+    const server = await dev.gatt.connect()
+    const svc = await server.getPrimaryService(MESHCORE_NUS_SERVICE_UUID)
+    this.rx = await svc.getCharacteristic(MESHCORE_NUS_RX_UUID)
+    this.tx = await svc.getCharacteristic(MESHCORE_NUS_TX_UUID)
+
+    this.boundNotify = (ev) => {
+      try {
+        const v = ev?.target?.value
+        if (v) this._onNotifyValue(v)
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    this.tx.addEventListener('characteristicvaluechanged', this.boundNotify)
+    await this.tx.startNotifications()
+
+    this._emitDeviceStatus(5)
+
+    await this._enqueue(async () => await this._initProtocol('XCOM'))
+    return this.lastDeviceInfo
+  }
+
+  async disconnect() {
+    this.connected = false
+
+    try {
+      if (this.tx && this.boundNotify) this.tx.removeEventListener('characteristicvaluechanged', this.boundNotify)
+    } catch (_) {
+      // ignore
+    }
+    this.boundNotify = null
+
+    try {
+      if (this.tx && typeof this.tx.stopNotifications === 'function') void this.tx.stopNotifications()
+    } catch (_) {
+      // ignore
+    }
+
+    const dev = this.device
+    this.device = null
+    this.rx = null
+    this.tx = null
+
+    try {
+      if (dev && this.boundDisconnected) dev.removeEventListener('gattserverdisconnected', this.boundDisconnected)
+    } catch (_) {
+      // ignore
+    }
+    this.boundDisconnected = null
+
+    try {
+      if (dev?.gatt?.connected) dev.gatt.disconnect()
+    } catch (_) {
+      // ignore
+    }
+
+    this._emitLog('info', 'Disconnected')
+    this._emitDeviceStatus(2)
+  }
+
+  async sendText(text, opts) {
+    if (!this.connected) throw new Error('Not connected to a MeshCore device')
+
+    const cfg = _meshConfigGet()
+    const mc = { ...cfg.meshcore, ...(opts || {}) }
+
+    const msgBytes = meshcoreEncodeUtf8(text ?? '')
+    if (msgBytes.length > 160) throw new Error('MeshCore text too long (max 160 bytes)')
+
+    const dest = mc.destination === 'direct' ? 'direct' : 'broadcast'
+    const channel = Math.max(0, Math.min(255, Math.floor(Number(mc.channel) || 0)))
+    const ts = (Math.floor(Date.now() / 1000) >>> 0)
+
+    if (dest === 'direct') {
+      const prefix6 = meshcoreParseHexPrefix6(mc.toNodeId)
+      if (!prefix6) throw new Error('MeshCore direct send requires a 6-byte pubkey prefix (12 hex chars)')
+
+      const payload = new Uint8Array(1 + 1 + 4 + 6 + msgBytes.length)
+      let o = 0
+      payload[o++] = 0 // txt_type (plain)
+      payload[o++] = 0 // attempt
+      payload.set(meshcoreU32le(ts), o)
+      o += 4
+      payload.set(prefix6, o)
+      o += 6
+      payload.set(msgBytes, o)
+
+      await this._enqueue(async () => {
+        await this._sendCommand(MESHCORE_CMD.SEND_TXT_MSG, payload)
+        try { await this._nextOf([MESHCORE_CMD.OK], 1500) } catch (_) { /* ignore */ }
+      })
+      return
+    }
+
+    const payload = new Uint8Array(1 + 1 + 4 + 1 + 1 + msgBytes.length)
+    let o = 0
+    payload[o++] = 0 // txt_type (plain)
+    payload[o++] = 0 // attempt
+    payload.set(meshcoreU32le(ts), o)
+    o += 4
+    payload[o++] = channel & 0xff
+    payload[o++] = 0 // channel_idx (reserved)
+    payload.set(msgBytes, o)
+
+    await this._enqueue(async () => {
+      await this._sendCommand(MESHCORE_CMD.SEND_CHANNEL_TXT_MSG, payload)
+      try { await this._nextOf([MESHCORE_CMD.OK], 1500) } catch (_) { /* ignore */ }
+    })
+  }
+}
+
+// -----------------------------
 // Public API (singleton)
 // -----------------------------
 
@@ -722,7 +1396,7 @@ class XcomMeshTransport {
 
     this.manualDisconnect = false
     this.connectInFlight = null
-    this.lastBleDevice = null
+    this.lastBleDeviceByDriver = { meshtastic: null, meshcore: null }
     this.reconnectTimer = null
     this.reconnectAttempt = 0
 
@@ -808,11 +1482,12 @@ class XcomMeshTransport {
 
   _scheduleReconnect(reason) {
     const cfg = this.getConfig()
+    const driverName = cfg?.driver === 'meshcore' ? 'meshcore' : 'meshtastic'
     if (!cfg?.ui?.autoReconnect) return
     if (this.manualDisconnect) return
     if (this.reconnectTimer) return
     if (this.connectInFlight) return
-    if (!this.lastBleDevice && !getLastBleDeviceId()) return
+    if (!this.lastBleDeviceByDriver?.[driverName] && !getLastBleDeviceId(driverName)) return
 
     const nextAttempt = this.reconnectAttempt + 1
     const maxAttempts = Math.max(0, Math.floor(Number(cfg?.ui?.autoReconnectMaxAttempts) || 0))
@@ -864,16 +1539,14 @@ class XcomMeshTransport {
   async _connectInternal(opts) {
     if (this.connectInFlight) return await this.connectInFlight
 
-    const p = (async () => {
-      const auto = !!opts?.auto
-      const cfg = this.getConfig()
-      if (cfg.driver !== 'meshtastic') {
-        throw new Error(`Driver not supported yet: ${cfg.driver}`)
-      }
-      const connKind = cfg?.connection?.kind || 'ble'
-      if (connKind !== 'ble') {
-        throw new Error(`Connection kind not supported yet in browser build: ${connKind}`)
-      }
+      const p = (async () => {
+        const auto = !!opts?.auto
+        const cfg = this.getConfig()
+        const driverName = cfg.driver === 'meshcore' ? 'meshcore' : 'meshtastic'
+        const connKind = cfg?.connection?.kind || 'ble'
+        if (connKind !== 'ble') {
+          throw new Error(`Connection kind not supported yet in browser build: ${connKind}`)
+        }
 
       this.manualDisconnect = false
       if (!auto) this.reconnectAttempt = 0
@@ -886,15 +1559,15 @@ class XcomMeshTransport {
       try { await this.driver?.disconnect() } catch (_) { /* ignore */ }
       this.driver = null
 
-      const d = new MeshtasticDriver()
-      d.onLog((e) => this._appendLog({ dir: 'sys', ...e }))
-      d.onDeviceStatus((e) => {
-        try {
-          const dev = d.getBleDevice?.()
-          if (dev) this.lastBleDevice = dev
-        } catch (_) {
-          // ignore
-        }
+        const d = driverName === 'meshcore' ? new MeshCoreDriver() : new MeshtasticDriver()
+        d.onLog((e) => this._appendLog({ dir: 'sys', ...e }))
+        d.onDeviceStatus((e) => {
+          try {
+            const dev = d.getBleDevice?.()
+            if (dev) this.lastBleDeviceByDriver[driverName] = dev
+          } catch (_) {
+            // ignore
+          }
 
         this._setStatus({
           deviceStatus: e.status ?? null,
@@ -1043,28 +1716,28 @@ class XcomMeshTransport {
         })
       })
 
-      this.driver = d
-      this._setStatus({
-        connected: false,
-        linkConnected: false,
-        driver: 'meshtastic',
-        connection: connKind,
-        deviceStatus: 3,
-        deviceStatusLabel: meshDeviceStatusLabel(3),
-        lastDeviceInfo: auto ? (this.status.lastDeviceInfo || null) : null,
-        reconnecting: auto,
-        reconnectAttempt: auto ? this.reconnectAttempt : 0,
-        nextReconnectAt: null,
-        lastError: null,
-      })
+        this.driver = d
+        this._setStatus({
+          connected: false,
+          linkConnected: false,
+          driver: driverName,
+          connection: connKind,
+          deviceStatus: 3,
+          deviceStatusLabel: meshDeviceStatusLabel(3),
+          lastDeviceInfo: auto ? (this.status.lastDeviceInfo || null) : null,
+          reconnecting: auto,
+          reconnectAttempt: auto ? this.reconnectAttempt : 0,
+          nextReconnectAt: null,
+          lastError: null,
+        })
 
-      const info = await d.connectBle({ device: this.lastBleDevice, interactive: !auto })
-      try {
-        const dev = d.getBleDevice?.()
-        if (dev) this.lastBleDevice = dev
-      } catch (_) {
-        // ignore
-      }
+        const info = await d.connectBle({ device: this.lastBleDeviceByDriver[driverName], interactive: !auto })
+        try {
+          const dev = d.getBleDevice?.()
+          if (dev) this.lastBleDeviceByDriver[driverName] = dev
+        } catch (_) {
+          // ignore
+        }
       if (info) this._setStatus({ lastDeviceInfo: info || null, lastError: null })
       return info
     })()
