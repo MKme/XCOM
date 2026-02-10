@@ -15,6 +15,12 @@
 const SVG_NS = 'http://www.w3.org/2000/svg'
 const TOPO_RASTER_TEMPLATE = globalThis.TOPO_RASTER_TEMPLATE || 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png'
 
+function formatMeshtasticNodeId(num) {
+  const n = Math.floor(Number(num))
+  if (!Number.isFinite(n)) return null
+  return '!' + ((n >>> 0).toString(16).padStart(8, '0'))
+}
+
 class MapModule {
   constructor() {
     this.map = null
@@ -38,6 +44,14 @@ class MapModule {
     this._importedTplEls = []
     this._importedMarkerById = new Map()
     this._importedMarkerFeatureById = new Map()
+
+    // Mesh nodes overlay (Meshtastic/MeshCore position/adverts)
+    this._meshNodesEnabled = true
+    this._meshLegendEl = null
+    this._meshHandlersBound = false
+    this._meshMarkerByKey = new Map()
+    this._meshPopupByKey = new Map()
+    this._meshUnsub = null
 
     this.init()
   }
@@ -159,6 +173,11 @@ class MapModule {
               <div class="mapSmallMuted" id="mapImportedLegend"></div>
               <div class="mapSmallMuted">Imported markers come from XTOC Comm “Import” and XTOC Backup imports.</div>
             </div>
+            <div class="mapRow" style="margin-top: 12px;">
+              <label class="mapInline"><input id="mapMeshNodes" type="checkbox" /> Mesh nodes</label>
+              <div class="mapSmallMuted" id="mapMeshLegend"></div>
+              <div class="mapSmallMuted">Plots latest Meshtastic/MeshCore GPS packets as node markers.</div>
+            </div>
           </div>
 
           <div class="mapCard">
@@ -198,6 +217,9 @@ class MapModule {
     const importedLast7El = document.getElementById('mapImportedLast7')
     const importedLegendEl = document.getElementById('mapImportedLegend')
     this._importedLegendEl = importedLegendEl
+    const meshNodesEl = document.getElementById('mapMeshNodes')
+    const meshLegendEl = document.getElementById('mapMeshLegend')
+    this._meshLegendEl = meshLegendEl
 
     // Base-style-dependent UI (Topographic vs user-configured raster template)
     const rasterRowEl = document.getElementById('mapRasterRow')
@@ -295,6 +317,14 @@ class MapModule {
     }
 
     try {
+      if (meshNodesEl) meshNodesEl.checked = globalThis.getTacticalMapMeshNodesEnabled ? globalThis.getTacticalMapMeshNodesEnabled() : true
+      this._meshNodesEnabled = !!meshNodesEl?.checked
+    } catch (_) {
+      if (meshNodesEl) meshNodesEl.checked = true
+      this._meshNodesEnabled = true
+    }
+
+    try {
       if (importedLast7El) importedLast7El.checked = globalThis.getTacticalMapImportedLast7dOnly ? globalThis.getTacticalMapImportedLast7dOnly() : true
       this._importedLast7dOnly = !!importedLast7El?.checked
     } catch (_) {
@@ -337,6 +367,7 @@ class MapModule {
     setImportedUiDisabled(!this._importedEnabled)
 
     try { this.updateImportedLegend() } catch (_) { /* ignore */ }
+    try { this.updateMeshLegend() } catch (_) { /* ignore */ }
 
     importedEl?.addEventListener('change', () => {
       const v = !!importedEl.checked
@@ -355,6 +386,15 @@ class MapModule {
         globalThis.setTacticalMapImportedLast7dOnly && globalThis.setTacticalMapImportedLast7dOnly(v)
       } catch (_) {}
       this.syncImportedOverlay()
+    })
+
+    meshNodesEl?.addEventListener('change', () => {
+      const v = !!meshNodesEl.checked
+      this._meshNodesEnabled = v
+      try {
+        globalThis.setTacticalMapMeshNodesEnabled && globalThis.setTacticalMapMeshNodesEnabled(v)
+      } catch (_) {}
+      this.syncMeshNodesOverlay()
     })
 
     // initial cache count
@@ -406,6 +446,8 @@ class MapModule {
       this.updateAoUi()
       try { this.ensureImportedOverlayLayers() } catch (_) { /* ignore */ }
       try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
+      try { this.ensureMeshNodesOverlay() } catch (_) { /* ignore */ }
+      try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
     })
 
     // Track AO by view; save view to localStorage with a small debounce.
@@ -514,6 +556,7 @@ class MapModule {
         this.map.once('idle', () => {
           try { this.ensureImportedOverlayLayers() } catch (_) { /* ignore */ }
           try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
+          try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
         })
       } catch (_) {
         // ignore
@@ -624,6 +667,16 @@ class MapModule {
       addPath('M2 13h20')
       addPath('M10 13v2')
       addPath('M14 13v2')
+      return svg
+    }
+
+    if (kind === 'mesh') {
+      addCircle(6, 12, 2)
+      addCircle(18, 6, 2)
+      addCircle(18, 18, 2)
+      addPath('M8 11l8-4')
+      addPath('M8 13l8 4')
+      addPath('M18 8v8')
       return svg
     }
 
@@ -1062,6 +1115,226 @@ class MapModule {
     this.setImportedLayerVisibility(visible)
 
     try { this.updateImportedLegend() } catch (_) { /* ignore */ }
+  }
+
+  updateMeshLegend() {
+    const el = this._meshLegendEl
+    if (!el) return
+
+    let nodes = []
+    try {
+      const s = globalThis.xcomMesh?.getState?.()
+      nodes = Array.isArray(s?.nodes) ? s.nodes : (globalThis.meshGetNodes ? globalThis.meshGetNodes() : [])
+    } catch (_) {
+      nodes = []
+    }
+
+    const withPos = (Array.isArray(nodes) ? nodes : []).filter((n) => {
+      const pos = n?.position
+      const lat = Number(pos?.lat)
+      const lon = Number(pos?.lon)
+      return Number.isFinite(lat) && Number.isFinite(lon)
+    }).length
+    const hidden = !this._meshNodesEnabled
+    el.textContent = `Mesh nodes: ${nodes.length} (${withPos} with position)${hidden ? ' (hidden)' : ''}`
+  }
+
+  meshNodeKeyForNode(node) {
+    const n = node && typeof node === 'object' ? node : {}
+    const num = Number(n?.num)
+
+    let driver = String(n?.driver || '').trim()
+    if (!driver) {
+      try {
+        const cfgDriver = globalThis.xcomMesh?.getState?.()?.config?.driver
+        driver = cfgDriver === 'meshcore' ? 'meshcore' : 'meshtastic'
+      } catch (_) {
+        driver = 'meshtastic'
+      }
+    }
+    if (driver !== 'meshcore') driver = 'meshtastic'
+
+    let id = String(n?.id || '').trim()
+    if (!id && driver === 'meshtastic' && Number.isFinite(num)) {
+      id = formatMeshtasticNodeId(num) || ''
+    }
+    if (id) return `${driver}:${id}`
+    if (Number.isFinite(num)) return `${driver}:#${Math.floor(num)}`
+    return null
+  }
+
+  meshAssignedLabelByNodeKey() {
+    const out = new Map()
+    let members = []
+    try {
+      members = globalThis.xcomListRosterMembers ? globalThis.xcomListRosterMembers() : (globalThis.xcomGetTeamRoster?.()?.members || [])
+    } catch (_) {
+      members = []
+    }
+    for (const m of Array.isArray(members) ? members : []) {
+      const key = String(m?.meshNodeId ?? m?.meshNodeKey ?? '').trim()
+      if (!key) continue
+      const unitId = Number(m?.unitId)
+      if (!Number.isFinite(unitId) || unitId <= 0) continue
+      let label = String(m?.label ?? '').trim()
+      if (globalThis.xcomFormatUnitWithLabel) {
+        try { label = globalThis.xcomFormatUnitWithLabel(unitId, label) } catch (_) { /* ignore */ }
+      } else {
+        label = label ? `U${unitId} (${label})` : `U${unitId}`
+      }
+      out.set(key, label)
+    }
+    return out
+  }
+
+  meshNodePopupHtml(node, assignedLabel, nodeKey) {
+    const n = node && typeof node === 'object' ? node : {}
+    const key = String(nodeKey || this.meshNodeKeyForNode(n) || '').trim()
+    const driver = String(n?.driver || (key.split(':')[0] || '')).trim()
+    const id = String(n?.id || (key.split(':').slice(1).join(':') || '')).trim()
+    const name = String(n?.shortName || n?.longName || '').trim()
+    const pos = n?.position || null
+    const lat = Number(pos?.lat)
+    const lon = Number(pos?.lon)
+    const whenTs = Number(pos?.ts ?? n?.lastSeenTs ?? 0)
+    const when = (Number.isFinite(whenTs) && whenTs > 0) ? new Date(whenTs).toLocaleString() : '-'
+
+    const loc = (Number.isFinite(lat) && Number.isFinite(lon)) ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '-'
+    const assigned = String(assignedLabel || '').trim()
+
+    const row = (k, v) => `<div style="font-size:12px; color:#444;"><span style="font-weight:700;">${this.escapeHtml(k)}:</span> ${this.escapeHtml(v)}</div>`
+
+    return `
+      <div style="font-weight:700; margin-bottom:6px;">Mesh Node</div>
+      ${assigned ? row('Assigned', assigned) : ''}
+      ${name ? row('Name', name) : ''}
+      ${driver ? row('Driver', driver) : ''}
+      ${id ? row('ID', id) : ''}
+      ${key ? row('Key', key) : ''}
+      ${row('Location', loc)}
+      ${row('Last', when)}
+    `
+  }
+
+  ensureMeshNodesOverlay() {
+    if (this._meshHandlersBound) return
+    this._meshHandlersBound = true
+
+    try { if (globalThis.__xcomMapMeshCleanup) globalThis.__xcomMapMeshCleanup() } catch (_) { /* ignore */ }
+
+    const onRosterUpdated = () => {
+      try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+    }
+    try { globalThis.addEventListener('xcomTeamRosterUpdated', onRosterUpdated) } catch (_) { /* ignore */ }
+
+    let unsub = null
+    try {
+      if (globalThis.xcomMesh && typeof globalThis.xcomMesh.subscribe === 'function') {
+        unsub = globalThis.xcomMesh.subscribe(() => {
+          try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+        })
+      }
+    } catch (_) {
+      unsub = null
+    }
+    this._meshUnsub = unsub
+
+    globalThis.__xcomMapMeshCleanup = () => {
+      try { if (this._meshUnsub) this._meshUnsub() } catch (_) { /* ignore */ }
+      this._meshUnsub = null
+      try { globalThis.removeEventListener('xcomTeamRosterUpdated', onRosterUpdated) } catch (_) { /* ignore */ }
+    }
+  }
+
+  syncMeshNodesOverlay() {
+    if (!this.map || !globalThis.maplibregl?.Marker) return
+    const map = this.map
+
+    let nodes = []
+    try {
+      const s = globalThis.xcomMesh?.getState?.()
+      nodes = Array.isArray(s?.nodes) ? s.nodes : (globalThis.meshGetNodes ? globalThis.meshGetNodes() : [])
+    } catch (_) {
+      nodes = []
+    }
+
+    if (!this._meshNodesEnabled) {
+      try {
+        for (const m of this._meshMarkerByKey?.values?.() || []) {
+          try { m.remove() } catch (_) { /* ignore */ }
+        }
+      } catch (_) { /* ignore */ }
+      try { this._meshMarkerByKey?.clear?.() } catch (_) { /* ignore */ }
+      try { this._meshPopupByKey?.clear?.() } catch (_) { /* ignore */ }
+      try { this.updateMeshLegend() } catch (_) { /* ignore */ }
+      return
+    }
+
+    const assignedByKey = this.meshAssignedLabelByNodeKey()
+    const want = new Map()
+
+    for (const n of Array.isArray(nodes) ? nodes : []) {
+      const pos = n?.position
+      const lat = Number(pos?.lat)
+      const lon = Number(pos?.lon)
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
+
+      const key = this.meshNodeKeyForNode(n)
+      if (!key) continue
+      want.set(key, { node: n, lat, lon })
+    }
+
+    // Remove markers that no longer exist
+    for (const [key, m] of this._meshMarkerByKey.entries()) {
+      if (!want.has(key)) {
+        try { m.remove() } catch (_) { /* ignore */ }
+        this._meshMarkerByKey.delete(key)
+        this._meshPopupByKey.delete(key)
+      }
+    }
+
+    // Add/update
+    for (const [key, item] of want.entries()) {
+      const n = item.node
+      const assigned = assignedByKey.get(key) || ''
+      const titleBase = String(n?.shortName || n?.longName || '').trim() || key
+      const title = assigned ? `${titleBase}\n${assigned}` : titleBase
+      const html = this.meshNodePopupHtml(n, assigned, key)
+
+      let marker = this._meshMarkerByKey.get(key) || null
+      if (!marker) {
+        const el = document.createElement('div')
+        el.className = 'xcomMapMarker xcomMapMarker--mesh'
+        el.title = title
+        el.appendChild(this.createMarkerIconSvg('mesh'))
+
+        marker = new globalThis.maplibregl.Marker({ element: el }).setLngLat([item.lon, item.lat]).addTo(map)
+        this._meshMarkerByKey.set(key, marker)
+      } else {
+        try { marker.setLngLat([item.lon, item.lat]) } catch (_) { /* ignore */ }
+        try {
+          const el = marker.getElement ? marker.getElement() : null
+          if (el) el.title = title
+        } catch (_) { /* ignore */ }
+      }
+
+      // Popup (best-effort)
+      try {
+        if (globalThis.maplibregl?.Popup) {
+          let popup = this._meshPopupByKey.get(key) || null
+          if (!popup) {
+            popup = new globalThis.maplibregl.Popup({ closeButton: true, closeOnClick: true })
+            this._meshPopupByKey.set(key, popup)
+          }
+          popup.setHTML(html)
+          marker.setPopup(popup)
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    try { this.updateMeshLegend() } catch (_) { /* ignore */ }
   }
 
   applyOfflineDarkFilter() {

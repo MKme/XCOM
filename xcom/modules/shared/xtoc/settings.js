@@ -13,6 +13,7 @@ const KEY_MAP_DEFAULT_ZOOM = 'xtoc.map.defaultZoom'
 const KEY_TACTICAL_LAYER_IMPORTED = 'xtoc.tacticalMap.layers.imported'
 const KEY_TACTICAL_LAYER_IMPORTED_LAST7 = 'xtoc.tacticalMap.layers.imported.last7d'
 const KEY_TACTICAL_LAYER_IMPORTED_TPL_PREFIX = 'xtoc.tacticalMap.layers.imported.tpl.'
+const KEY_TACTICAL_LAYER_MESH_NODES = 'xtoc.tacticalMap.layers.meshNodes'
 
 // Map base style: online vector styles (dark/light) or offline raster.
 // Keep values identical to XTOC for code reuse.
@@ -81,6 +82,15 @@ function setTacticalMapImportedLast7dOnly(enabled) {
   localStorage.setItem(KEY_TACTICAL_LAYER_IMPORTED_LAST7, enabled ? '1' : '0')
 }
 
+// Mesh nodes overlay (defaults ON if unset)
+function getTacticalMapMeshNodesEnabled() {
+  return localStorage.getItem(KEY_TACTICAL_LAYER_MESH_NODES) !== '0'
+}
+
+function setTacticalMapMeshNodesEnabled(enabled) {
+  localStorage.setItem(KEY_TACTICAL_LAYER_MESH_NODES, enabled ? '1' : '0')
+}
+
 // Per-template toggles for Imported overlay (defaults ON if unset)
 function getTacticalMapImportedTemplateEnabled(templateId) {
   const t = Number(templateId || 0)
@@ -108,6 +118,8 @@ try {
   globalThis.setTacticalMapImportedEnabled = setTacticalMapImportedEnabled
   globalThis.getTacticalMapImportedLast7dOnly = getTacticalMapImportedLast7dOnly
   globalThis.setTacticalMapImportedLast7dOnly = setTacticalMapImportedLast7dOnly
+  globalThis.getTacticalMapMeshNodesEnabled = getTacticalMapMeshNodesEnabled
+  globalThis.setTacticalMapMeshNodesEnabled = setTacticalMapMeshNodesEnabled
   globalThis.getTacticalMapImportedTemplateEnabled = getTacticalMapImportedTemplateEnabled
   globalThis.setTacticalMapImportedTemplateEnabled = setTacticalMapImportedTemplateEnabled
 } catch (_) {

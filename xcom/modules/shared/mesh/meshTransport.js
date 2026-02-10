@@ -302,6 +302,13 @@ function meshAsNonEmptyString(v) {
   return t ? t : null
 }
 
+function meshFormatMeshtasticNodeId(num) {
+  const n = Math.floor(Number(num))
+  if (!Number.isFinite(n)) return null
+  // Meshtastic commonly displays node IDs as "!deadbeef" (uint32 hex).
+  return '!' + ((n >>> 0).toString(16).padStart(8, '0'))
+}
+
 function meshExtractLatLon(pos) {
   if (!pos || typeof pos !== 'object') return null
 
@@ -947,6 +954,8 @@ class MeshCoreDriver {
     this._onLog = null
     this._onDeviceStatus = null
     this._onDeviceInfo = null
+    this._onNodeInfo = null
+    this._onPosition = null
 
     this.rxBuffer = new Uint8Array(0)
     this.inbox = []
@@ -968,12 +977,42 @@ class MeshCoreDriver {
   onLog(fn) { this._onLog = fn }
   onDeviceStatus(fn) { this._onDeviceStatus = fn }
   onDeviceInfo(fn) { this._onDeviceInfo = fn }
+  onNodeInfo(fn) { this._onNodeInfo = fn }
+  onPosition(fn) { this._onPosition = fn }
 
-  // Interface compatibility with MeshtasticDriver (no-op in MeshCore)
-  onNodeInfo(_fn) {}
+  // Interface compatibility with MeshtasticDriver (not all events exist in MeshCore).
   onUser(_fn) {}
-  onPosition(_fn) {}
   onTelemetry(_fn) {}
+
+  _emitNodeInfoFromInfo(info, source) {
+    if (!info || typeof info !== 'object') return
+
+    const num = meshAsFiniteNumber(info?.num ?? info?.nodeId ?? null)
+    if (num == null) return
+
+    const label = meshAsNonEmptyString(info?.name ?? null) || 'MeshCore'
+    const lat = meshAsFiniteNumber(info?.lat ?? null)
+    const lon = meshAsFiniteNumber(info?.lon ?? null)
+    const hasPos = lat != null && lon != null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180
+
+    const nodeInfo = {
+      num,
+      user: { shortName: label, longName: label },
+      prefixHex: meshAsNonEmptyString(info?.prefixHex ?? null) || undefined,
+      position: hasPos ? { lat, lon } : undefined,
+      meshcore: info,
+      source: source || 'advert',
+    }
+
+    if (typeof this._onNodeInfo === 'function') {
+      try { this._onNodeInfo(nodeInfo) } catch (_) { /* ignore */ }
+    }
+
+    // Best-effort: some consumers prefer a Position-like callback.
+    if (hasPos && typeof this._onPosition === 'function') {
+      try { this._onPosition({ from: num, data: { lat, lon }, meshcore: info, source: source || 'advert' }) } catch (_) { /* ignore */ }
+    }
+  }
 
   _emitDeviceStatus(status) {
     const s = Number(status)
@@ -1060,6 +1099,15 @@ class MeshCoreDriver {
 
     // Push codes (asynchronous). Ignore any we don't explicitly handle.
     if (type >= 0x80) {
+      if (type === MESHCORE_CMD.PUSH_ADVERT || type === MESHCORE_CMD.PUSH_NEW_ADVERT) {
+        try {
+          const info = meshcoreParseSelfInfo(payload)
+          if (info) this._emitNodeInfoFromInfo(info, type === MESHCORE_CMD.PUSH_NEW_ADVERT ? 'new_advert' : 'advert')
+        } catch (e) {
+          this._emitLog('warn', `MeshCore: failed to parse ADVERT push: ${formatError(e)}`, e)
+        }
+        return
+      }
       if (type === MESHCORE_CMD.PUSH_MSG_WAITING) {
         this._emitLog('info', 'MeshCore: message(s) waiting; syncing…')
         this._queueSyncMessages()
@@ -1200,6 +1248,7 @@ class MeshCoreDriver {
       if (typeof this._onDeviceInfo === 'function') {
         try { this._onDeviceInfo(this.lastDeviceInfo) } catch (_) { /* ignore */ }
       }
+      try { this._emitNodeInfoFromInfo(info, 'selfinfo') } catch (_) { /* ignore */ }
     }
 
     // Drain any queued messages.
@@ -1597,10 +1646,17 @@ class XcomMeshTransport {
           const longName = meshAsNonEmptyString(user?.longName ?? info?.longName ?? null)
           const pos = info?.position ?? null
           const ll = meshExtractLatLon(pos)
-          const patch = { lastSeenTs: Date.now() }
+          const patch = { lastSeenTs: Date.now(), driver: driverName }
           if (shortName) patch.shortName = shortName
           if (longName) patch.longName = longName
           if (ll) patch.position = { ...ll, alt: meshAsFiniteNumber(pos?.altitude ?? null) ?? undefined, ts: Date.now(), source: 'nodeinfo' }
+          if (driverName === 'meshtastic' && num != null) {
+            const id = meshFormatMeshtasticNodeId(num)
+            if (id) patch.id = id
+          } else if (driverName === 'meshcore') {
+            const id = meshAsNonEmptyString(info?.prefixHex ?? info?.meshcore?.prefixHex ?? null)
+            if (id) patch.id = id
+          }
           if (num != null) this._upsertNode(num, patch)
         } catch (_) {
           // ignore
@@ -1614,9 +1670,13 @@ class XcomMeshTransport {
           const u = m?.data ?? null
           const shortName = meshAsNonEmptyString(u?.shortName ?? null)
           const longName = meshAsNonEmptyString(u?.longName ?? null)
-          const patch = { lastSeenTs: Date.now() }
+          const patch = { lastSeenTs: Date.now(), driver: driverName }
           if (shortName) patch.shortName = shortName
           if (longName) patch.longName = longName
+          if (driverName === 'meshtastic' && from != null) {
+            const id = meshFormatMeshtasticNodeId(from)
+            if (id) patch.id = id
+          }
           if (from != null) this._upsertNode(from, patch)
         } catch (_) {
           // ignore
@@ -1631,7 +1691,15 @@ class XcomMeshTransport {
           const ll = meshExtractLatLon(pos)
           if (from == null || !ll) return
           const alt = meshAsFiniteNumber(pos?.altitude ?? null)
-          this._upsertNode(from, { lastSeenTs: Date.now(), position: { ...ll, alt: alt ?? undefined, ts: Date.now(), source: 'position' } })
+          const patch = { lastSeenTs: Date.now(), driver: driverName, position: { ...ll, alt: alt ?? undefined, ts: Date.now(), source: 'position' } }
+          if (driverName === 'meshtastic') {
+            const id = meshFormatMeshtasticNodeId(from)
+            if (id) patch.id = id
+          } else if (driverName === 'meshcore') {
+            const id = meshAsNonEmptyString(m?.prefixHex ?? m?.meshcore?.prefixHex ?? null)
+            if (id) patch.id = id
+          }
+          this._upsertNode(from, patch)
         } catch (_) {
           // ignore
         } finally {
@@ -1647,7 +1715,7 @@ class XcomMeshTransport {
           // Keep only a small subset to avoid bloating storage.
           const dev = t?.deviceMetrics ?? t?.device_metrics ?? null
           const env = t?.environmentMetrics ?? t?.environment_metrics ?? null
-          const patch = { lastSeenTs: Date.now() }
+          const patch = { lastSeenTs: Date.now(), driver: driverName }
           if (dev && typeof dev === 'object') {
             patch.device = {
               batteryLevel: meshAsFiniteNumber(dev?.batteryLevel ?? dev?.battery_level ?? null) ?? undefined,
@@ -1663,6 +1731,10 @@ class XcomMeshTransport {
               barometricPressure: meshAsFiniteNumber(env?.barometricPressure ?? env?.barometric_pressure ?? null) ?? undefined,
             }
           }
+          if (driverName === 'meshtastic') {
+            const id = meshFormatMeshtasticNodeId(from)
+            if (id) patch.id = id
+          }
           this._upsertNode(from, patch)
         } catch (_) {
           // ignore
@@ -1676,7 +1748,17 @@ class XcomMeshTransport {
           const ts = Date.now()
           if (e?.kind === 'message') {
             const from = meshAsFiniteNumber(e?.msg?.from ?? null)
-            if (from != null) this._upsertNode(from, { lastSeenTs: ts })
+            if (from != null) {
+              const patch = { lastSeenTs: ts, driver: driverName }
+              if (driverName === 'meshtastic') {
+                const id = meshFormatMeshtasticNodeId(from)
+                if (id) patch.id = id
+              } else if (driverName === 'meshcore') {
+                const id = meshAsNonEmptyString(e?.msg?.meshcore?.prefixHex ?? null)
+                if (id) patch.id = id
+              }
+              this._upsertNode(from, patch)
+            }
           } else if (e?.kind === 'packet') {
             const pkt = e?.pkt
             const from = meshAsFiniteNumber(pkt?.from ?? null)
@@ -1686,14 +1768,20 @@ class XcomMeshTransport {
               const hopStart = meshAsFiniteNumber(pkt?.hopStart ?? pkt?.hop_start ?? null)
               const hopLimit = meshAsFiniteNumber(pkt?.hopLimit ?? pkt?.hop_limit ?? null)
               const portnum = pkt?.decoded?.portnum ?? pkt?.decoded?.portNum ?? null
-              this._upsertNode(from, {
+              const patch = {
                 lastSeenTs: ts,
+                driver: driverName,
                 lastSnr: rxSnr ?? undefined,
                 lastRssi: rxRssi ?? undefined,
                 lastHopStart: hopStart ?? undefined,
                 lastHopLimit: hopLimit ?? undefined,
                 lastPort: portnum != null ? String(portnum) : undefined,
-              })
+              }
+              if (driverName === 'meshtastic') {
+                const id = meshFormatMeshtasticNodeId(from)
+                if (id) patch.id = id
+              }
+              this._upsertNode(from, patch)
             }
           }
         } catch (_) {
