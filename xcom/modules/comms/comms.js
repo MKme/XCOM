@@ -13,6 +13,23 @@
 // Shared helpers (loaded by app-main.js as scripts)
 // We rely on them being available as globals in the browser after script load.
 
+function parseUnitIdListText(s, max = 32) {
+  const text = String(s ?? '').trim()
+  if (!text) return []
+  const matches = text.match(/\d+/g) || []
+  const out = []
+  const seen = new Set()
+  for (const m of matches) {
+    const n = Math.floor(Number(m))
+    if (!Number.isFinite(n) || n <= 0 || n > 65535) continue
+    if (seen.has(n)) continue
+    seen.add(n)
+    out.push(n)
+    if (out.length >= max) break
+  }
+  return out
+}
+
 // eslint-disable-next-line no-unused-vars
 class CommsModule {
   constructor() {
@@ -789,7 +806,7 @@ class CommsModule {
         <div class="commsRow"><label>Title</label><input id="t_mission_title" type="text" placeholder="\"Deliver supplies\" / \"Recon\" / ..." /></div>
         <div class="commsGrid2">
           <div class="commsRow"><label>Pri</label><input id="t_pri" type="number" min="0" max="3" step="1" value="0" /></div>
-          <div class="commsRow"><label>Assigned To (unit #)</label><input id="t_assigned_to" type="number" min="0" step="1" value="0" /></div>
+          <div class="commsRow"><label>Team (unit # list)</label><input id="t_assigned_to" type="text" placeholder="e.g. 12,14,19" /></div>
         </div>
         <div class="commsGrid2">
           <div class="commsRow"><label>Lat</label><input id="t_lat" type="number" step="0.00001" placeholder="" /></div>
@@ -1155,6 +1172,8 @@ class CommsModule {
       } else if (templateId === 8) {
         const tVal = Number(document.getElementById('t_time')?.value || now)
         const ts = (Number.isFinite(tVal) && tVal > 0) ? tVal : now
+        const team = parseUnitIdListText(document.getElementById('t_assigned_to')?.value, 32)
+        const assignedTo = team[0] || 0
         const payload = {
           id: String(document.getElementById('t_mission_id')?.value || '').trim(),
           createdAt: ts,
@@ -1162,7 +1181,8 @@ class CommsModule {
           title: String(document.getElementById('t_mission_title')?.value || '').trim(),
           status: String(document.getElementById('t_mission_status')?.value || 'PLANNED').trim() || 'PLANNED',
           pri: Number(document.getElementById('t_pri')?.value || 0) || 0,
-          assignedTo: Number(document.getElementById('t_assigned_to')?.value || 0) || 0,
+          assignedTo,
+          ...(team.length > 1 ? { assignedToList: team } : {}),
           lat: Number(document.getElementById('t_lat')?.value),
           lon: Number(document.getElementById('t_lon')?.value),
           locationLabel: String(document.getElementById('t_location_label')?.value || '').trim(),
@@ -2360,7 +2380,11 @@ class CommsModule {
 
       const head = `${pri} ${status} MISSION`.trim()
       const mid = missionId ? ` ${missionId}` : ''
-      const quotedTitle = title ? ` \"${title}\"` : ''
+      const team = Array.isArray(decoded?.assignedToList)
+        ? decoded.assignedToList
+        : (decoded?.assignedTo ? [decoded.assignedTo] : [])
+      const teamText = team.length ? ` -> ${team.map((n) => `U${Math.floor(Number(n))}`).join(',')}` : ''
+      const quotedTitle = (title ? ` \"${title}\"` : '') + teamText
 
       if (isSecure) return `SECURE ${head}${mid}${quotedTitle}`.trim()
       return `${head}${mid}${quotedTitle}${notes ? ` — ${notes}` : ''}`.trim()
@@ -2856,7 +2880,10 @@ class CommsModule {
       addKV('Title', decodedObj?.title)
       addKV('Status', decodedObj?.status)
       addKV('Priority', decodedObj?.pri)
-      addKV('Assigned To', decodedObj?.assignedTo)
+      const team = Array.isArray(decodedObj?.assignedToList)
+        ? decodedObj.assignedToList
+        : (decodedObj?.assignedTo ? [decodedObj.assignedTo] : [])
+      if (team.length) addKV('Team', team.map((n) => `U${n}`).join(', '))
       if (Number.isFinite(decodedObj?.lat) && Number.isFinite(decodedObj?.lon)) {
         addKV('Location', `${Number(decodedObj.lat).toFixed(5)}, ${Number(decodedObj.lon).toFixed(5)}`)
       }

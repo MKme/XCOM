@@ -720,6 +720,9 @@ const MISSION_MAX_ID_BYTES = 32
 const MISSION_MAX_TITLE_BYTES = 96
 const MISSION_MAX_LOC_LABEL_BYTES = 48
 const MISSION_MAX_NOTES_BYTES = 600
+const MISSION_MAX_ASSIGNEES = 32
+
+const MISSION_FLAG_HAS_ASSIGNEES = 32
 
 const MISSION_STATUS = ['PLANNED', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETE', 'ABORTED']
 
@@ -748,11 +751,32 @@ function encodeMissionClear(m) {
   const notesBytesAll = m && m.notes && String(m.notes).trim() ? enc.encode(String(m.notes).trim()) : undefined
   const notesBytes = notesBytesAll ? notesBytesAll.subarray(0, Math.min(notesBytesAll.length, MISSION_MAX_NOTES_BYTES)) : undefined
 
-  const hasAssigned = Number.isFinite(m?.assignedTo) && Number(m.assignedTo || 0) > 0
+  const normalizeUnitIdList = (ids) => {
+    if (!Array.isArray(ids)) return []
+    const out = []
+    const seen = new Set()
+    for (const v of ids) {
+      const n = Math.floor(Number(v))
+      if (!Number.isFinite(n) || n <= 0 || n > 65535) continue
+      if (seen.has(n)) continue
+      seen.add(n)
+      out.push(n)
+      if (out.length >= MISSION_MAX_ASSIGNEES) break
+    }
+    return out
+  }
+
+  const list = normalizeUnitIdList(m?.assignedToList)
+  const assignedToFromSingle = Number.isFinite(m?.assignedTo) && Number(m.assignedTo || 0) > 0 ? Number(m.assignedTo) : undefined
+  const assignedTo = (list[0] != null) ? list[0] : assignedToFromSingle
+  const extraAssignees = list.length > 0 ? list.slice(1) : []
+
+  const hasAssigned = Number.isFinite(assignedTo) && Number(assignedTo || 0) > 0
   const hasLoc = Number.isFinite(m?.lat) && Number.isFinite(m?.lon)
   const hasLocLabel = !!locLabelBytes && locLabelBytes.length > 0
   const hasDue = Number.isFinite(m?.dueAt) && Number(m.dueAt || 0) > 0
   const hasNotes = !!notesBytes && notesBytes.length > 0
+  const hasAssignees = extraAssignees.length > 0
 
   const baseLen = 12
   const idLen = 1 + idBytes.length
@@ -762,8 +786,9 @@ function encodeMissionClear(m) {
   const locLabelLen = hasLocLabel ? 1 + locLabelBytes.length : 0
   const dueLen = hasDue ? 4 : 0
   const notesLen = hasNotes ? 2 + notesBytes.length : 0
+  const assigneesLen = hasAssignees ? 1 + extraAssignees.length * 2 : 0
 
-  const buf = new Uint8Array(baseLen + idLen + titleLen + assignedLen + locLen + locLabelLen + dueLen + notesLen)
+  const buf = new Uint8Array(baseLen + idLen + titleLen + assignedLen + locLen + locLabelLen + dueLen + notesLen + assigneesLen)
   const dv = new DataView(buf.buffer)
 
   dv.setUint8(0, MISSION_VERSION)
@@ -779,6 +804,7 @@ function encodeMissionClear(m) {
   if (hasLocLabel) flags |= 4
   if (hasDue) flags |= 8
   if (hasNotes) flags |= 16
+  if (hasAssignees) flags |= MISSION_FLAG_HAS_ASSIGNEES
   dv.setUint8(11, flags)
 
   let o = 12
@@ -794,7 +820,7 @@ function encodeMissionClear(m) {
   o += titleBytes.length
 
   if (hasAssigned) {
-    dv.setUint16(o, Number(m.assignedTo), false)
+    dv.setUint16(o, Number(assignedTo), false)
     o += 2
   }
 
@@ -824,6 +850,15 @@ function encodeMissionClear(m) {
     o += notesBytes.length
   }
 
+  if (hasAssignees) {
+    dv.setUint8(o, extraAssignees.length)
+    o += 1
+    for (const unitId of extraAssignees) {
+      dv.setUint16(o, unitId, false)
+      o += 2
+    }
+  }
+
   return encodeBase64Url(buf)
 }
 
@@ -846,6 +881,7 @@ function decodeMissionClear(b64) {
   const hasLocLabel = (flags & 4) !== 0
   const hasDue = (flags & 8) !== 0
   const hasNotes = (flags & 16) !== 0
+  const hasAssignees = (flags & MISSION_FLAG_HAS_ASSIGNEES) !== 0
 
   let o = 12
   const dec = new TextDecoder()
@@ -910,6 +946,35 @@ function decodeMissionClear(b64) {
     o += n
   }
 
+  let assignedToList
+  if (hasAssignees) {
+    if (bytes.length < o + 1) throw new Error('MISSION assignees truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n * 2) throw new Error('MISSION assignees truncated')
+
+    const extras = []
+    for (let i = 0; i < n; i++) {
+      const v = dv.getUint16(o, false)
+      o += 2
+      if (v > 0) extras.push(v)
+    }
+
+    const out = []
+    const seen = new Set()
+    const add = (v) => {
+      if (!v || v <= 0) return
+      if (seen.has(v)) return
+      seen.add(v)
+      out.push(v)
+    }
+    add(assignedTo)
+    for (const v of extras) add(v)
+
+    if (!assignedTo && out.length) assignedTo = out[0]
+    assignedToList = out.length ? out : undefined
+  }
+
   return {
     id,
     createdAt: createdUnixMinutes * 60000,
@@ -918,6 +983,7 @@ function decodeMissionClear(b64) {
     status: missionCodeToStatus(statusCode),
     pri,
     assignedTo,
+    ...(Array.isArray(assignedToList) && assignedToList.length > 1 ? { assignedToList } : {}),
     lat,
     lon,
     locationLabel,
