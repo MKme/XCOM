@@ -5,6 +5,9 @@
 // - maplibregl global (MapLibre GL)
 // - getMapBaseStyle/getMapRasterTemplate
 
+// OpenTopoMap raster tiles (topographic). Public tile servers have usage policies.
+const TOPO_RASTER_TEMPLATE = 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png'
+
 function buildMapLibreStyle() {
   const base = globalThis.getMapBaseStyle ? globalThis.getMapBaseStyle() : 'light'
   const rasterTemplate = globalThis.getMapRasterTemplate
@@ -17,15 +20,18 @@ function buildMapLibreStyle() {
   const STYLE_DARK = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
   const STYLE_LIGHT = 'https://tiles.openfreemap.org/styles/liberty'
 
-  const isOfflineRaster = base === 'offlineRaster' || base === 'offlineRasterDark'
-  if (isOfflineRaster) {
+  const isRaster = base === 'offlineRaster' || base === 'offlineRasterDark' || base === 'topo' || base === 'topoDark'
+  if (isRaster) {
+    const tpl = (base === 'topo' || base === 'topoDark')
+      ? TOPO_RASTER_TEMPLATE
+      : rasterTemplate
     return {
       version: 8,
-      name: 'Offline Raster',
+      name: (base === 'topo' || base === 'topoDark') ? 'Topographic' : 'Offline Raster',
       sources: {
         raster: {
           type: 'raster',
-          tiles: [rasterTemplate],
+          tiles: [tpl],
           tileSize: 256,
           attribution: 'Raster Tiles',
         },
@@ -40,7 +46,7 @@ function buildMapLibreStyle() {
 
 function applyOfflineRasterDarkFilter(containerEl) {
   const base = globalThis.getMapBaseStyle ? globalThis.getMapBaseStyle() : 'light'
-  const isOfflineDark = base === 'offlineRasterDark'
+  const isDarkRaster = base === 'offlineRasterDark' || base === 'topoDark'
   // Support callers that pass an element OR a string id.
   // (Some modules call createMapLibreMap({ container: 'map' }))
   if (!containerEl) return
@@ -50,7 +56,7 @@ function applyOfflineRasterDarkFilter(containerEl) {
   if (!el || typeof el.querySelector !== 'function') return
   const canvas = el.querySelector('canvas')
   if (!canvas) return
-  canvas.style.filter = isOfflineDark ? 'invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.05)' : ''
+  canvas.style.filter = isDarkRaster ? 'invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.05)' : ''
 }
 
 // Very small helper to create a basic map with the shared settings.
@@ -81,6 +87,7 @@ function createMapLibreMap({ container, centerLon, centerLat, zoom }) {
 }
 
 try {
+  globalThis.TOPO_RASTER_TEMPLATE = TOPO_RASTER_TEMPLATE
   globalThis.buildMapLibreStyle = buildMapLibreStyle
   globalThis.applyOfflineRasterDarkFilter = applyOfflineRasterDarkFilter
   globalThis.createMapLibreMap = createMapLibreMap

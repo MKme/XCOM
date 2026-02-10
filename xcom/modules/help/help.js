@@ -291,16 +291,16 @@ class HelpModule {
                         Pan/zoom to define your AO and download tiles so the map still works without internet.
                     </p>
 
-                    <h3>Offline raster tiles (cache)</h3>
-                    <ol>
-                        <li>Set <strong>Base</strong> to <strong>Offline Raster (cached)</strong> or <strong>Offline Raster Dark (cached)</strong>.</li>
-                        <li>(Optional) Change the <strong>Raster tile URL template</strong> to your own tile server.</li>
+                     <h3>Offline raster tiles (cache)</h3>
+                     <ol>
+                        <li>Set <strong>Base</strong> to <strong>Topographic</strong>, <strong>Topographic Dark</strong>, <strong>Offline Raster (cached)</strong>, or <strong>Offline Raster Dark (cached)</strong>.</li>
+                        <li>(Optional) If using <strong>Offline Raster</strong>, change the <strong>Raster tile URL template</strong> to your own tile server.</li>
                         <li>Pan/zoom until the <strong>Current AO bounds</strong> covers what you need.</li>
                         <li>Set <strong>Min zoom</strong>, <strong>Max zoom</strong>, and <strong>Max tiles</strong> (safety), then click <strong>Download tiles</strong>.</li>
                         <li>Use <strong>Test cached tile</strong> to verify that your current center tile is cached.</li>
                         <li>Use <strong>Clear tiles</strong> to free storage.</li>
-                    </ol>
-                    <ul>
+                     </ol>
+                     <ul>
                         <li>Tiles are stored in the browser <strong>Cache Storage</strong> cache named <code>xtoc.tiles.v1</code>.</li>
                         <li>Keep AO + zoom ranges reasonable &mdash; tile downloads can get large quickly.</li>
                     </ul>

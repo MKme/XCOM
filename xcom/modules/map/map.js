@@ -13,6 +13,7 @@
 // - cacheTilesForBounds/clearTileCache
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
+const TOPO_RASTER_TEMPLATE = globalThis.TOPO_RASTER_TEMPLATE || 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png'
 
 class MapModule {
   constructor() {
@@ -70,15 +71,23 @@ class MapModule {
               <select id="mapBaseSel">
                 <option value="light">Online Vector (Light)</option>
                 <option value="dark">Online Vector (Dark)</option>
+                <option value="topo">Topographic</option>
+                <option value="topoDark">Topographic Dark</option>
                 <option value="offlineRaster">Offline Raster (cached)</option>
                 <option value="offlineRasterDark">Offline Raster Dark (cached)</option>
               </select>
               <div class="mapSmallMuted">
-                Offline raster uses a tile template and caches tiles for your AO into device storage.
+                Topographic uses OpenTopoMap raster tiles. Offline raster uses your tile URL template and can be cached into device storage.
               </div>
             </div>
 
-            <div class="mapRow">
+            <div class="mapRow" id="mapTopoRow" style="display:none">
+              <div class="mapSmallMuted">
+                Topographic tiles: <code>${TOPO_RASTER_TEMPLATE}</code>
+              </div>
+            </div>
+
+            <div class="mapRow" id="mapRasterRow">
               <label>Raster tile URL template</label>
               <input id="mapRasterTemplate" type="text" spellcheck="false" />
               <div class="mapSmallMuted">
@@ -190,6 +199,19 @@ class MapModule {
     const importedLegendEl = document.getElementById('mapImportedLegend')
     this._importedLegendEl = importedLegendEl
 
+    // Base-style-dependent UI (Topographic vs user-configured raster template)
+    const rasterRowEl = document.getElementById('mapRasterRow')
+    const topoRowEl = document.getElementById('mapTopoRow')
+    const syncBaseUi = () => {
+      const base = String(baseSel?.value || (globalThis.getMapBaseStyle ? globalThis.getMapBaseStyle() : 'light'))
+      const isUserRaster = base === 'offlineRaster' || base === 'offlineRasterDark'
+      const isTopo = base === 'topo' || base === 'topoDark'
+
+      try { if (rasterRowEl) rasterRowEl.style.display = isUserRaster ? '' : 'none' } catch (_) {}
+      try { if (topoRowEl) topoRowEl.style.display = isTopo ? '' : 'none' } catch (_) {}
+      try { if (tplEl) tplEl.disabled = !isUserRaster } catch (_) {}
+    }
+
     // Mobile: allow hiding the left-side panels so the map can fill the screen.
     if (shellEl && panelsToggle) {
       const key = 'xcom.ui.mapPanelsCollapsed.v1'
@@ -242,10 +264,13 @@ class MapModule {
       tplEl.value = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
     }
 
+    syncBaseUi()
+
     baseSel.addEventListener('change', () => {
       try {
         globalThis.setMapBaseStyle && globalThis.setMapBaseStyle(baseSel.value)
       } catch (_) {}
+      syncBaseUi()
       this.applyBaseStyle()
     })
 
@@ -446,16 +471,17 @@ class MapModule {
     const base = globalThis.getMapBaseStyle ? globalThis.getMapBaseStyle() : 'light'
     const rasterTemplate = globalThis.getMapRasterTemplate ? globalThis.getMapRasterTemplate() : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
-    const isOfflineRaster = base === 'offlineRaster' || base === 'offlineRasterDark'
-    if (isOfflineRaster) {
+    const isRaster = base === 'offlineRaster' || base === 'offlineRasterDark' || base === 'topo' || base === 'topoDark'
+    if (isRaster) {
+      const tpl = (base === 'topo' || base === 'topoDark') ? TOPO_RASTER_TEMPLATE : rasterTemplate
       // Raster style.
       return {
         version: 8,
-        name: 'Offline Raster',
+        name: (base === 'topo' || base === 'topoDark') ? 'Topographic' : 'Offline Raster',
         sources: {
           raster: {
             type: 'raster',
-            tiles: [rasterTemplate],
+            tiles: [tpl],
             tileSize: 256,
             attribution: 'Raster Tiles',
           },
@@ -1046,11 +1072,11 @@ class MapModule {
     }
 
     const base = globalThis.getMapBaseStyle ? globalThis.getMapBaseStyle() : 'light'
-    const isOfflineDark = base === 'offlineRasterDark'
+    const isDarkRaster = base === 'offlineRasterDark' || base === 'topoDark'
     if (!this.mapEl) return
     const canvas = this.mapEl.querySelector('canvas')
     if (!canvas) return
-    canvas.style.filter = isOfflineDark ? 'invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.05)' : ''
+    canvas.style.filter = isDarkRaster ? 'invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.05)' : ''
   }
 
   getCurrentAoBounds() {
@@ -1071,8 +1097,11 @@ class MapModule {
 
   async testCachedTile() {
     if (!this.map) return
-    const tpl = document.getElementById('mapRasterTemplate')?.value
-      || (globalThis.getMapRasterTemplate ? globalThis.getMapRasterTemplate() : '')
+    const base = globalThis.getMapBaseStyle ? globalThis.getMapBaseStyle() : 'light'
+    const tpl = (base === 'topo' || base === 'topoDark')
+      ? TOPO_RASTER_TEMPLATE
+      : (document.getElementById('mapRasterTemplate')?.value
+        || (globalThis.getMapRasterTemplate ? globalThis.getMapRasterTemplate() : ''))
 
     if (!tpl || !globalThis.fillTileTemplate || !globalThis.lonLatToTileXY) {
       this.setTestResult('Missing offline tile helpers (fillTileTemplate/lonLatToTileXY)')
@@ -1123,12 +1152,16 @@ class MapModule {
     }
 
     const base = globalThis.getMapBaseStyle ? globalThis.getMapBaseStyle() : 'light'
-    if (!(base === 'offlineRaster' || base === 'offlineRasterDark')) {
-      const ok = confirm('Base is not set to Offline Raster. Download tiles anyway?')
+    const isRaster = base === 'offlineRaster' || base === 'offlineRasterDark' || base === 'topo' || base === 'topoDark'
+    if (!isRaster) {
+      const ok = confirm('Base is not set to a raster basemap (Topographic / Offline Raster). Download tiles anyway?')
       if (!ok) return
     }
 
-    const tpl = document.getElementById('mapRasterTemplate').value
+    const tpl = (base === 'topo' || base === 'topoDark')
+      ? TOPO_RASTER_TEMPLATE
+      : (document.getElementById('mapRasterTemplate')?.value
+        || (globalThis.getMapRasterTemplate ? globalThis.getMapRasterTemplate() : ''))
     const minZoom = Number(document.getElementById('mapMinZoom').value || 6)
     const maxZoom = Number(document.getElementById('mapMaxZoom').value || 12)
     const maxTiles = Number(document.getElementById('mapMaxTiles').value || 2500)

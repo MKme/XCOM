@@ -16,10 +16,10 @@ const KEY_TACTICAL_LAYER_IMPORTED_TPL_PREFIX = 'xtoc.tacticalMap.layers.imported
 
 // Map base style: online vector styles (dark/light) or offline raster.
 // Keep values identical to XTOC for code reuse.
-// 'offlineRasterDark' is a UI hint only; the offline style is raster.
+// 'offlineRasterDark' and 'topoDark' are UI hints only; the style is raster + a display filter.
 function getMapBaseStyle() {
   const v = localStorage.getItem(KEY_MAP_BASE)
-  if (v === 'light' || v === 'dark' || v === 'offlineRaster' || v === 'offlineRasterDark') return v
+  if (v === 'light' || v === 'dark' || v === 'topo' || v === 'topoDark' || v === 'offlineRaster' || v === 'offlineRasterDark') return v
   return 'light'
 }
 
