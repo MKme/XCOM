@@ -22,6 +22,7 @@ class RepeaterMap {
         this._repeaterSourceId = null;
         this._repeaterLayerId = null;
         this._userMarker = null;
+        this._repeaterById = new Map();
         
         this.init();
     }
@@ -82,10 +83,10 @@ class RepeaterMap {
                         <div class="filter-group">
                             <label for="radiusFilter">Radius:</label>
                             <select id="radiusFilter">
-                                <option value="25">25 mi</option>
-                                <option value="50" selected>50 mi</option>
-                                <option value="100">100 mi</option>
-                                <option value="200">200 mi</option>
+                                <option value="25">25 km</option>
+                                <option value="50" selected>50 km</option>
+                                <option value="100">100 km</option>
+                                <option value="200">200 km</option>
                             </select>
                         </div>
                         
@@ -186,7 +187,9 @@ class RepeaterMap {
             this.map.on('click', this._repeaterLayerId, (e) => {
                 const f = e && e.features && e.features[0];
                 if (!f) return;
-                const repeater = f.properties && f.properties._raw ? JSON.parse(f.properties._raw) : null;
+                const id = f.properties && f.properties.id ? String(f.properties.id) : '';
+                if (!id) return;
+                const repeater = this._repeaterById ? this._repeaterById.get(id) : null;
                 if (!repeater) return;
                 this.selectRepeater(repeater);
             });
@@ -242,6 +245,24 @@ class RepeaterMap {
         document.getElementById('modeFilter').addEventListener('change', () => {
             this.updateRepeaters();
         });
+
+        // Repeater list click (event delegation so large lists stay fast)
+        const listContainer = document.getElementById('repeaterList');
+        if (listContainer) {
+            listContainer.addEventListener('click', (e) => {
+                const item = e && e.target && e.target.closest ? e.target.closest('.repeater-item') : null;
+                if (!item) return;
+                const repeaterId = String(item.dataset.id || '');
+                if (!repeaterId) return;
+                const repeater = this._repeaterById ? this._repeaterById.get(repeaterId) : null;
+                if (!repeater) return;
+
+                this.selectRepeater(repeater);
+                try {
+                    this.map.easeTo({ center: [repeater.lng, repeater.lat], zoom: Math.max(this.map.getZoom() || 6, 6) });
+                } catch (_) { /* ignore */ }
+            });
+        }
 
         // Map click to set location manually (and support "Pick on map" mode like the Predict tab)
         if (this.map) {
@@ -423,15 +444,9 @@ class RepeaterMap {
         // Apply filters
         const bandFilter = document.getElementById('bandFilter').value;
         const modeFilter = document.getElementById('modeFilter').value;
-        
-        console.log('Filter values - Band:', bandFilter, 'Mode:', modeFilter);
-        console.log('Repeaters before filtering:', repeaters.length);
-        
+
         repeaters = filterByBand(repeaters, bandFilter);
-        console.log('Repeaters after band filter:', repeaters.length);
-        
         repeaters = filterByMode(repeaters, modeFilter);
-        console.log('Repeaters after mode filter:', repeaters.length);
         
         // Sort by distance and annotate with bearing from user to repeater
         repeaters = repeaters.map(repeater => {
@@ -458,7 +473,7 @@ class RepeaterMap {
         this.updateRepeaterList(repeaters);
         
         // Update status
-        this.updateStatus(`Found ${repeaters.length} repeaters within ${this.currentRadius} miles`);
+        this.updateStatus(`Found ${repeaters.length} repeaters within ${this.currentRadius} km`);
     }
 
     showAllRepeaters() {
@@ -500,18 +515,20 @@ class RepeaterMap {
             return;
         }
 
+        // Keep an index so map clicks and list clicks can resolve to a full record
+        // without embedding the entire record into each GeoJSON feature.
+        this._repeaterById = new Map();
+
         const features = (repeaters || []).map(r => {
-            // Store raw record in properties so click handler can retrieve without
-            // maintaining a separate in-memory index.
-            const raw = JSON.stringify(r);
+            const id = String(r.id);
+            this._repeaterById.set(id, r);
             return {
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [r.lng, r.lat] },
                 properties: {
-                    id: r.id,
-                    callsign: r.callsign,
-                    frequency: r.frequency,
-                    _raw: raw,
+                    id,
+                    callsign: r.callsign || '',
+                    frequency: r.frequency || '',
                 }
             };
         });
@@ -523,14 +540,21 @@ class RepeaterMap {
         const listContainer = document.getElementById('repeaterList');
         const countElement = document.getElementById('resultCount');
         
-        countElement.textContent = repeaters.length;
+        const total = repeaters.length;
+        countElement.textContent = total;
         
-        if (repeaters.length === 0) {
+        if (total === 0) {
             listContainer.innerHTML = '<p>No repeaters found in the selected area with current filters.</p>';
             return;
         }
-        
-        listContainer.innerHTML = repeaters.map(repeater => {
+
+        const MAX_LIST_ITEMS = 500;
+        const display = total > MAX_LIST_ITEMS ? repeaters.slice(0, MAX_LIST_ITEMS) : repeaters;
+        const note = total > MAX_LIST_ITEMS
+            ? `<div class="repeater-list-note">Showing first ${display.length} of ${total}. Set a location or reduce radius/filters to narrow results.</div>`
+            : '';
+
+        listContainer.innerHTML = note + display.map(repeater => {
             const hasDistance = Number.isFinite(repeater.distance);
             const distanceLabel = hasDistance
                 ? ` (${repeater.distance.toFixed(1)} km${repeater.bearingLabel ? ' @ ' + repeater.bearingLabel : ''})`
@@ -548,21 +572,6 @@ class RepeaterMap {
                 </div>
             `;
         }).join('');
-        
-        // Add click events to repeater items
-        listContainer.querySelectorAll('.repeater-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const repeaterId = parseInt(item.dataset.id);
-                const repeater = repeaters.find(r => r.id === repeaterId);
-                if (repeater) {
-                    this.selectRepeater(repeater);
-                    // Pan to repeater on map
-                    try {
-                        this.map.easeTo({ center: [repeater.lng, repeater.lat], zoom: Math.max(this.map.getZoom() || 6, 6) });
-                    } catch (_) { /* ignore */ }
-                }
-            });
-        });
     }
     
     selectRepeater(repeater) {

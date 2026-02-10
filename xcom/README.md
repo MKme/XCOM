@@ -215,6 +215,25 @@ What it does:
 - Writes: `modules/shortwave/shortwave-data.js`
 - The same EiBi dataset is also browsable online at `https://shortwave.live/` (nice UI)
 
+### 6. Repeater database (ARD â€” USA)
+
+**Goal:** keep the **Repeaters** module backed by a community-maintained, CC0 dataset.
+
+**Script:** `scripts/fetch-ard-repeaters.js`
+
+```bash
+npm run fetch-ard-repeaters
+```
+
+What it does:
+- Downloads the ARD master list JSON from GitHub
+- Normalizes it into XCOMâ€™s `repeaterData` format (adds band/mode/tone/offset strings)
+- Writes:
+  - `modules/repeater-map/repeater-data.js` (used by the app)
+  - `repeater-data.js` (legacy mirror kept in sync)
+
+> Note: ARD coverage varies by state; rerun the script periodically to pull updates.
+
 ## Application Modules (Front‑End)
 
 - `modules/repeater-map/repeater-map.js`
@@ -291,7 +310,7 @@ The repeater and callsign datasets are compiled from public sources and should b
 ## Contributing
 
 To add more repeaters or improve the application:
-1. Update the `repeaterData` array in the repeater data module
+1. Prefer updating the repeater dataset via `npm run fetch-ard-repeaters`
 2. Follow the existing data format
 3. Run relevant data-prep scripts if needed (tiles, callsigns, world-cities)
 4. Test the application thoroughly

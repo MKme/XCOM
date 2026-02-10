@@ -10,6 +10,7 @@
     "dev": "node scripts/serve-static.js --dir . --port 5174",
     "preview": "node scripts/serve-latest-release.js --port 5179",
     "build": "node scripts/make-release.js",
+    "fetch-ard-repeaters": "node scripts/fetch-ard-repeaters.js",
     "fetch-callsigns": "node scripts/fetch-callsigns.js",
     "fetch-shortwave": "node scripts/fetch-shortwave-schedule.js",
     "fetch-tiles": "node scripts/fetch-tiles.js",
