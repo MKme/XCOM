@@ -8,6 +8,9 @@
 // OpenTopoMap raster tiles (topographic). Public tile servers have usage policies.
 const TOPO_RASTER_TEMPLATE = 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png'
 
+// Built-in low-zoom basemap pack shipped with XCOM (fast offline fallback).
+const WORLD_PACK_TEMPLATE = './assets/tiles/world/{z}/{x}/{y}.png'
+
 function buildMapLibreStyle() {
   const base = globalThis.getMapBaseStyle ? globalThis.getMapBaseStyle() : 'light'
   const rasterTemplate = globalThis.getMapRasterTemplate
@@ -40,13 +43,37 @@ function buildMapLibreStyle() {
     }
   }
 
-  // Online vector style. If it fails offline, switch base to Offline Raster.
+  // Online vector style. If we're offline (or LAN-only), avoid remote styles that can hang
+  // and fall back to the built-in offline raster basemap pack.
+  const internetOk = (typeof globalThis.XCOM_HAS_INTERNET === 'boolean')
+    ? !!globalThis.XCOM_HAS_INTERNET
+    : (typeof navigator !== 'undefined' ? !!navigator.onLine : false)
+
+  if (!internetOk) {
+    return {
+      version: 8,
+      name: 'Offline Raster (fallback)',
+      sources: {
+        raster: {
+          type: 'raster',
+          tiles: [WORLD_PACK_TEMPLATE],
+          tileSize: 256,
+          attribution: 'Offline Basemap',
+        },
+      },
+      layers: [{ id: 'raster', type: 'raster', source: 'raster' }],
+    }
+  }
+
   return base === 'dark' ? STYLE_DARK : STYLE_LIGHT
 }
 
 function applyOfflineRasterDarkFilter(containerEl) {
   const base = globalThis.getMapBaseStyle ? globalThis.getMapBaseStyle() : 'light'
-  const isDarkRaster = base === 'offlineRasterDark' || base === 'topoDark'
+  const internetOk = (typeof globalThis.XCOM_HAS_INTERNET === 'boolean')
+    ? !!globalThis.XCOM_HAS_INTERNET
+    : (typeof navigator !== 'undefined' ? !!navigator.onLine : false)
+  const isDarkRaster = base === 'offlineRasterDark' || base === 'topoDark' || (base === 'dark' && !internetOk)
   // Support callers that pass an element OR a string id.
   // (Some modules call createMapLibreMap({ container: 'map' }))
   if (!containerEl) return

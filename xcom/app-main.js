@@ -551,6 +551,7 @@ class RadioApp {
                 description: 'Offline lookup for USA/Canada amateur callsigns',
                 scripts: [
                     'modules/shared/offline-geocoder.js',
+                    'modules/shared/callsign-db.js',
                     // Shared XTOC-style mapping helpers (MapLibre + offline raster)
                     'modules/shared/xtoc/settings.js',
                     'modules/shared/xtoc/offlineTiles.js',
@@ -620,6 +621,7 @@ class RadioApp {
                 // Logbook now includes a small offline map in the "Known operator" card.
                 scripts: [
                     'modules/shared/offline-geocoder.js',
+                    'modules/shared/callsign-db.js',
                     // Shared XTOC-style mapping helpers (MapLibre + offline raster)
                     'modules/shared/xtoc/settings.js',
                     'modules/shared/xtoc/offlineTiles.js',
@@ -943,8 +945,22 @@ class RadioApp {
             const script = document.createElement('script');
             const cacheBust = src.includes('?') ? `${src}&v=offline` : `${src}?v=offline`;
             script.src = cacheBust;
-            script.onload = resolve;
-            script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+
+            // Fail fast so offline / no-route scenarios don't leave the UI stuck on a black screen.
+            const timeoutMs = 12_000;
+            const t = setTimeout(() => {
+                try { script.remove(); } catch (_) { /* ignore */ }
+                reject(new Error(`Timed out loading script: ${src}`));
+            }, timeoutMs);
+
+            script.onload = () => {
+                clearTimeout(t);
+                resolve();
+            };
+            script.onerror = () => {
+                clearTimeout(t);
+                reject(new Error(`Failed to load script: ${src}`));
+            };
             document.body.appendChild(script);
         });
     }
@@ -1496,6 +1512,15 @@ class RadioApp {
         const online = !!this._connectivityOnline;
         const hasInternet = !!this._connectivityHasInternet;
         const ok = online && hasInternet;
+
+        // Expose a tiny global hint so shared helpers (MapLibre style builder) can
+        // avoid long hangs on remote resources when offline / LAN-only.
+        try {
+            globalThis.XCOM_ONLINE = online;
+            globalThis.XCOM_HAS_INTERNET = ok;
+        } catch (_) {
+            // ignore
+        }
 
         this.netPill.title = ok
             ? 'Internet reachable'

@@ -11,7 +11,7 @@
 */
 
 // Bump this any time you change styling/assets and need clients to refresh caches.
-const VERSION = 'xcom.sw.v21'
+const VERSION = 'xcom.sw.v22'
 const APP_CACHE = `${VERSION}.app`
 const TILE_CACHE = `${VERSION}.tiles`
 
@@ -33,7 +33,100 @@ const CORE_ASSETS = [
   './assets/vendor/qrcode.iife.min.js',
   './assets/vendor/qr-scanner.umd.min.js',
   './assets/vendor/qr-scanner-worker.min.js',
+
+  // Web Workers (keep UI responsive when loading large offline datasets)
+  './modules/shared/callsign-db.worker.js',
 ]
+
+function uniqStrings(list) {
+  const out = []
+  const seen = new Set()
+  for (const v of list || []) {
+    const s = String(v || '').trim()
+    if (!s) continue
+    if (seen.has(s)) continue
+    seen.add(s)
+    out.push(s)
+  }
+  return out
+}
+
+async function cacheAddAllSettled(cache, urls, opts = {}) {
+  const list = uniqStrings(urls || [])
+  if (!list.length) return
+
+  const concurrencyRaw = Number(opts.concurrency)
+  const concurrency = Number.isFinite(concurrencyRaw) ? Math.max(1, Math.min(32, Math.floor(concurrencyRaw))) : 8
+
+  let idx = 0
+  const runOne = async () => {
+    while (idx < list.length) {
+      const url = list[idx++]
+      try {
+        // Use Request so we can consistently attach options later if needed.
+        // (cache.add() uses Request(url) internally anyway.)
+        // eslint-disable-next-line no-await-in-loop
+        await cache.add(new Request(url))
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
+  const workers = []
+  const n = Math.min(concurrency, list.length)
+  for (let i = 0; i < n; i++) workers.push(runOne())
+  await Promise.all(workers)
+}
+
+function extractLocalAssetUrlsFromJs(jsText) {
+  const text = String(jsText || '')
+  const matches = []
+
+  // Pull out quoted string literals that look like local asset paths.
+  // We intentionally avoid caching extremely large datasets here.
+  const re = /['"]((?:modules|styles|assets)\/[^'"]+\.(?:js|css|svg|png|webmanifest|json|geojson))['"]/g
+  let m = null
+  while ((m = re.exec(text)) !== null) {
+    const path = String(m[1] || '').trim()
+    if (!path) continue
+    if (path === 'assets/data/callsigns.json' || path === 'assets/data/callsigns.js') continue
+    matches.push(`./${path}`)
+  }
+
+  return uniqStrings(matches)
+}
+
+function buildWorldTilePackUrls(maxZoomInclusive = 6) {
+  const maxZ = Math.max(0, Math.min(12, Math.floor(maxZoomInclusive)))
+  const urls = []
+  for (let z = 0; z <= maxZ; z++) {
+    const n = 1 << z
+    for (let x = 0; x < n; x++) {
+      for (let y = 0; y < n; y++) {
+        urls.push(`./assets/tiles/world/${z}/${x}/${y}.png`)
+      }
+    }
+  }
+  return urls
+}
+
+async function fetchWithTimeout(request, timeoutMs) {
+  const ms = Math.max(0, Number(timeoutMs) || 0)
+  if (ms <= 0 || typeof AbortController === 'undefined') {
+    return fetch(request)
+  }
+
+  const ctrl = new AbortController()
+  const t = setTimeout(() => {
+    try { ctrl.abort() } catch { /* ignore */ }
+  }, ms)
+  try {
+    return await fetch(request, { signal: ctrl.signal })
+  } finally {
+    clearTimeout(t)
+  }
+}
 
 function isTileRequest(url) {
   // Cache slippy tiles under assets/tiles/.../{z}/{x}/{y}.png|jpg|jpeg|webp
@@ -48,8 +141,31 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(APP_CACHE)
-      // Best-effort: allow missing app-main.js if query strings are used.
-      await cache.addAll(CORE_ASSETS).catch(() => {})
+      await cacheAddAllSettled(cache, CORE_ASSETS, { concurrency: 8 })
+
+      // Pre-cache module scripts/styles so modules can open instantly offline.
+      // We discover these from app-main.js so the list stays up to date.
+      try {
+        const res = await fetchWithTimeout(new Request('./app-main.js', { cache: 'no-store' }), 6000)
+        if (res && res.ok) {
+          const js = await res.text()
+          const discovered = extractLocalAssetUrlsFromJs(js)
+          await cacheAddAllSettled(cache, discovered, { concurrency: 8 })
+        }
+      } catch {
+        // ignore
+      }
+
+      // Optional: cache the built-in low-zoom world basemap pack (if shipped).
+      // This prevents “black map” when offline before any tiles were downloaded.
+      try {
+        const tiles = await caches.open(TILE_CACHE)
+        const worldPack = buildWorldTilePackUrls(6)
+        await cacheAddAllSettled(tiles, worldPack, { concurrency: 16 })
+      } catch {
+        // ignore
+      }
+
       self.skipWaiting()
     })(),
   )
@@ -150,7 +266,8 @@ self.addEventListener('fetch', (event) => {
         if (cached) return cached
 
         // Online fallback (when allowed). If offline, this will throw.
-        const res = await fetch(req)
+        // Use a short timeout so offline / captive portals don't hang the UI.
+        const res = await fetchWithTimeout(req, 4000)
         // We intentionally do NOT cache here because offlineTiles.js already
         // manages caching and we don't want unbounded growth.
         return res
@@ -168,7 +285,8 @@ self.addEventListener('fetch', (event) => {
         const cache = await caches.open(TILE_CACHE)
         const cached = await cache.match(req)
         if (cached) return cached
-        const res = await fetch(req)
+        // Use a short timeout so offline / captive portals don't hang the UI.
+        const res = await fetchWithTimeout(req, 4000)
         if (res && res.ok) {
           cache.put(req, res.clone()).catch(() => {})
         }
@@ -188,7 +306,8 @@ self.addEventListener('fetch', (event) => {
       if (cached) return cached
 
       try {
-        const res = await fetch(req)
+        // Short timeout to avoid "forever black screen" when offline / no-route.
+        const res = await fetchWithTimeout(req, 6000)
         // Only cache successful, basic responses.
         if (res && res.ok && res.type === 'basic') {
           cache.put(req, res.clone()).catch(() => {})

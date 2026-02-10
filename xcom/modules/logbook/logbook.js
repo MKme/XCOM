@@ -1203,6 +1203,18 @@ class LogbookModule {
   async lookupCallsignRecord(callsign) {
     const cs = this.sanitizeCallsign(callsign);
     if (!cs) return null;
+
+    // Prefer shared worker-backed DB (keeps UI responsive).
+    if (globalThis.xcomCallsignDb && typeof globalThis.xcomCallsignDb.lookup === 'function') {
+      try {
+        await globalThis.xcomCallsignDb.load();
+        return await globalThis.xcomCallsignDb.lookup(cs);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // Fallback: legacy in-module loader
     await this.ensureCallsignDbLoaded();
     if (!this.callsignDb.loaded) return null;
     return this.callsignDb.lookup.get(cs) || null;
@@ -1218,6 +1230,16 @@ class LogbookModule {
 
     const loadPromise = (async () => {
       try {
+        // Prefer shared worker-backed DB if present.
+        if (globalThis.xcomCallsignDb && typeof globalThis.xcomCallsignDb.load === 'function') {
+          await globalThis.xcomCallsignDb.load();
+          this.callsignDb.lookup = new Map(); // unused in worker mode, keep shape intact
+          this.callsignDb.meta = globalThis.xcomCallsignDb.getMeta ? globalThis.xcomCallsignDb.getMeta() : null;
+          this.callsignDb.loaded = true;
+          this.callsignDb.loadError = null;
+          return;
+        }
+
         // Strategy mirrors callsign-lookup module:
         // 1) already-loaded global
         // 2) fetch JSON (http/https)

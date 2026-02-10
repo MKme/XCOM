@@ -24,10 +24,12 @@ const CA_PROVINCE_NAMES = {
 
 class CallsignLookupModule {
     constructor() {
-        this.records = [];
-        this.lookup = new Map();
-        this.prefixIndex = new Map();
+        this.callsignDb = globalThis.xcomCallsignDb || null;
+        this.callsignDbReady = false;
+        this.callsignDbLoading = false;
         this.meta = null;
+        this.suggestionLookup = new Map();
+        this._dbProgressBound = false;
         this.userLocation = null;
         this.targetLocation = null;
         this.map = null;
@@ -48,9 +50,11 @@ class CallsignLookupModule {
 
         this.createLayout();
         this.initMap();
-        this.ensureGeocoder();
+        // Defer large offline dataset parsing so the UI can paint first.
+        setTimeout(() => this.ensureGeocoder(), 0);
         this.bindEvents();
-        this.loadData();
+        // Defer DB load so the UI can paint first (prevents "black screen" on offline cache hits).
+        setTimeout(() => this.loadData(), 0);
     }
 
     createLayout() {
@@ -1470,73 +1474,74 @@ class CallsignLookupModule {
 
     async loadData() {
         try {
+            if (!this.callsignDb) {
+                throw new Error('Callsign DB helper not loaded');
+            }
+            if (this.callsignDbReady || this.callsignDbLoading) return;
+
+            this.callsignDbLoading = true;
             this.setStatus('Loading callsign database...');
 
-            // Order of attempts:
-            // 1) Use already-loaded global (if callsigns.js was loaded)
-            // 2) fetch JSON (works over http/https)
-            // 3) load JS payload (works under file://)
-            // 4) Electron preload disk read
-            let payload = window.CALLSIGNS_DATA || null;
-
-            if (!payload) {
-                payload = await this.tryFetchJson();
+            // Bind progress once per module instance.
+            if (!this._dbProgressBound && typeof this.callsignDb.onProgress === 'function') {
+                this._dbProgressBound = true;
+                this.callsignDb.onProgress((evt) => {
+                    try {
+                        if (!evt || evt.type !== 'CALLSIGN_DB_PROGRESS') return;
+                        if (evt.phase === 'index' && Number.isFinite(evt.done) && Number.isFinite(evt.total) && evt.total > 0) {
+                            const pct = Math.max(0, Math.min(100, Math.round((evt.done / evt.total) * 100)));
+                            this.setStatus(`Indexing callsign database... ${pct}%`);
+                        }
+                    } catch (_) {
+                        // ignore
+                    }
+                });
             }
 
-            if (!payload) {
-                payload = await this.tryLoadScriptPayload();
-            }
-
-            if (!payload && window.offlineData && typeof window.offlineData.loadCallsigns === 'function') {
-                const raw = window.offlineData.loadCallsigns();
-                if (raw) {
-                    payload = JSON.parse(raw);
-                }
-            }
-
-            if (!payload) {
-                throw new Error('Callsign database not found. Run npm run fetch-callsigns to download it.');
-            }
-
-            this.records = payload.records || [];
-            this.meta = payload.meta || null;
-
-            // Build quick lookup map for exact callsigns
-            this.records.forEach((record) => {
-                this.lookup.set(record.c, record);
-                const prefix = record.c.substring(0, 3);
-                if (!this.prefixIndex.has(prefix)) {
-                    this.prefixIndex.set(prefix, []);
-                }
-                this.prefixIndex.get(prefix).push(record);
-            });
+            this.meta = await this.callsignDb.load();
+            this.callsignDbReady = true;
+            this.callsignDbLoading = false;
 
             const metaText = this.meta
-                ? `Loaded ${this.meta.counts?.total?.toLocaleString?.() || this.records.length.toLocaleString()} records (${this.meta.counts?.usa?.toLocaleString?.() || '?'} USA, ${this.meta.counts?.canada?.toLocaleString?.() || '?'} Canada)`
-                : `Loaded ${this.records.length.toLocaleString()} records`;
+                ? `Loaded ${this.meta.counts?.total?.toLocaleString?.() || '?'} records (${this.meta.counts?.usa?.toLocaleString?.() || '?'} USA, ${this.meta.counts?.canada?.toLocaleString?.() || '?'} Canada)`
+                : `Loaded callsign records`;
             this.metaEl.textContent = metaText;
             this.setStatus('Callsign data ready for offline lookup.');
             this.resultEl.textContent = 'Enter a callsign to see license details.';
         } catch (error) {
             console.error('Error loading callsign data:', error);
-            this.setStatus('Unable to load callsign data. Please run npm run fetch-callsigns.');
+            this.callsignDbReady = false;
+            this.callsignDbLoading = false;
+            this.setStatus('Unable to load callsign data. Ensure assets/data/callsigns.json is available.');
             this.resultEl.classList.add('error');
-            this.resultEl.textContent = 'Callsign data unavailable. Download it from the main menu using npm run fetch-callsigns.';
+            this.resultEl.textContent = 'Callsign data unavailable. Make sure callsigns.json is present and cached for offline use.';
         }
     }
 
-    lookupCallsign() {
+    async lookupCallsign() {
         const query = this.queryInput.value.trim().toUpperCase();
         if (!query) {
             this.setStatus('Enter a callsign to search.');
             return;
         }
-        if (!this.records.length) {
-            this.setStatus('Data not loaded. Download callsign data first.');
+        if (!this.callsignDb || typeof this.callsignDb.lookup !== 'function') {
+            this.setStatus('Callsign DB helper unavailable.');
+            return;
+        }
+        if (!this.callsignDbReady) {
+            this.setStatus('Callsign database is still loading...');
+            this.loadData().catch(() => {});
             return;
         }
 
-        const exact = this.lookup.get(query);
+        let exact = null;
+        try {
+            exact = await this.callsignDb.lookup(query);
+        } catch (e) {
+            console.error(e);
+            this.setStatus('Callsign lookup failed (DB error).');
+            return;
+        }
         if (exact) {
             this.activeRecord = exact;
             this.setDateTimeToNow();
@@ -1549,9 +1554,18 @@ class CallsignLookupModule {
         }
 
         // Prefix suggestions (limited to 25 to avoid UI spam)
-        const prefix = query.substring(0, 3);
-        const searchPool = this.prefixIndex.get(prefix) || [];
-        const prefixMatches = searchPool.filter((rec) => rec.c.startsWith(query)).slice(0, 25);
+        let prefixMatches = [];
+        try {
+            prefixMatches = await this.callsignDb.suggest(query, 25);
+        } catch (e) {
+            console.error(e);
+            this.setStatus('Callsign suggestion search failed (DB error).');
+            return;
+        }
+        this.suggestionLookup.clear();
+        (prefixMatches || []).forEach((rec) => {
+            if (rec && rec.c) this.suggestionLookup.set(rec.c, rec);
+        });
 
         if (prefixMatches.length === 0) {
             this.resultEl.classList.add('muted');
@@ -1619,7 +1633,7 @@ class CallsignLookupModule {
         this.suggestionsEl.querySelectorAll('.suggestion').forEach((node) => {
             node.addEventListener('click', () => {
                 const cs = node.getAttribute('data-callsign');
-                const record = this.lookup.get(cs);
+                const record = this.suggestionLookup.get(cs);
                 if (record) {
                     this.queryInput.value = cs;
                     this.activeRecord = record;
