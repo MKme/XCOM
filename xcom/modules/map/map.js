@@ -32,6 +32,7 @@ class MapModule {
     // Imported overlay (from XTOC Comm / XTOC backup imports)
     this._importedEnabled = true
     this._importedLast7dOnly = true
+    this._trustedModeEnabled = false
     this._importedLegendEl = null
     this._importedSourceId = 'xcom-imported-src'
     // Legacy dot layer id (removed; points now render as DOM icon markers)
@@ -174,6 +175,10 @@ class MapModule {
               <div class="mapSmallMuted">Imported markers come from XTOC Comm “Import” and XTOC Backup imports.</div>
             </div>
             <div class="mapRow" style="margin-top: 12px;">
+              <label class="mapInline"><input id="mapTrustedMode" type="checkbox" /> Trusted Mode</label>
+              <div class="mapSmallMuted">Only plot SECURE (decrypted) packets on the map overlay.</div>
+            </div>
+            <div class="mapRow" style="margin-top: 12px;">
               <label class="mapInline"><input id="mapMeshNodes" type="checkbox" /> Mesh nodes</label>
               <div class="mapSmallMuted" id="mapMeshLegend"></div>
               <div class="mapSmallMuted">Plots latest Meshtastic/MeshCore GPS packets as node markers.</div>
@@ -217,6 +222,7 @@ class MapModule {
     const importedLast7El = document.getElementById('mapImportedLast7')
     const importedLegendEl = document.getElementById('mapImportedLegend')
     this._importedLegendEl = importedLegendEl
+    const trustedModeEl = document.getElementById('mapTrustedMode')
     const meshNodesEl = document.getElementById('mapMeshNodes')
     const meshLegendEl = document.getElementById('mapMeshLegend')
     this._meshLegendEl = meshLegendEl
@@ -332,6 +338,15 @@ class MapModule {
       this._importedLast7dOnly = true
     }
 
+    // Trusted Mode (defaults OFF)
+    try {
+      if (trustedModeEl) trustedModeEl.checked = globalThis.getTacticalMapTrustedModeEnabled ? globalThis.getTacticalMapTrustedModeEnabled() : false
+      this._trustedModeEnabled = !!trustedModeEl?.checked
+    } catch (_) {
+      if (trustedModeEl) trustedModeEl.checked = false
+      this._trustedModeEnabled = false
+    }
+
     // Seed Imported type toggles
     this._importedTplEls = []
     const tplIds = [1, 2, 3, 4, 5, 6, 7, 8]
@@ -384,6 +399,15 @@ class MapModule {
       this._importedLast7dOnly = v
       try {
         globalThis.setTacticalMapImportedLast7dOnly && globalThis.setTacticalMapImportedLast7dOnly(v)
+      } catch (_) {}
+      this.syncImportedOverlay()
+    })
+
+    trustedModeEl?.addEventListener('change', () => {
+      const v = !!trustedModeEl.checked
+      this._trustedModeEnabled = v
+      try {
+        globalThis.setTacticalMapTrustedModeEnabled && globalThis.setTacticalMapTrustedModeEnabled(v)
       } catch (_) {}
       this.syncImportedOverlay()
     })
@@ -906,11 +930,14 @@ class MapModule {
     const el = this._importedLegendEl
     if (!el) return
  
-    const entries = globalThis.getImportedPackets ? globalThis.getImportedPackets() : []
+    const allEntries = globalThis.getImportedPackets ? globalThis.getImportedPackets() : []
+    const total = Array.isArray(allEntries) ? allEntries.length : 0
+    const entries = this._trustedModeEnabled ? (Array.isArray(allEntries) ? allEntries.filter((e) => e?.mode === 'S') : []) : allEntries
     const count = Array.isArray(entries) ? entries.length : 0
     const hidden = !this._importedEnabled
     const win = this._importedLast7dOnly ? ' (last 7d)' : ''
-    el.textContent = `Imported: ${count}${hidden ? ' (hidden)' : ''}${win}`
+    const trust = this._trustedModeEnabled ? ` (${count}/${total} trusted)` : ''
+    el.textContent = `Imported: ${count}${hidden ? ' (hidden)' : ''}${win}${trust}`
   }
 
   getImportedOverlayFeatures() {
@@ -918,6 +945,7 @@ class MapModule {
       const entries = globalThis.getImportedPackets ? globalThis.getImportedPackets() : []
       const out = []
       for (const e of Array.isArray(entries) ? entries : []) {
+        if (this._trustedModeEnabled && e?.mode !== 'S') continue
         const feats = Array.isArray(e?.features) ? e.features : []
         const importedAt = Number(e?.importedAt || 0) || 0
         for (const f of feats) {

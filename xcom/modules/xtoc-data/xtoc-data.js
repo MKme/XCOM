@@ -295,6 +295,13 @@ class XtocDataModule {
     const tbody = document.getElementById('xtocDataTbody')
     if (!tbody) return
 
+    let trustedMode = false
+    try {
+      trustedMode = !!(globalThis.getTacticalMapTrustedModeEnabled && globalThis.getTacticalMapTrustedModeEnabled())
+    } catch (_) {
+      trustedMode = false
+    }
+
     if (!Array.isArray(packets) || packets.length === 0) {
       tbody.innerHTML = `<tr><td colspan="6" class="xtocSmallMuted">No packets found.</td></tr>`
       return
@@ -304,13 +311,14 @@ class XtocDataModule {
       const when = this.fmtWhen(p?.receivedAt || p?.storedAt)
       const tpl = this.templateName(p?.templateId)
       const mode = String(p?.mode || '').toUpperCase()
+      const untrusted = trustedMode && mode !== 'S'
       const id = String(p?.id || '').trim()
       const src = String(p?.source || '').trim()
       const sum = this.withRosterLabels(String(p?.summary || '').trim())
       const kid = (mode === 'S' && Number.isFinite(Number(p?.kid))) ? ` KID ${String(p.kid)}` : ''
       const geo = p?.hasGeo ? `<span class="xtocTag">GEO</span>` : ''
       return `
-        <tr data-key="${this.escapeHtml(String(p?.key || ''))}">
+        <tr data-key="${this.escapeHtml(String(p?.key || ''))}" class="${untrusted ? 'xtocDataRow--untrusted' : ''}">
           <td class="mono">${this.escapeHtml(when)}</td>
           <td>${geo} ${this.escapeHtml(tpl)}</td>
           <td class="mono">${this.escapeHtml(mode)}</td>

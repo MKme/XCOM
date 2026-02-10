@@ -14,6 +14,7 @@ const KEY_TACTICAL_LAYER_IMPORTED = 'xtoc.tacticalMap.layers.imported'
 const KEY_TACTICAL_LAYER_IMPORTED_LAST7 = 'xtoc.tacticalMap.layers.imported.last7d'
 const KEY_TACTICAL_LAYER_IMPORTED_TPL_PREFIX = 'xtoc.tacticalMap.layers.imported.tpl.'
 const KEY_TACTICAL_LAYER_MESH_NODES = 'xtoc.tacticalMap.layers.meshNodes'
+const KEY_TACTICAL_TRUSTED_MODE = 'xtoc.tacticalMap.trustedMode'
 
 // Map base style: online vector styles (dark/light) or offline raster.
 // Keep values identical to XTOC for code reuse.
@@ -82,6 +83,16 @@ function setTacticalMapImportedLast7dOnly(enabled) {
   localStorage.setItem(KEY_TACTICAL_LAYER_IMPORTED_LAST7, enabled ? '1' : '0')
 }
 
+// Trusted Mode (defaults OFF): only plot SECURE (decrypted) packets on the map.
+function getTacticalMapTrustedModeEnabled() {
+  return localStorage.getItem(KEY_TACTICAL_TRUSTED_MODE) === '1'
+}
+
+function setTacticalMapTrustedModeEnabled(enabled) {
+  if (enabled) localStorage.setItem(KEY_TACTICAL_TRUSTED_MODE, '1')
+  else localStorage.removeItem(KEY_TACTICAL_TRUSTED_MODE)
+}
+
 // Mesh nodes overlay (defaults ON if unset)
 function getTacticalMapMeshNodesEnabled() {
   return localStorage.getItem(KEY_TACTICAL_LAYER_MESH_NODES) !== '0'
@@ -118,6 +129,8 @@ try {
   globalThis.setTacticalMapImportedEnabled = setTacticalMapImportedEnabled
   globalThis.getTacticalMapImportedLast7dOnly = getTacticalMapImportedLast7dOnly
   globalThis.setTacticalMapImportedLast7dOnly = setTacticalMapImportedLast7dOnly
+  globalThis.getTacticalMapTrustedModeEnabled = getTacticalMapTrustedModeEnabled
+  globalThis.setTacticalMapTrustedModeEnabled = setTacticalMapTrustedModeEnabled
   globalThis.getTacticalMapMeshNodesEnabled = getTacticalMapMeshNodesEnabled
   globalThis.setTacticalMapMeshNodesEnabled = setTacticalMapMeshNodesEnabled
   globalThis.getTacticalMapImportedTemplateEnabled = getTacticalMapImportedTemplateEnabled
