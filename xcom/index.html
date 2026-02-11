@@ -198,10 +198,10 @@
                       <span class="swBuild" id="xBuildBadge" title="Build: v1.0.31" aria-label="Build: v1.0.31">v1.0.31</span>
                       <a class="xTopbarBtn" href="https://mkme.org/discord" target="_blank" rel="noopener noreferrer" title="Community/support on Discord">Discord</a>
                       <a class="xTopbarBtn" href="https://store.mkme.org/product/xtoc-tactical-operations-center-software-suite/" target="_blank" rel="noopener noreferrer" title="Upgrade: Get XTOC (Tactical Operations Center)">Get XTOC</a>
-                      <div class="xPill" id="xNetPill" title="Checking network...">
+                      <button class="xPill xPillBtn" id="xNetPill" type="button" title="Checking network..." aria-label="Network status: click to force offline">
                           <span class="xPillKey">NET</span>
                           <span class="xPillValue" id="xNetValue">...</span>
-                     </div>
+                     </button>
                     <div class="xPill" aria-label="Local time">
                         <span class="xPillKey">LOCAL</span>
                         <span class="xPillValue xClock" id="xLocalTime">--:--:--</span>
@@ -238,6 +238,8 @@
     <script src="assets/vendor/qr-scanner.umd.min.js?v=offline"></script>
     <!-- Vendor lib used by Mesh module (global): Meshtastic -->
     <script src="assets/vendor/meshtastic.iife.min.js?v=offline"></script>
+    <!-- Shared XTOC-style settings (includes Forced Offline toggle + guards) -->
+    <script src="modules/shared/xtoc/settings.js?v=offline"></script>
     <script src="registerSW.js"></script>
     <script src="app-main.js?v=58DE72F3"></script>
 </body>

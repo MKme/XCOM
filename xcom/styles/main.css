@@ -165,6 +165,17 @@ select optgroup {
     white-space: nowrap;
 }
 
+.xPillBtn {
+    cursor: pointer;
+    appearance: none;
+    font: inherit;
+}
+
+.xPillBtn:focus-visible {
+    outline: 2px solid rgba(46, 230, 166, 0.55);
+    outline-offset: 2px;
+}
+
 .xNav {
     display: flex;
     flex-direction: column;

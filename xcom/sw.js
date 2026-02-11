@@ -15,6 +15,8 @@ const VERSION = 'xcom.sw.v23'
 const APP_CACHE = `${VERSION}.app`
 const TILE_CACHE = `${VERSION}.tiles`
 
+let forcedOffline = false
+
 // XTOC-style offline raster tile cache used by offlineTiles.js
 const XTOC_TILE_CACHE = 'xtoc.tiles.v1'
 
@@ -214,6 +216,11 @@ self.addEventListener('message', (event) => {
 
   const type = typeof data === 'string' ? data : data.type
 
+  if (type === 'SET_FORCED_OFFLINE') {
+    forcedOffline = !!(data && typeof data === 'object' ? data.enabled : false)
+    return
+  }
+
   if (type === 'SKIP_WAITING') {
     event.waitUntil(
       (async () => {
@@ -244,15 +251,48 @@ self.addEventListener('message', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request
-  if (req.method !== 'GET') return
+  if (!req) return
 
-  const url = new URL(req.url)
+  let url
+  try {
+    url = new URL(req.url)
+  } catch {
+    return
+  }
 
   // Allow *cross-origin* tile requests for the offline raster cache.
   // The Map module downloads tiles into Cache Storage (xtoc.tiles.v1) using the
   // full tile URL (often https://...). When offline, MapLibre will re-request
   // those same URLs, which only a SW can intercept.
   const isExternal = url.origin !== self.location.origin
+
+  if (forcedOffline && isExternal) {
+    event.respondWith(
+      (async () => {
+        if (req.method === 'GET') {
+          try {
+            const cached = await caches.match(req)
+            if (cached) return cached
+          } catch {
+            // ignore
+          }
+        }
+
+        return new Response('Forced offline: external network calls are disabled.', {
+          status: 503,
+          statusText: 'FORCED_OFFLINE',
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            // Allow scripts to observe the status in CORS fetches.
+            'Access-Control-Allow-Origin': '*',
+          },
+        })
+      })(),
+    )
+    return
+  }
+
+  if (req.method !== 'GET') return
 
   const baseIsImage = req.destination === 'image' || /\.(png|jpg|jpeg|webp)(\?|$)/i.test(url.pathname)
   const looksLikeSlippy = /\/\d+\/\d+\/\d+\.(png|jpg|jpeg|webp)$/i.test(url.pathname)

@@ -337,6 +337,284 @@ function meshExtractLatLon(pos) {
   return null
 }
 
+// -----------------------------
+// Meshtastic ATAK plugin (TAKTracker) PLI decode (protobuf)
+// -----------------------------
+
+function meshAtakBytes(payload) {
+  if (!payload) return null
+  if (payload instanceof Uint8Array) return payload
+  if (payload instanceof ArrayBuffer) return new Uint8Array(payload)
+  if (Array.isArray(payload)) {
+    try { return new Uint8Array(payload.map((v) => Number(v) & 0xff)) } catch (_) { return null }
+  }
+
+  if (typeof payload === 'string') {
+    const s = String(payload || '').trim()
+    if (!s) return null
+    try {
+      if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') return new Uint8Array(Buffer.from(s, 'base64'))
+    } catch (_) { /* ignore */ }
+    try {
+      const bin = atob(s)
+      const out = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff
+      return out
+    } catch (_) {
+      return null
+    }
+  }
+
+  // bufbuild protobuf messages: bytes can be a view over an ArrayBuffer
+  try {
+    const any = payload
+    if (any?.buffer instanceof ArrayBuffer && typeof any?.byteOffset === 'number' && typeof any?.byteLength === 'number') {
+      return new Uint8Array(any.buffer, any.byteOffset, any.byteLength)
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  return null
+}
+
+function meshAtakReadVarint(buf, offset) {
+  let o = offset
+  let shift = 0n
+  let v = 0n
+  for (let i = 0; i < 10; i++) {
+    if (o >= buf.length) return null
+    const b = buf[o++]
+    v |= BigInt(b & 0x7f) << shift
+    if ((b & 0x80) === 0) return { value: v, offset: o }
+    shift += 7n
+  }
+  return null
+}
+
+function meshAtakReadSFixed32(buf, offset) {
+  const o = offset
+  if (o + 4 > buf.length) return null
+  const dv = new DataView(buf.buffer, buf.byteOffset + o, 4)
+  return { value: dv.getInt32(0, true), offset: o + 4 }
+}
+
+function meshAtakSkipField(buf, offset, wireType) {
+  const wt = wireType | 0
+  if (wt === 0) {
+    const v = meshAtakReadVarint(buf, offset)
+    return v ? v.offset : null
+  }
+  if (wt === 1) return offset + 8 <= buf.length ? offset + 8 : null
+  if (wt === 2) {
+    const l = meshAtakReadVarint(buf, offset)
+    if (!l) return null
+    const len = Number(l.value)
+    if (!Number.isFinite(len) || len < 0) return null
+    const end = l.offset + len
+    return end <= buf.length ? end : null
+  }
+  if (wt === 5) return offset + 4 <= buf.length ? offset + 4 : null
+  return null
+}
+
+function meshAtakU32(v) { return Number(v & 0xffff_ffffn) }
+function meshAtakI32(v) {
+  const u = meshAtakU32(v)
+  return u >= 0x8000_0000 ? u - 0x1_0000_0000 : u
+}
+
+function meshAtakLooksPrintable(s) {
+  const t = String(s || '').trim()
+  if (!t) return false
+  let printable = 0
+  let total = 0
+  for (const ch of t) {
+    total++
+    const code = ch.codePointAt(0) ?? 0
+    if (code === 0x09 || code === 0x0a || code === 0x0d || (code >= 0x20 && code <= 0x7e)) printable++
+  }
+  return total > 0 && printable / total >= 0.8
+}
+
+function meshAtakDecodeUtf8(bytes) {
+  try {
+    if (typeof TextDecoder !== 'undefined') return new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+  } catch (_) {
+    // ignore
+  }
+  let s = ''
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
+  return s
+}
+
+function meshAtakCleanString(bytes) {
+  const s = meshAtakDecodeUtf8(bytes).replace(/\u0000/g, '').trim()
+  return (s && meshAtakLooksPrintable(s)) ? s : null
+}
+
+function meshAtakParseContact(bytes) {
+  let callsign = null
+  let deviceCallsign = null
+  let o = 0
+  while (o < bytes.length) {
+    const key = meshAtakReadVarint(bytes, o)
+    if (!key) break
+    o = key.offset
+    const fieldNo = Number(key.value >> 3n)
+    const wt = Number(key.value & 7n)
+    if (wt === 2) {
+      const len = meshAtakReadVarint(bytes, o)
+      if (!len) break
+      o = len.offset
+      const n = Number(len.value)
+      if (!Number.isFinite(n) || n < 0 || o + n > bytes.length) break
+      const v = bytes.slice(o, o + n)
+      o += n
+      const s = meshAtakCleanString(v)
+      if (fieldNo === 1 && s) callsign = s
+      else if (fieldNo === 2 && s) deviceCallsign = s
+      continue
+    }
+    const skipped = meshAtakSkipField(bytes, o, wt)
+    if (skipped == null) break
+    o = skipped
+  }
+  return { callsign, deviceCallsign }
+}
+
+function meshAtakParseStatus(bytes) {
+  let battery = null
+  let o = 0
+  while (o < bytes.length) {
+    const key = meshAtakReadVarint(bytes, o)
+    if (!key) break
+    o = key.offset
+    const fieldNo = Number(key.value >> 3n)
+    const wt = Number(key.value & 7n)
+    if (fieldNo === 1 && wt === 0) {
+      const v = meshAtakReadVarint(bytes, o)
+      if (!v) break
+      o = v.offset
+      battery = meshAtakU32(v.value)
+      continue
+    }
+    const skipped = meshAtakSkipField(bytes, o, wt)
+    if (skipped == null) break
+    o = skipped
+  }
+  return { battery }
+}
+
+function meshAtakParsePli(bytes) {
+  let latI = null
+  let lonI = null
+  let alt = null
+
+  let o = 0
+  while (o < bytes.length) {
+    const key = meshAtakReadVarint(bytes, o)
+    if (!key) break
+    o = key.offset
+    const fieldNo = Number(key.value >> 3n)
+    const wt = Number(key.value & 7n)
+
+    if (fieldNo === 1 && wt === 5) {
+      const v = meshAtakReadSFixed32(bytes, o)
+      if (!v) break
+      o = v.offset
+      latI = v.value
+      continue
+    }
+    if (fieldNo === 2 && wt === 5) {
+      const v = meshAtakReadSFixed32(bytes, o)
+      if (!v) break
+      o = v.offset
+      lonI = v.value
+      continue
+    }
+    if (fieldNo === 3 && wt === 0) {
+      const v = meshAtakReadVarint(bytes, o)
+      if (!v) break
+      o = v.offset
+      alt = meshAtakI32(v.value)
+      continue
+    }
+
+    const skipped = meshAtakSkipField(bytes, o, wt)
+    if (skipped == null) break
+    o = skipped
+  }
+
+  if (latI == null || lonI == null) return null
+  const lat = latI * 1e-7
+  const lon = lonI * 1e-7
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null
+  return { lat, lon, alt }
+}
+
+function meshAtakDecodeTakPacket(payload) {
+  const bytes = meshAtakBytes(payload)
+  if (!bytes || bytes.length === 0) return null
+
+  let callsign = null
+  let deviceCallsign = null
+  let battery = null
+  let pli = null
+
+  let o = 0
+  while (o < bytes.length) {
+    const key = meshAtakReadVarint(bytes, o)
+    if (!key) break
+    o = key.offset
+    const fieldNo = Number(key.value >> 3n)
+    const wt = Number(key.value & 7n)
+
+    if (wt === 2) {
+      const len = meshAtakReadVarint(bytes, o)
+      if (!len) break
+      o = len.offset
+      const n = Number(len.value)
+      if (!Number.isFinite(n) || n < 0 || o + n > bytes.length) break
+      const v = bytes.slice(o, o + n)
+      o += n
+
+      if (fieldNo === 2) {
+        const c = meshAtakParseContact(v)
+        if (c.callsign) callsign = c.callsign
+        if (c.deviceCallsign) deviceCallsign = c.deviceCallsign
+      } else if (fieldNo === 4) {
+        const s = meshAtakParseStatus(v)
+        if (s.battery != null) battery = s.battery
+      } else if (fieldNo === 5) {
+        const p = meshAtakParsePli(v)
+        if (p) pli = p
+      }
+      continue
+    }
+
+    const skipped = meshAtakSkipField(bytes, o, wt)
+    if (skipped == null) break
+    o = skipped
+  }
+
+  if (!callsign && !deviceCallsign && battery == null && !pli) return null
+  return { callsign, deviceCallsign, battery, pli }
+}
+
+function meshIsAtakPluginPort(portnum) {
+  try {
+    if (String(portnum ?? '').toUpperCase() === 'ATAK_PLUGIN') return true
+    const atak =
+      globalThis?.Meshtastic?.Protobuf?.Portnums?.PortNum?.ATAK_PLUGIN ??
+      globalThis?.Meshtastic?.Protobufs?.Portnums?.PortNum?.ATAK_PLUGIN ??
+      null
+    return atak != null && Number(portnum) === Number(atak)
+  } catch (_) {
+    return false
+  }
+}
+
 function meshReadNodeDb() {
   const raw = meshReadJson(LS_MESH_NODES, {})
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
@@ -1780,6 +2058,24 @@ class XcomMeshTransport {
               if (driverName === 'meshtastic') {
                 const id = meshFormatMeshtasticNodeId(from)
                 if (id) patch.id = id
+
+                // Meshtastic TAK Tracker mode uses ATAK_PLUGIN payloads instead of POSITION_APP.
+                // Decode PLI so node locations still show up on the map.
+                if (meshIsAtakPluginPort(portnum)) {
+                  const tak = meshAtakDecodeTakPacket(pkt?.decoded?.payload ?? null)
+                  if (tak?.callsign && !patch.shortName) patch.shortName = tak.callsign
+                  if (tak?.deviceCallsign && !patch.longName) patch.longName = tak.deviceCallsign
+                  if (tak?.pli && Number.isFinite(Number(tak.pli.lat)) && Number.isFinite(Number(tak.pli.lon))) {
+                    const alt = Number.isFinite(Number(tak.pli.alt)) ? Number(tak.pli.alt) : null
+                    patch.position = {
+                      lat: Number(tak.pli.lat),
+                      lon: Number(tak.pli.lon),
+                      ...(alt != null ? { alt } : {}),
+                      ts,
+                      source: 'atak-pli',
+                    }
+                  }
+                }
               }
               this._upsertNode(from, patch)
             }

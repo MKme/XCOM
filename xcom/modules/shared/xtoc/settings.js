@@ -5,6 +5,8 @@
 const KEY_MAP_BASE = 'xtoc.map.base'
 const KEY_MAP_RASTER_TEMPLATE = 'xtoc.map.rasterTemplate'
 
+const KEY_FORCED_OFFLINE = 'xtoc.forcedOffline'
+
 const KEY_MAP_DEFAULT_LAT = 'xtoc.map.defaultLat'
 const KEY_MAP_DEFAULT_LON = 'xtoc.map.defaultLon'
 const KEY_MAP_DEFAULT_ZOOM = 'xtoc.map.defaultZoom'
@@ -19,6 +21,127 @@ const KEY_TACTICAL_TRUSTED_MODE = 'xtoc.tacticalMap.trustedMode'
 // OpenMANET (node positions via openmanetd)
 const KEY_OPENMANET_API_BASE_URL = 'xtoc.openmanet.apiBaseUrl'
 const KEY_OPENMANET_REFRESH_MS = 'xtoc.openmanet.refreshMs'
+
+function safePostForcedOfflineToServiceWorker(enabled) {
+  try {
+    if (!('serviceWorker' in navigator)) return
+
+    const msg = { type: 'SET_FORCED_OFFLINE', enabled: !!enabled }
+
+    try {
+      navigator.serviceWorker.controller && navigator.serviceWorker.controller.postMessage(msg)
+    } catch (_) {
+      // ignore
+    }
+
+    navigator.serviceWorker.ready
+      .then((reg) => reg && reg.active && reg.active.postMessage(msg))
+      .catch(() => {})
+  } catch (_) {
+    // ignore
+  }
+}
+
+function getForcedOfflineEnabled() {
+  try {
+    return localStorage.getItem(KEY_FORCED_OFFLINE) === '1'
+  } catch (_) {
+    return false
+  }
+}
+
+function setForcedOfflineEnabled(enabled) {
+  const next = !!enabled
+  try {
+    if (next) localStorage.setItem(KEY_FORCED_OFFLINE, '1')
+    else localStorage.removeItem(KEY_FORCED_OFFLINE)
+  } catch (_) {
+    // ignore
+  }
+
+  safePostForcedOfflineToServiceWorker(next)
+}
+
+function toggleForcedOfflineEnabled() {
+  const next = !getForcedOfflineEnabled()
+  setForcedOfflineEnabled(next)
+  return next
+}
+
+function syncForcedOfflineToServiceWorker() {
+  safePostForcedOfflineToServiceWorker(getForcedOfflineEnabled())
+}
+
+const GUARD_MARK = '__XCOM_FORCED_OFFLINE_GUARD_INSTALLED'
+
+function isExternalHttpUrl(inputUrl) {
+  let u
+  try {
+    u = new URL(String(inputUrl || ''), location && location.href ? location.href : 'http://localhost/')
+  } catch (_) {
+    return true
+  }
+
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+
+  let origin = 'http://localhost'
+  try {
+    origin = location && location.origin ? location.origin : origin
+  } catch (_) {
+    // ignore
+  }
+
+  return u.origin !== origin
+}
+
+function requestUrlToString(input) {
+  if (typeof input === 'string') return input
+  try {
+    if (typeof URL !== 'undefined' && input instanceof URL) return input.toString()
+  } catch (_) {
+    // ignore
+  }
+  try {
+    // Request
+    return input && input.url ? String(input.url) : String(input)
+  } catch (_) {
+    return String(input)
+  }
+}
+
+function installForcedOfflineNetworkGuards() {
+  try {
+    if (globalThis && globalThis[GUARD_MARK]) return
+    if (globalThis) globalThis[GUARD_MARK] = true
+  } catch (_) {
+    // ignore
+  }
+
+  if (typeof fetch !== 'function') return
+  const origFetch = fetch.bind(globalThis)
+
+  globalThis.fetch = async (input, init) => {
+    if (!getForcedOfflineEnabled()) return origFetch(input, init)
+
+    const urlString = requestUrlToString(input)
+    if (!isExternalHttpUrl(urlString)) return origFetch(input, init)
+
+    const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase()
+    if (method === 'GET') {
+      try {
+        if (typeof caches !== 'undefined' && typeof Request !== 'undefined') {
+          const req = new Request(urlString, init)
+          const cached = await caches.match(req)
+          if (cached) return cached
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    throw new Error('Forced offline: external network calls are disabled.')
+  }
+}
 
 // Map base style: online vector styles (dark/light) or offline raster.
 // Keep values identical to XTOC for code reuse.
@@ -151,6 +274,11 @@ try {
   globalThis.setMapBaseStyle = setMapBaseStyle
   globalThis.getMapRasterTemplate = getMapRasterTemplate
   globalThis.setMapRasterTemplate = setMapRasterTemplate
+  globalThis.getForcedOfflineEnabled = getForcedOfflineEnabled
+  globalThis.setForcedOfflineEnabled = setForcedOfflineEnabled
+  globalThis.toggleForcedOfflineEnabled = toggleForcedOfflineEnabled
+  globalThis.syncForcedOfflineToServiceWorker = syncForcedOfflineToServiceWorker
+  globalThis.installForcedOfflineNetworkGuards = installForcedOfflineNetworkGuards
   globalThis.getMapDefaultCoords = getMapDefaultCoords
   globalThis.setMapDefaultCoords = setMapDefaultCoords
   globalThis.getMapDefaultZoom = getMapDefaultZoom

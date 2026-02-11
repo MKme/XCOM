@@ -21,6 +21,10 @@ const LS_LICENSE_OK = 'xcom.license.ok';
 const LS_LICENSE_KEY = 'xcom.license.key';
 const LS_LICENSE_CHECKED_AT = 'xcom.license.checkedAt';
 
+// Forced Offline guards (installed via modules/shared/xtoc/settings.js)
+try { globalThis.installForcedOfflineNetworkGuards?.(); } catch (_) { /* ignore */ }
+try { globalThis.syncForcedOfflineToServiceWorker?.(); } catch (_) { /* ignore */ }
+
 function looksLikeHtmlMessage(value) {
     const s = String(value || '').trim();
     if (!s) return false;
@@ -1428,11 +1432,58 @@ class RadioApp {
         return `${hh}:${mm}:${ss}`;
     }
 
+    isForcedOfflineEnabled() {
+        try {
+            const fn = globalThis.getForcedOfflineEnabled;
+            if (typeof fn === 'function') return !!fn();
+        } catch (_) { /* ignore */ }
+
+        try {
+            return (localStorage.getItem('xtoc.forcedOffline') || '') === '1';
+        } catch (_) {
+            return false;
+        }
+    }
+
+    toggleForcedOffline() {
+        let next = false;
+
+        try {
+            const fn = globalThis.toggleForcedOfflineEnabled;
+            if (typeof fn === 'function') {
+                next = !!fn();
+            } else {
+                next = !this.isForcedOfflineEnabled();
+                try {
+                    if (next) localStorage.setItem('xtoc.forcedOffline', '1');
+                    else localStorage.removeItem('xtoc.forcedOffline');
+                } catch (_) { /* ignore */ }
+            }
+        } catch (_) {
+            // ignore
+        }
+
+        try { globalThis.syncForcedOfflineToServiceWorker?.(); } catch (_) { /* ignore */ }
+
+        if (next) {
+            this._connectivityHasInternet = false;
+            this.stopInternetProbe();
+        } else {
+            this.startInternetProbe();
+        }
+
+        this.updateNetPill();
+    }
+
     setupConnectivityStatus() {
         // Mirror XTOC: show both link status and a best-effort internet reachability probe.
         this._connectivityOnline = navigator.onLine;
         this._connectivityHasInternet = false;
         this.updateNetPill();
+
+        if (this.netPill) {
+            this.netPill.addEventListener('click', () => this.toggleForcedOffline());
+        }
 
         const onOnline = () => {
             this._connectivityOnline = true;
@@ -1455,6 +1506,7 @@ class RadioApp {
     startInternetProbe() {
         if (!this.netPill || !this.netValue) return;
         if (!navigator.onLine) return;
+        if (this.isForcedOfflineEnabled()) return;
         if (this._internetProbeTimer) return;
 
         const run = () => this.runInternetProbe();
@@ -1476,6 +1528,7 @@ class RadioApp {
 
     async runInternetProbe() {
         if (!navigator.onLine) return;
+        if (this.isForcedOfflineEnabled()) return;
         if (this._internetProbeInFlight) return;
 
         this._internetProbeInFlight = true;
@@ -1510,8 +1563,9 @@ class RadioApp {
     updateNetPill() {
         if (!this.netPill || !this.netValue) return;
 
-        const online = !!this._connectivityOnline;
-        const hasInternet = !!this._connectivityHasInternet;
+        const forcedOffline = this.isForcedOfflineEnabled();
+        const online = forcedOffline ? false : !!this._connectivityOnline;
+        const hasInternet = forcedOffline ? false : !!this._connectivityHasInternet;
         const ok = online && hasInternet;
 
         // Expose a tiny global hint so shared helpers (MapLibre style builder) can
@@ -1531,22 +1585,27 @@ class RadioApp {
         try {
             if (prevOk !== ok) {
                 globalThis.dispatchEvent(new CustomEvent('xcomConnectivityUpdated', {
-                    detail: { online, hasInternet, ok, prevOk }
+                    detail: { online, hasInternet, ok, prevOk, forcedOffline }
                 }));
             }
         } catch (_) {
             // ignore
         }
 
-        this.netPill.title = ok
-            ? 'Internet reachable'
-            : online
-                ? 'Network connected, but internet not reachable (LAN-only / captive portal?)'
-                : 'No network connection';
+        this.netPill.title = forcedOffline
+            ? 'Forced Offline enabled: external network calls are disabled (cache-only). Click to re-enable.'
+            : ok
+                ? 'Internet reachable. Click to force offline.'
+                : online
+                    ? 'Network connected, but internet not reachable (LAN-only / captive portal?). Click to force offline.'
+                    : 'No network connection. Click to force offline.';
 
-        this.netPill.style.borderColor = ok ? 'rgba(46, 230, 166, 0.35)' : 'rgba(246, 201, 69, 0.35)';
-        this.netValue.style.color = ok ? 'var(--accent)' : 'var(--warning)';
-        this.netValue.textContent = ok ? 'ONLINE' : 'OFFLINE';
+        this.netPill.style.borderColor = forcedOffline ? 'rgba(246, 201, 69, 0.55)' : ok ? 'rgba(46, 230, 166, 0.35)' : 'rgba(246, 201, 69, 0.35)';
+        this.netValue.style.color = forcedOffline ? 'var(--warning)' : ok ? 'var(--accent)' : 'var(--warning)';
+        this.netValue.textContent = forcedOffline ? 'FORCED OFFLINE' : ok ? 'ONLINE' : 'OFFLINE';
+
+        try { this.netPill.setAttribute('aria-pressed', forcedOffline ? 'true' : 'false'); } catch (_) { /* ignore */ }
+        try { this.netPill.setAttribute('aria-label', forcedOffline ? 'Forced Offline: click to disable' : 'Network status: click to force offline'); } catch (_) { /* ignore */ }
     }
 }
 
