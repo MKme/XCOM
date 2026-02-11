@@ -190,11 +190,11 @@ class MeshModule {
           <div class="meshDivider"></div>
 
           <div class="meshRow">
-            <label>Test message</label>
+            <label>Send Message</label>
             <textarea id="meshTestText" rows="3" placeholder="Type a short message to send over the mesh"></textarea>
           </div>
           <div class="meshButtonRow">
-            <button id="meshSendTestBtn" type="button">Send Test</button>
+            <button id="meshSendTestBtn" type="button">Send</button>
           </div>
           <div class="meshSmallMuted">
             Tip: Comms can also send generated packet lines directly over Mesh after you connect here.
