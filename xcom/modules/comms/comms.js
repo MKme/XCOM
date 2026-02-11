@@ -172,6 +172,7 @@ class CommsModule {
             <button id="commsSendMeshBtn" type="button">Send via Mesh</button>
             <button id="commsSendHaLowBtn" type="button">Send via MANET</button>
             <button id="commsMakeQrBtn" type="button">Make QR</button>
+            <button id="commsPrintQrBtn" type="button">Print QR</button>
           </div>
 
           <div class="commsRow">
@@ -323,6 +324,7 @@ class CommsModule {
     document.getElementById('commsSendMeshBtn').addEventListener('click', () => this.sendViaMesh())
     document.getElementById('commsSendHaLowBtn').addEventListener('click', () => this.sendViaHaLow())
     document.getElementById('commsMakeQrBtn').addEventListener('click', () => this.makeQr())
+    document.getElementById('commsPrintQrBtn').addEventListener('click', () => void this.printQr())
 
     document.getElementById('commsReassembleBtn').addEventListener('click', () => this.reassembleAndDecode())
     document.getElementById('commsImportToMapBtn').addEventListener('click', () => this.importSelectedToMap())
@@ -1346,6 +1348,105 @@ class CommsModule {
       scale: 6,
       color: { dark: '#e9eef8', light: '#0b0f16' },
     })
+  }
+
+  async printQr() {
+    const out = (document.getElementById('commsOutput').value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+    const first = out[0] || ''
+    if (!first) {
+      alert('Nothing to print. Generate a packet first.')
+      return
+    }
+
+    if (!globalThis.QRCodeLib || !globalThis.QRCodeLib.QRCode) {
+      alert('QRCodeLib not loaded')
+      return
+    }
+
+    let dataUrl = ''
+    try {
+      dataUrl = await globalThis.QRCodeLib.QRCode.toDataURL(first, {
+        errorCorrectionLevel: 'M',
+        margin: 2,
+        scale: 10,
+        color: { dark: '#000000', light: '#ffffff' },
+      })
+    } catch (e) {
+      console.error(e)
+      alert(e?.message || String(e))
+      return
+    }
+
+    const overlayId = 'xcomPrintQrOverlay'
+    const styleId = 'xcomPrintQrStyle'
+
+    const cleanup = () => {
+      try { delete document.body.dataset.xcomPrintQr } catch (_) { /* ignore */ }
+      try { document.getElementById(overlayId)?.remove() } catch (_) { /* ignore */ }
+      try { document.getElementById(styleId)?.remove() } catch (_) { /* ignore */ }
+    }
+
+    try {
+      cleanup()
+
+      const overlay = document.createElement('div')
+      overlay.id = overlayId
+      overlay.style.display = 'none'
+
+      const img = document.createElement('img')
+      img.alt = 'QR Code'
+      img.src = dataUrl
+      overlay.appendChild(img)
+
+      const style = document.createElement('style')
+      style.id = styleId
+      style.textContent = `
+@page { margin: 4mm; }
+@media print {
+  body[data-xcom-print-qr="1"] * { display: none !important; }
+  body[data-xcom-print-qr="1"] #${overlayId} { display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: flex-start !important; background: #fff !important; }
+  body[data-xcom-print-qr="1"] #${overlayId} img { display: block !important; width: 100% !important; max-width: 180mm !important; height: auto !important; image-rendering: pixelated !important; }
+}
+      `.trim()
+
+      document.head.appendChild(style)
+      document.body.appendChild(overlay)
+
+      if (!img.complete) {
+        if (typeof img.decode === 'function') {
+          try { await img.decode() } catch (_) { /* ignore */ }
+        }
+      }
+      if (!img.complete) {
+        await new Promise((resolve, reject) => {
+          const onLoad = () => resolve()
+          const onError = () => reject(new Error('QR image failed to load'))
+          img.addEventListener('load', onLoad, { once: true })
+          img.addEventListener('error', onError, { once: true })
+        })
+      }
+
+      document.body.dataset.xcomPrintQr = '1'
+      window.addEventListener('afterprint', cleanup, { once: true })
+      setTimeout(() => {
+        try {
+          if (document.body.dataset.xcomPrintQr === '1') cleanup()
+        } catch (_) {
+          // ignore
+        }
+      }, 600_000)
+
+      if (typeof requestAnimationFrame === 'function') {
+        await new Promise((resolve) => requestAnimationFrame(resolve))
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+      window.focus()
+      window.print()
+    } catch (e) {
+      cleanup()
+      alert(e?.message || String(e))
+    }
   }
 
   async sendViaMesh() {
