@@ -312,6 +312,7 @@ class HelpModule {
                         <li><strong>Controls:</strong> open <strong>Map</strong> &rarr; <strong>Overlays</strong> and toggle <strong>Imported</strong>, <strong>Last 7 days only</strong>, and the per-type filters (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION).</li>
                         <li><strong>7-day filter:</strong> this is render-only (older packets remain stored locally). It uses packet timestamp when available, otherwise received/import time.</li>
                         <li><strong>Friendly labels:</strong> popups use team roster labels when available (import via <strong>Import Team</strong> or <strong>Scan Team QR</strong>).</li>
+                        <li><strong>Hide from map:</strong> click an Imported marker and choose <strong>Hide from map</strong> to declutter without deleting. Restore items under <strong>Map</strong> &rarr; <strong>Overlays</strong> &rarr; <strong>Hidden from map</strong>.</li>
                         <li><strong>Packet archive:</strong> all packets (including non-location) are stored in <strong>XTOC Data</strong>; geo packets can be imported to the map from there too.</li>
                     </ul>
 

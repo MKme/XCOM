@@ -63,6 +63,12 @@ class MapModule {
     this._meshPopupByKey = new Map()
     this._meshUnsub = null
 
+    // Hidden marker controls (user "Hide from map")
+    this._hiddenLegendEl = null
+    this._hiddenListEl = null
+    this._hiddenShowAllBtn = null
+    this._hiddenHandlersBound = false
+
     // OpenMANET nodes (via openmanetd; fetched over LAN/MANET)
     this._openmanetNodes = []
     this._openmanetTimer = null
@@ -203,6 +209,14 @@ class MapModule {
               <input id="mapOpenmanetRefreshMs" type="number" min="500" max="60000" step="100" value="2000" />
               <div class="mapSmallMuted" id="mapOpenmanetStatus" style="margin-top:6px;"></div>
             </div>
+            <div class="mapRow" style="margin-top: 12px;">
+              <label>Hidden from map</label>
+              <div class="mapSmallMuted" id="mapHiddenLegend"></div>
+              <div class="mapHiddenList" id="mapHiddenList"></div>
+              <div class="mapButtonRow" style="margin-top: 8px;">
+                <button id="mapHiddenShowAllBtn" type="button">Show all hidden</button>
+              </div>
+            </div>
           </div>
 
           <div class="mapCard">
@@ -251,6 +265,12 @@ class MapModule {
     const openmanetRefreshEl = document.getElementById('mapOpenmanetRefreshMs')
     const openmanetStatusEl = document.getElementById('mapOpenmanetStatus')
     this._openmanetStatusEl = openmanetStatusEl
+    const hiddenLegendEl = document.getElementById('mapHiddenLegend')
+    const hiddenListEl = document.getElementById('mapHiddenList')
+    const hiddenShowAllBtn = document.getElementById('mapHiddenShowAllBtn')
+    this._hiddenLegendEl = hiddenLegendEl
+    this._hiddenListEl = hiddenListEl
+    this._hiddenShowAllBtn = hiddenShowAllBtn
 
     // Base-style-dependent UI (Topographic vs user-configured raster template)
     const rasterRowEl = document.getElementById('mapRasterRow')
@@ -478,6 +498,18 @@ class MapModule {
       } catch (_) {}
       this.syncMeshNodesOverlay()
     })
+
+    hiddenShowAllBtn?.addEventListener('click', () => {
+      try {
+        globalThis.clearTacticalMapHiddenItems && globalThis.clearTacticalMapHiddenItems()
+      } catch (_) {}
+      try { this.updateHiddenUi() } catch (_) { /* ignore */ }
+      try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
+      try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+    })
+
+    try { this.bindHiddenHandlers() } catch (_) { /* ignore */ }
+    try { this.updateHiddenUi() } catch (_) { /* ignore */ }
 
     // initial cache count
     this.updateCacheStatus().catch(() => {})
@@ -935,7 +967,7 @@ class MapModule {
     }
   }
 
-  importedPopupHtmlForFeature(f) {
+  importedPopupHtmlForFeature(f, markerId) {
     const p = f?.properties || {}
     const summary = this.withRosterLabels(String(p?.summary || '').trim())
     const tpl = Number(p?.templateId) || ''
@@ -945,6 +977,23 @@ class MapModule {
     const whenTs = this.importedTimestampMs(p)
     const when = (Number.isFinite(whenTs) && whenTs > 0) ? new Date(whenTs).toLocaleString() : '-'
 
+    const hideId = String(markerId || '').trim()
+    const hideLabel = summary || (tpl ? `Imported T=${String(tpl)}` : 'Imported')
+    const hideBtn = hideId
+      ? `
+        <button
+          type="button"
+          class="xcomHideFromMapBtn"
+          data-kind="imported"
+          data-id="${this.escapeHtml(hideId)}"
+          data-label="${this.escapeHtml(hideLabel)}"
+          style="margin-top:10px; width:100%; padding:8px; border-radius:10px; border:1px solid rgba(0,0,0,0.15); background:rgba(0,0,0,0.06); cursor:pointer; font-size:12px;"
+        >
+          Hide from map
+        </button>
+      `
+      : ''
+
     return `
       <div style="font-weight:700; margin-bottom:6px;">Imported</div>
       ${summary ? `<div style="margin-bottom:6px;">${this.escapeHtml(summary)}</div>` : ''}
@@ -952,10 +1001,11 @@ class MapModule {
         ${tpl ? `T=${this.escapeHtml(String(tpl))} ` : ''}${mode ? `${this.escapeHtml(mode)} ` : ''}${id ? `ID ${this.escapeHtml(id)}` : ''}${kid ? this.escapeHtml(kid) : ''}
       </div>
       <div style="font-size:12px; color:#444;">${this.escapeHtml(when)}</div>
+      ${hideBtn}
     `
   }
 
-  openImportedPopup(lngLat, feature) {
+  openImportedPopup(lngLat, feature, markerId) {
     if (!this.map || !lngLat) return
     const map = this.map
     try {
@@ -963,7 +1013,7 @@ class MapModule {
         this._importedPopup = new globalThis.maplibregl.Popup({ closeButton: true, closeOnClick: true })
       }
       if (this._importedPopup) {
-        const html = this.importedPopupHtmlForFeature(feature)
+        const html = this.importedPopupHtmlForFeature(feature, markerId)
         this._importedPopup.setLngLat(lngLat).setHTML(html).addTo(map)
       }
     } catch (_) {
@@ -989,6 +1039,17 @@ class MapModule {
 
     const rosterLabelByUnitId = this.getRosterSafeLabelByUnitId()
     const staleCutoff = Date.now() - (7 * 24 * 60 * 60 * 1000)
+    const hiddenIds = new Set()
+    try {
+      for (const it of this.getHiddenItems()) {
+        const kind = String(it?.kind ?? '').trim()
+        if (kind !== 'imported') continue
+        const id = String(it?.id ?? '').trim()
+        if (id) hiddenIds.add(id)
+      }
+    } catch (_) {
+      // ignore
+    }
     const want = new Map()
 
     for (const f of Array.isArray(pointFeatures) ? pointFeatures : []) {
@@ -1005,6 +1066,7 @@ class MapModule {
       if (templateId === 7) continue
 
       const id = (f.id != null) ? String(f.id) : `imported:${String(p?.packetId || '')}:${String(p?.mode || '')}:${String(templateId)}:${String(p?.kid ?? '')}:${lon.toFixed(6)},${lat.toFixed(6)}`
+      if (hiddenIds.has(id)) continue
       want.set(id, { feature: f, lon, lat, templateId })
     }
 
@@ -1053,7 +1115,7 @@ class MapModule {
           const feat = this._importedMarkerFeatureById.get(markerId)
           const mk = this._importedMarkerById.get(markerId)
           const ll = mk && typeof mk.getLngLat === 'function' ? mk.getLngLat() : null
-          if (feat && ll) this.openImportedPopup(ll, feat)
+          if (feat && ll) this.openImportedPopup(ll, feat, markerId)
         })
 
         marker = new globalThis.maplibregl.Marker({ element: el, anchor: 'center' })
@@ -1341,6 +1403,156 @@ class MapModule {
     el.textContent = `Mesh nodes: ${all.length} (${withPos} with position)${hidden ? ' (hidden)' : ''}`
   }
 
+  getHiddenItems() {
+    try {
+      const list = globalThis.getTacticalMapHiddenItems ? globalThis.getTacticalMapHiddenItems() : []
+      return Array.isArray(list) ? list : []
+    } catch (_) {
+      return []
+    }
+  }
+
+  hideMapItem(kind, id, label) {
+    const k = String(kind || '').trim()
+    const i = String(id || '').trim()
+    if (!k || !i) return
+
+    try {
+      globalThis.hideTacticalMapItem && globalThis.hideTacticalMapItem(k, i, label)
+    } catch (_) {
+      // ignore
+    }
+
+    try { if (this._importedPopup) this._importedPopup.remove() } catch (_) { /* ignore */ }
+    try { this.updateHiddenUi() } catch (_) { /* ignore */ }
+
+    if (k === 'imported') {
+      try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
+      return
+    }
+    if (k === 'mesh') {
+      try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+    }
+  }
+
+  unhideMapItem(kind, id) {
+    const k = String(kind || '').trim()
+    const i = String(id || '').trim()
+    if (!k || !i) return
+
+    try {
+      globalThis.unhideTacticalMapItem && globalThis.unhideTacticalMapItem(k, i)
+    } catch (_) {
+      // ignore
+    }
+
+    try { this.updateHiddenUi() } catch (_) { /* ignore */ }
+
+    if (k === 'imported') {
+      try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
+      return
+    }
+    if (k === 'mesh') {
+      try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+    }
+  }
+
+  updateHiddenUi() {
+    const legendEl = this._hiddenLegendEl
+    const listEl = this._hiddenListEl
+    const showAllBtn = this._hiddenShowAllBtn
+    if (!legendEl || !listEl) return
+
+    const items = this.getHiddenItems()
+    const count = items.length
+
+    legendEl.textContent = count ? `${count} item(s) hidden` : 'None.'
+    try { if (showAllBtn) showAllBtn.style.display = count ? '' : 'none' } catch (_) { /* ignore */ }
+
+    // Clear list
+    try {
+      while (listEl.firstChild) listEl.removeChild(listEl.firstChild)
+    } catch (_) {
+      // ignore
+    }
+
+    if (!count) return
+
+    const max = 12
+    const shown = items.slice(0, max)
+
+    for (const it of shown) {
+      const k = String(it?.kind ?? '').trim()
+      const i = String(it?.id ?? '').trim()
+      if (!k || !i) continue
+      const label = String(it?.label ?? '').trim()
+      const text = label || `${k}: ${i}`
+
+      const row = document.createElement('div')
+      row.className = 'mapHiddenItem'
+
+      const labelEl = document.createElement('div')
+      labelEl.className = 'mapHiddenLabel'
+      labelEl.textContent = text
+      labelEl.title = text
+      row.appendChild(labelEl)
+
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'mapHiddenShowBtn'
+      btn.textContent = 'Show'
+      btn.addEventListener('click', (e) => {
+        try {
+          e.preventDefault()
+          e.stopPropagation()
+        } catch (_) {
+          // ignore
+        }
+        this.unhideMapItem(k, i)
+      })
+      row.appendChild(btn)
+
+      listEl.appendChild(row)
+    }
+
+    if (count > max) {
+      const more = document.createElement('div')
+      more.className = 'mapSmallMuted'
+      more.textContent = `+ ${count - max} more...`
+      listEl.appendChild(more)
+    }
+  }
+
+  bindHiddenHandlers() {
+    if (this._hiddenHandlersBound) return
+    this._hiddenHandlersBound = true
+
+    try { if (globalThis.__xcomMapHiddenCleanup) globalThis.__xcomMapHiddenCleanup() } catch (_) { /* ignore */ }
+
+    const onDocClick = (e) => {
+      try {
+        const t = e?.target
+        const btn = t && typeof t.closest === 'function' ? t.closest('.xcomHideFromMapBtn') : null
+        if (!btn) return
+
+        e.preventDefault()
+        e.stopPropagation()
+
+        const kind = String(btn.dataset?.kind || '').trim()
+        const id = String(btn.dataset?.id || '').trim()
+        const label = String(btn.dataset?.label || '').trim()
+        this.hideMapItem(kind, id, label)
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    try { document.addEventListener('click', onDocClick) } catch (_) { /* ignore */ }
+    globalThis.__xcomMapHiddenCleanup = () => {
+      try { document.removeEventListener('click', onDocClick) } catch (_) { /* ignore */ }
+    }
+  }
+
   openmanetSetStatus(text) {
     const el = this._openmanetStatusEl
     if (!el) return
@@ -1566,6 +1778,23 @@ class MapModule {
 
     const row = (k, v) => `<div style="font-size:12px; color:#444;"><span style="font-weight:700;">${this.escapeHtml(k)}:</span> ${this.escapeHtml(v)}</div>`
 
+    const titleBase = name || id || key || 'Mesh node'
+    const hideLabel = assigned ? `${titleBase} (${assigned})` : titleBase
+    const hideBtn = key
+      ? `
+        <button
+          type="button"
+          class="xcomHideFromMapBtn"
+          data-kind="mesh"
+          data-id="${this.escapeHtml(key)}"
+          data-label="${this.escapeHtml(hideLabel)}"
+          style="margin-top:10px; width:100%; padding:8px; border-radius:10px; border:1px solid rgba(0,0,0,0.15); background:rgba(0,0,0,0.06); cursor:pointer; font-size:12px;"
+        >
+          Hide from map
+        </button>
+      `
+      : ''
+
     // Optional: allow assigning this node to a roster unit (for labeling/tracking).
     let assignHtml = ''
     try {
@@ -1624,6 +1853,7 @@ class MapModule {
       ${row('Location', loc)}
       ${row('Last', when)}
       ${assignHtml}
+      ${hideBtn}
     `
   }
 
@@ -1681,6 +1911,18 @@ class MapModule {
     if (!this.map || !globalThis.maplibregl?.Marker) return
     const map = this.map
 
+    const hiddenKeys = new Set()
+    try {
+      for (const it of this.getHiddenItems()) {
+        const kind = String(it?.kind ?? '').trim()
+        if (kind !== 'mesh') continue
+        const key = String(it?.id ?? '').trim()
+        if (key) hiddenKeys.add(key)
+      }
+    } catch (_) {
+      // ignore
+    }
+
     let nodes = []
     try {
       const s = globalThis.xcomMesh?.getState?.()
@@ -1719,6 +1961,7 @@ class MapModule {
 
       const key = this.meshNodeKeyForNode(n)
       if (!key) continue
+      if (hiddenKeys.has(key)) continue
       want.set(key, { node: n, lat, lon })
     }
 

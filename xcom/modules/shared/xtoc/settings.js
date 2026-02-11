@@ -17,6 +17,7 @@ const KEY_TACTICAL_LAYER_IMPORTED_LAST7 = 'xtoc.tacticalMap.layers.imported.last
 const KEY_TACTICAL_LAYER_IMPORTED_TPL_PREFIX = 'xtoc.tacticalMap.layers.imported.tpl.'
 const KEY_TACTICAL_LAYER_MESH_NODES = 'xtoc.tacticalMap.layers.meshNodes'
 const KEY_TACTICAL_TRUSTED_MODE = 'xtoc.tacticalMap.trustedMode'
+const KEY_TACTICAL_HIDDEN_ITEMS = 'xtoc.tacticalMap.hiddenItems.v1'
 
 // OpenMANET (node positions via openmanetd)
 const KEY_OPENMANET_API_BASE_URL = 'xtoc.openmanet.apiBaseUrl'
@@ -220,6 +221,137 @@ function setTacticalMapTrustedModeEnabled(enabled) {
   else localStorage.removeItem(KEY_TACTICAL_TRUSTED_MODE)
 }
 
+// ---- Tactical Map: hidden items ----
+
+const MAX_TACTICAL_HIDDEN_ITEMS = 5000
+
+function tacticalMapHiddenKey(kind, id) {
+  return `${String(kind)}\u0000${String(id)}`
+}
+
+function getTacticalMapHiddenItems() {
+  try {
+    const raw = localStorage.getItem(KEY_TACTICAL_HIDDEN_ITEMS)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+
+    const out = []
+    const seen = new Set()
+    for (const it of parsed) {
+      if (!it || typeof it !== 'object') continue
+      const kind = String(it.kind ?? '').trim()
+      const id = String(it.id ?? '').trim()
+      if (!kind || !id) continue
+      const key = tacticalMapHiddenKey(kind, id)
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      const labelRaw = it.label
+      const label = labelRaw != null ? String(labelRaw).trim() : ''
+
+      const hiddenAtRaw = Number(it.hiddenAt)
+      const hiddenAt = Number.isFinite(hiddenAtRaw) && hiddenAtRaw > 0 ? hiddenAtRaw : undefined
+
+      out.push({ kind, id, label: label || undefined, hiddenAt })
+      if (out.length >= MAX_TACTICAL_HIDDEN_ITEMS) break
+    }
+
+    return out
+  } catch (_) {
+    return []
+  }
+}
+
+function setTacticalMapHiddenItems(items) {
+  const next = []
+  const seen = new Set()
+
+  for (const it of Array.isArray(items) ? items : []) {
+    if (!it || typeof it !== 'object') continue
+    const kind = String(it.kind ?? '').trim()
+    const id = String(it.id ?? '').trim()
+    if (!kind || !id) continue
+    const key = tacticalMapHiddenKey(kind, id)
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    const labelRaw = it.label
+    const label = labelRaw != null ? String(labelRaw).trim() : ''
+
+    const hiddenAtRaw = Number(it.hiddenAt)
+    const hiddenAt = Number.isFinite(hiddenAtRaw) && hiddenAtRaw > 0 ? hiddenAtRaw : undefined
+
+    next.push({ kind, id, label: label || undefined, hiddenAt })
+    if (next.length >= MAX_TACTICAL_HIDDEN_ITEMS) break
+  }
+
+  try {
+    if (!next.length) localStorage.removeItem(KEY_TACTICAL_HIDDEN_ITEMS)
+    else localStorage.setItem(KEY_TACTICAL_HIDDEN_ITEMS, JSON.stringify(next))
+  } catch (_) {
+    // ignore
+  }
+}
+
+function isTacticalMapItemHidden(kind, id) {
+  const k = String(kind ?? '').trim()
+  const i = String(id ?? '').trim()
+  if (!k || !i) return false
+  const key = tacticalMapHiddenKey(k, i)
+  return getTacticalMapHiddenItems().some((x) => tacticalMapHiddenKey(String(x.kind ?? ''), String(x.id ?? '')) === key)
+}
+
+function hideTacticalMapItem(kind, id, label) {
+  const k = String(kind ?? '').trim()
+  const i = String(id ?? '').trim()
+  if (!k || !i) return getTacticalMapHiddenItems()
+
+  const lab = label != null ? String(label).trim() : ''
+  const now = Date.now()
+
+  const key = tacticalMapHiddenKey(k, i)
+  const cur = getTacticalMapHiddenItems()
+  const out = []
+  let found = false
+
+  for (const x of cur) {
+    const xKind = String(x?.kind ?? '').trim()
+    const xId = String(x?.id ?? '').trim()
+    if (!xKind || !xId) continue
+    const xKey = tacticalMapHiddenKey(xKind, xId)
+    if (xKey === key) {
+      found = true
+      out.push({
+        kind: k,
+        id: i,
+        label: lab || x.label,
+        hiddenAt: (typeof x.hiddenAt === 'number' && Number.isFinite(x.hiddenAt) && x.hiddenAt > 0) ? x.hiddenAt : now,
+      })
+    } else {
+      out.push(x)
+    }
+  }
+
+  if (!found) out.unshift({ kind: k, id: i, label: lab || undefined, hiddenAt: now })
+  setTacticalMapHiddenItems(out)
+  return out
+}
+
+function unhideTacticalMapItem(kind, id) {
+  const k = String(kind ?? '').trim()
+  const i = String(id ?? '').trim()
+  if (!k || !i) return getTacticalMapHiddenItems()
+  const key = tacticalMapHiddenKey(k, i)
+  const next = getTacticalMapHiddenItems().filter((x) => tacticalMapHiddenKey(String(x.kind ?? ''), String(x.id ?? '')) !== key)
+  setTacticalMapHiddenItems(next)
+  return next
+}
+
+function clearTacticalMapHiddenItems() {
+  try { localStorage.removeItem(KEY_TACTICAL_HIDDEN_ITEMS) } catch (_) { /* ignore */ }
+}
+
 // OpenMANET
 function getOpenManetApiBaseUrl() {
   return localStorage.getItem(KEY_OPENMANET_API_BASE_URL) || ''
@@ -289,6 +421,13 @@ try {
   globalThis.setTacticalMapImportedLast7dOnly = setTacticalMapImportedLast7dOnly
   globalThis.getTacticalMapTrustedModeEnabled = getTacticalMapTrustedModeEnabled
   globalThis.setTacticalMapTrustedModeEnabled = setTacticalMapTrustedModeEnabled
+  globalThis.tacticalMapHiddenKey = tacticalMapHiddenKey
+  globalThis.getTacticalMapHiddenItems = getTacticalMapHiddenItems
+  globalThis.setTacticalMapHiddenItems = setTacticalMapHiddenItems
+  globalThis.isTacticalMapItemHidden = isTacticalMapItemHidden
+  globalThis.hideTacticalMapItem = hideTacticalMapItem
+  globalThis.unhideTacticalMapItem = unhideTacticalMapItem
+  globalThis.clearTacticalMapHiddenItems = clearTacticalMapHiddenItems
   globalThis.getOpenManetApiBaseUrl = getOpenManetApiBaseUrl
   globalThis.setOpenManetApiBaseUrl = setOpenManetApiBaseUrl
   globalThis.getOpenManetRefreshMs = getOpenManetRefreshMs
