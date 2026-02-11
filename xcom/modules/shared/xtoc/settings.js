@@ -16,6 +16,7 @@ const KEY_TACTICAL_LAYER_IMPORTED = 'xtoc.tacticalMap.layers.imported'
 const KEY_TACTICAL_LAYER_IMPORTED_LAST7 = 'xtoc.tacticalMap.layers.imported.last7d'
 const KEY_TACTICAL_LAYER_IMPORTED_TPL_PREFIX = 'xtoc.tacticalMap.layers.imported.tpl.'
 const KEY_TACTICAL_LAYER_MESH_NODES = 'xtoc.tacticalMap.layers.meshNodes'
+const KEY_TACTICAL_LAYER_HIDDEN = 'xtoc.tacticalMap.layers.hidden'
 const KEY_TACTICAL_TRUSTED_MODE = 'xtoc.tacticalMap.trustedMode'
 const KEY_TACTICAL_HIDDEN_ITEMS = 'xtoc.tacticalMap.hiddenItems.v1'
 
@@ -387,6 +388,14 @@ function setTacticalMapMeshNodesEnabled(enabled) {
   localStorage.setItem(KEY_TACTICAL_LAYER_MESH_NODES, enabled ? '1' : '0')
 }
 
+function getTacticalMapHiddenOverlayEnabled() {
+  return localStorage.getItem(KEY_TACTICAL_LAYER_HIDDEN) === '1'
+}
+
+function setTacticalMapHiddenOverlayEnabled(enabled) {
+  localStorage.setItem(KEY_TACTICAL_LAYER_HIDDEN, enabled ? '1' : '0')
+}
+
 // Per-template toggles for Imported overlay (defaults ON if unset)
 function getTacticalMapImportedTemplateEnabled(templateId) {
   const t = Number(templateId || 0)
@@ -434,6 +443,8 @@ try {
   globalThis.setOpenManetRefreshMs = setOpenManetRefreshMs
   globalThis.getTacticalMapMeshNodesEnabled = getTacticalMapMeshNodesEnabled
   globalThis.setTacticalMapMeshNodesEnabled = setTacticalMapMeshNodesEnabled
+  globalThis.getTacticalMapHiddenOverlayEnabled = getTacticalMapHiddenOverlayEnabled
+  globalThis.setTacticalMapHiddenOverlayEnabled = setTacticalMapHiddenOverlayEnabled
   globalThis.getTacticalMapImportedTemplateEnabled = getTacticalMapImportedTemplateEnabled
   globalThis.setTacticalMapImportedTemplateEnabled = setTacticalMapImportedTemplateEnabled
 } catch (_) {

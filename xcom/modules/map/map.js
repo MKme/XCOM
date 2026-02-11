@@ -64,10 +64,15 @@ class MapModule {
     this._meshUnsub = null
 
     // Hidden marker controls (user "Hide from map")
+    this._showHiddenEnabled = false
     this._hiddenLegendEl = null
     this._hiddenListEl = null
     this._hiddenShowAllBtn = null
     this._hiddenHandlersBound = false
+    this._hiddenImportedMarkerById = new Map()
+    this._hiddenImportedMarkerFeatureById = new Map()
+    this._hiddenMeshMarkerByKey = new Map()
+    this._hiddenMeshPopupByKey = new Map()
 
     // OpenMANET nodes (via openmanetd; fetched over LAN/MANET)
     this._openmanetNodes = []
@@ -210,12 +215,9 @@ class MapModule {
               <div class="mapSmallMuted" id="mapOpenmanetStatus" style="margin-top:6px;"></div>
             </div>
             <div class="mapRow" style="margin-top: 12px;">
-              <label>Hidden from map</label>
+              <label class="mapInline"><input id="mapShowHidden" type="checkbox" /> Hidden</label>
+              <div class="mapSmallMuted">When enabled, plots items you previously hid. Click a hidden marker and choose “Unhide” to restore it.</div>
               <div class="mapSmallMuted" id="mapHiddenLegend"></div>
-              <div class="mapHiddenList" id="mapHiddenList"></div>
-              <div class="mapButtonRow" style="margin-top: 8px;">
-                <button id="mapHiddenShowAllBtn" type="button">Show all hidden</button>
-              </div>
             </div>
           </div>
 
@@ -265,12 +267,9 @@ class MapModule {
     const openmanetRefreshEl = document.getElementById('mapOpenmanetRefreshMs')
     const openmanetStatusEl = document.getElementById('mapOpenmanetStatus')
     this._openmanetStatusEl = openmanetStatusEl
+    const showHiddenEl = document.getElementById('mapShowHidden')
     const hiddenLegendEl = document.getElementById('mapHiddenLegend')
-    const hiddenListEl = document.getElementById('mapHiddenList')
-    const hiddenShowAllBtn = document.getElementById('mapHiddenShowAllBtn')
     this._hiddenLegendEl = hiddenLegendEl
-    this._hiddenListEl = hiddenListEl
-    this._hiddenShowAllBtn = hiddenShowAllBtn
 
     // Base-style-dependent UI (Topographic vs user-configured raster template)
     const rasterRowEl = document.getElementById('mapRasterRow')
@@ -368,6 +367,14 @@ class MapModule {
     }
 
     try {
+      if (showHiddenEl) showHiddenEl.checked = globalThis.getTacticalMapHiddenOverlayEnabled ? globalThis.getTacticalMapHiddenOverlayEnabled() : false
+      this._showHiddenEnabled = !!showHiddenEl?.checked
+    } catch (_) {
+      if (showHiddenEl) showHiddenEl.checked = false
+      this._showHiddenEnabled = false
+    }
+
+    try {
       if (meshNodesEl) meshNodesEl.checked = globalThis.getTacticalMapMeshNodesEnabled ? globalThis.getTacticalMapMeshNodesEnabled() : true
       this._meshNodesEnabled = !!meshNodesEl?.checked
     } catch (_) {
@@ -447,6 +454,7 @@ class MapModule {
           globalThis.setTacticalMapImportedTemplateEnabled && globalThis.setTacticalMapImportedTemplateEnabled(t, v)
         } catch (_) {}
         this.syncImportedOverlay()
+        try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
       })
     }
 
@@ -470,6 +478,7 @@ class MapModule {
       } catch (_) {}
       setImportedUiDisabled(!v)
       this.syncImportedOverlay()
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
     })
 
     importedLast7El?.addEventListener('change', () => {
@@ -479,6 +488,7 @@ class MapModule {
         globalThis.setTacticalMapImportedLast7dOnly && globalThis.setTacticalMapImportedLast7dOnly(v)
       } catch (_) {}
       this.syncImportedOverlay()
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
     })
 
     trustedModeEl?.addEventListener('change', () => {
@@ -488,6 +498,16 @@ class MapModule {
         globalThis.setTacticalMapTrustedModeEnabled && globalThis.setTacticalMapTrustedModeEnabled(v)
       } catch (_) {}
       this.syncImportedOverlay()
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
+    })
+
+    showHiddenEl?.addEventListener('change', () => {
+      const v = !!showHiddenEl.checked
+      this._showHiddenEnabled = v
+      try {
+        globalThis.setTacticalMapHiddenOverlayEnabled && globalThis.setTacticalMapHiddenOverlayEnabled(v)
+      } catch (_) {}
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
     })
 
     meshNodesEl?.addEventListener('change', () => {
@@ -497,15 +517,7 @@ class MapModule {
         globalThis.setTacticalMapMeshNodesEnabled && globalThis.setTacticalMapMeshNodesEnabled(v)
       } catch (_) {}
       this.syncMeshNodesOverlay()
-    })
-
-    hiddenShowAllBtn?.addEventListener('click', () => {
-      try {
-        globalThis.clearTacticalMapHiddenItems && globalThis.clearTacticalMapHiddenItems()
-      } catch (_) {}
-      try { this.updateHiddenUi() } catch (_) { /* ignore */ }
-      try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
-      try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
     })
 
     try { this.bindHiddenHandlers() } catch (_) { /* ignore */ }
@@ -562,6 +574,7 @@ class MapModule {
       try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
       try { this.ensureMeshNodesOverlay() } catch (_) { /* ignore */ }
       try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
     })
 
     // Track AO by view; save view to localStorage with a small debounce.
@@ -671,6 +684,7 @@ class MapModule {
           try { this.ensureImportedOverlayLayers() } catch (_) { /* ignore */ }
           try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
           try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+          try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
         })
       } catch (_) {
         // ignore
@@ -979,17 +993,31 @@ class MapModule {
 
     const hideId = String(markerId || '').trim()
     const hideLabel = summary || (tpl ? `Imported T=${String(tpl)}` : 'Imported')
-    const hideBtn = hideId
+    const isHidden = (() => {
+      if (!hideId) return false
+      try {
+        if (typeof globalThis.isTacticalMapItemHidden === 'function') return !!globalThis.isTacticalMapItemHidden('imported', hideId)
+      } catch (_) {
+        // ignore
+      }
+      try {
+        return this.getHiddenItems().some((x) => String(x?.kind ?? '').trim() === 'imported' && String(x?.id ?? '').trim() === hideId)
+      } catch (_) {
+        return false
+      }
+    })()
+
+    const actionBtn = hideId
       ? `
         <button
           type="button"
-          class="xcomHideFromMapBtn"
+          class="${isHidden ? 'xcomUnhideFromMapBtn' : 'xcomHideFromMapBtn'}"
           data-kind="imported"
           data-id="${this.escapeHtml(hideId)}"
           data-label="${this.escapeHtml(hideLabel)}"
           style="margin-top:10px; width:100%; padding:8px; border-radius:10px; border:1px solid rgba(0,0,0,0.15); background:rgba(0,0,0,0.06); cursor:pointer; font-size:12px;"
         >
-          Hide from map
+          ${isHidden ? 'Unhide' : 'Hide from map'}
         </button>
       `
       : ''
@@ -1001,7 +1029,7 @@ class MapModule {
         ${tpl ? `T=${this.escapeHtml(String(tpl))} ` : ''}${mode ? `${this.escapeHtml(mode)} ` : ''}${id ? `ID ${this.escapeHtml(id)}` : ''}${kid ? this.escapeHtml(kid) : ''}
       </div>
       <div style="font-size:12px; color:#444;">${this.escapeHtml(when)}</div>
-      ${hideBtn}
+      ${actionBtn}
     `
   }
 
@@ -1203,9 +1231,11 @@ class MapModule {
       try { if (globalThis.__xcomMapCleanup) globalThis.__xcomMapCleanup() } catch (_) { /* ignore */ }
       const onImportedUpdated = () => {
         try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
+        try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
       }
       const onRosterUpdated = () => {
         try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
+        try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
       }
       try { globalThis.addEventListener('xcomImportedPacketsUpdated', onImportedUpdated) } catch (_) { /* ignore */ }
       try { globalThis.addEventListener('xcomTeamRosterUpdated', onRosterUpdated) } catch (_) { /* ignore */ }
@@ -1428,10 +1458,12 @@ class MapModule {
 
     if (k === 'imported') {
       try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
       return
     }
     if (k === 'mesh') {
       try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
     }
   }
 
@@ -1450,77 +1482,23 @@ class MapModule {
 
     if (k === 'imported') {
       try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
       return
     }
     if (k === 'mesh') {
       try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
     }
   }
 
   updateHiddenUi() {
     const legendEl = this._hiddenLegendEl
-    const listEl = this._hiddenListEl
-    const showAllBtn = this._hiddenShowAllBtn
-    if (!legendEl || !listEl) return
+    if (!legendEl) return
 
     const items = this.getHiddenItems()
     const count = items.length
 
     legendEl.textContent = count ? `${count} item(s) hidden` : 'None.'
-    try { if (showAllBtn) showAllBtn.style.display = count ? '' : 'none' } catch (_) { /* ignore */ }
-
-    // Clear list
-    try {
-      while (listEl.firstChild) listEl.removeChild(listEl.firstChild)
-    } catch (_) {
-      // ignore
-    }
-
-    if (!count) return
-
-    const max = 12
-    const shown = items.slice(0, max)
-
-    for (const it of shown) {
-      const k = String(it?.kind ?? '').trim()
-      const i = String(it?.id ?? '').trim()
-      if (!k || !i) continue
-      const label = String(it?.label ?? '').trim()
-      const text = label || `${k}: ${i}`
-
-      const row = document.createElement('div')
-      row.className = 'mapHiddenItem'
-
-      const labelEl = document.createElement('div')
-      labelEl.className = 'mapHiddenLabel'
-      labelEl.textContent = text
-      labelEl.title = text
-      row.appendChild(labelEl)
-
-      const btn = document.createElement('button')
-      btn.type = 'button'
-      btn.className = 'mapHiddenShowBtn'
-      btn.textContent = 'Show'
-      btn.addEventListener('click', (e) => {
-        try {
-          e.preventDefault()
-          e.stopPropagation()
-        } catch (_) {
-          // ignore
-        }
-        this.unhideMapItem(k, i)
-      })
-      row.appendChild(btn)
-
-      listEl.appendChild(row)
-    }
-
-    if (count > max) {
-      const more = document.createElement('div')
-      more.className = 'mapSmallMuted'
-      more.textContent = `+ ${count - max} more...`
-      listEl.appendChild(more)
-    }
   }
 
   bindHiddenHandlers() {
@@ -1532,7 +1510,9 @@ class MapModule {
     const onDocClick = (e) => {
       try {
         const t = e?.target
-        const btn = t && typeof t.closest === 'function' ? t.closest('.xcomHideFromMapBtn') : null
+        const hideBtn = t && typeof t.closest === 'function' ? t.closest('.xcomHideFromMapBtn') : null
+        const unhideBtn = !hideBtn && t && typeof t.closest === 'function' ? t.closest('.xcomUnhideFromMapBtn') : null
+        const btn = hideBtn || unhideBtn
         if (!btn) return
 
         e.preventDefault()
@@ -1540,8 +1520,15 @@ class MapModule {
 
         const kind = String(btn.dataset?.kind || '').trim()
         const id = String(btn.dataset?.id || '').trim()
-        const label = String(btn.dataset?.label || '').trim()
-        this.hideMapItem(kind, id, label)
+        if (hideBtn) {
+          const label = String(btn.dataset?.label || '').trim()
+          this.hideMapItem(kind, id, label)
+          return
+        }
+
+        // Unhide
+        try { if (this._importedPopup) this._importedPopup.remove() } catch (_) { /* ignore */ }
+        this.unhideMapItem(kind, id)
       } catch (_) {
         // ignore
       }
@@ -1600,6 +1587,7 @@ class MapModule {
       this._openmanetNodes = []
       this.openmanetSetStatus('')
       try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
       try { this.updateMeshLegend() } catch (_) { /* ignore */ }
       return
     }
@@ -1698,6 +1686,7 @@ class MapModule {
         this._openmanetNodes = nodes
         this.openmanetSetStatus(`OK • ${nodes.length} node(s)`)
         try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+        try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
         try { this.updateMeshLegend() } catch (_) { /* ignore */ }
       } catch (e) {
         if (String(e?.name) === 'AbortError') return
@@ -1780,17 +1769,31 @@ class MapModule {
 
     const titleBase = name || id || key || 'Mesh node'
     const hideLabel = assigned ? `${titleBase} (${assigned})` : titleBase
-    const hideBtn = key
+    const isHidden = (() => {
+      if (!key) return false
+      try {
+        if (typeof globalThis.isTacticalMapItemHidden === 'function') return !!globalThis.isTacticalMapItemHidden('mesh', key)
+      } catch (_) {
+        // ignore
+      }
+      try {
+        return this.getHiddenItems().some((x) => String(x?.kind ?? '').trim() === 'mesh' && String(x?.id ?? '').trim() === key)
+      } catch (_) {
+        return false
+      }
+    })()
+
+    const actionBtn = key
       ? `
         <button
           type="button"
-          class="xcomHideFromMapBtn"
+          class="${isHidden ? 'xcomUnhideFromMapBtn' : 'xcomHideFromMapBtn'}"
           data-kind="mesh"
           data-id="${this.escapeHtml(key)}"
           data-label="${this.escapeHtml(hideLabel)}"
           style="margin-top:10px; width:100%; padding:8px; border-radius:10px; border:1px solid rgba(0,0,0,0.15); background:rgba(0,0,0,0.06); cursor:pointer; font-size:12px;"
         >
-          Hide from map
+          ${isHidden ? 'Unhide' : 'Hide from map'}
         </button>
       `
       : ''
@@ -1853,7 +1856,7 @@ class MapModule {
       ${row('Location', loc)}
       ${row('Last', when)}
       ${assignHtml}
-      ${hideBtn}
+      ${actionBtn}
     `
   }
 
@@ -1865,6 +1868,7 @@ class MapModule {
 
     const onRosterUpdated = () => {
       try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+      try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
     }
     try { globalThis.addEventListener('xcomTeamRosterUpdated', onRosterUpdated) } catch (_) { /* ignore */ }
 
@@ -1888,6 +1892,7 @@ class MapModule {
       if (globalThis.xcomMesh && typeof globalThis.xcomMesh.subscribe === 'function') {
         unsub = globalThis.xcomMesh.subscribe(() => {
           try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+          try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
         })
       }
     } catch (_) {
@@ -2016,6 +2021,286 @@ class MapModule {
     }
 
     try { this.updateMeshLegend() } catch (_) { /* ignore */ }
+  }
+
+  clearHiddenImportedMarkers() {
+    try {
+      for (const m of this._hiddenImportedMarkerById?.values?.() || []) {
+        try { m.remove() } catch (_) { /* ignore */ }
+      }
+    } catch (_) {
+      // ignore
+    }
+    try { this._hiddenImportedMarkerById?.clear?.() } catch (_) { /* ignore */ }
+    try { this._hiddenImportedMarkerFeatureById?.clear?.() } catch (_) { /* ignore */ }
+  }
+
+  clearHiddenMeshMarkers() {
+    try {
+      for (const m of this._hiddenMeshMarkerByKey?.values?.() || []) {
+        try { m.remove() } catch (_) { /* ignore */ }
+      }
+    } catch (_) {
+      // ignore
+    }
+    try { this._hiddenMeshMarkerByKey?.clear?.() } catch (_) { /* ignore */ }
+    try { this._hiddenMeshPopupByKey?.clear?.() } catch (_) { /* ignore */ }
+  }
+
+  syncHiddenOverlay() {
+    if (!this.map) return
+
+    if (!this._showHiddenEnabled) {
+      try { this.clearHiddenImportedMarkers() } catch (_) { /* ignore */ }
+      try { this.clearHiddenMeshMarkers() } catch (_) { /* ignore */ }
+      return
+    }
+
+    try { this.syncHiddenImportedOverlay() } catch (_) { /* ignore */ }
+    try { this.syncHiddenMeshNodesOverlay() } catch (_) { /* ignore */ }
+  }
+
+  syncHiddenImportedOverlay() {
+    if (!this.map || !globalThis.maplibregl?.Marker) return
+
+    const hiddenIds = new Set()
+    try {
+      for (const it of this.getHiddenItems()) {
+        const kind = String(it?.kind ?? '').trim()
+        if (kind !== 'imported') continue
+        const id = String(it?.id ?? '').trim()
+        if (id) hiddenIds.add(id)
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    if (!hiddenIds.size) {
+      try { this.clearHiddenImportedMarkers() } catch (_) { /* ignore */ }
+      return
+    }
+
+    const allFeatures = this.getImportedOverlayFeatures()
+
+    const pointFeatures = allFeatures.filter((f) => {
+      try { return f?.geometry?.type === 'Point' } catch (_) { return false }
+    })
+
+    try { this.syncHiddenImportedMarkers(pointFeatures, hiddenIds) } catch (_) { /* ignore */ }
+  }
+
+  syncHiddenImportedMarkers(pointFeatures, hiddenIds) {
+    if (!this.map || !globalThis.maplibregl?.Marker) return
+    const map = this.map
+
+    const rosterLabelByUnitId = this.getRosterSafeLabelByUnitId()
+    const staleCutoff = Date.now() - (7 * 24 * 60 * 60 * 1000)
+    const want = new Map()
+
+    for (const f of Array.isArray(pointFeatures) ? pointFeatures : []) {
+      const g = f?.geometry
+      if (!g || g.type !== 'Point' || !Array.isArray(g.coordinates)) continue
+      const coords = g.coordinates
+      const lon = Number(coords?.[0])
+      const lat = Number(coords?.[1])
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
+
+      const p = f?.properties || {}
+      const templateId = Number(p?.templateId || 0)
+      // XTOC parity: Zones (templateId=7) are not point markers.
+      if (templateId === 7) continue
+
+      const id = (f.id != null) ? String(f.id) : `imported:${String(p?.packetId || '')}:${String(p?.mode || '')}:${String(templateId)}:${String(p?.kid ?? '')}:${lon.toFixed(6)},${lat.toFixed(6)}`
+      if (!hiddenIds.has(id)) continue
+      want.set(id, { feature: f, lon, lat, templateId })
+    }
+
+    // Remove markers that no longer exist
+    for (const [id, m] of this._hiddenImportedMarkerById.entries()) {
+      if (!want.has(id)) {
+        try { m.remove() } catch (_) { /* ignore */ }
+        this._hiddenImportedMarkerById.delete(id)
+        this._hiddenImportedMarkerFeatureById.delete(id)
+      }
+    }
+
+    for (const [id, item] of want.entries()) {
+      const { feature: f, lon, lat, templateId } = item
+      const ts = this.importedTimestampMs(f?.properties)
+      const isStale = (ts > 0 && ts < staleCutoff)
+      const iconKind = this.importedMarkerIconKind(templateId)
+
+      let marker = this._hiddenImportedMarkerById.get(id) || null
+      if (!marker) {
+        const el = document.createElement('div')
+        el.dataset.xcomImportedId = id
+        el.dataset.xcomImportedIconKind = iconKind
+        this.setImportedMarkerClasses(el, templateId, isStale)
+        try { el.classList.add('xcomMapMarker--hidden') } catch (_) { /* ignore */ }
+        el.appendChild(this.createMarkerIconSvg(iconKind))
+
+        // Helpful hover text.
+        try {
+          const summary = this.withRosterLabels(String(f?.properties?.summary || '').trim())
+          el.title = summary || `Imported T=${String(templateId || '')}`
+        } catch (_) {
+          // ignore
+        }
+
+        try { this.syncImportedTeamMarkerBadge(el, f, rosterLabelByUnitId) } catch (_) { /* ignore */ }
+
+        el.addEventListener('click', (e) => {
+          try {
+            e.preventDefault()
+            e.stopPropagation()
+          } catch (_) {
+            // ignore
+          }
+          const markerId = el.dataset.xcomImportedId
+          if (!markerId) return
+          const feat = this._hiddenImportedMarkerFeatureById.get(markerId)
+          const mk = this._hiddenImportedMarkerById.get(markerId)
+          const ll = mk && typeof mk.getLngLat === 'function' ? mk.getLngLat() : null
+          if (feat && ll) this.openImportedPopup(ll, feat, markerId)
+        })
+
+        marker = new globalThis.maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([lon, lat])
+          .addTo(map)
+        this._hiddenImportedMarkerById.set(id, marker)
+      } else {
+        try { marker.setLngLat([lon, lat]) } catch (_) { /* ignore */ }
+        const el = marker.getElement ? marker.getElement() : null
+        if (el) {
+          this.setImportedMarkerClasses(el, templateId, isStale)
+          try { el.classList.add('xcomMapMarker--hidden') } catch (_) { /* ignore */ }
+
+          const prevKind = String(el.dataset?.xcomImportedIconKind || '')
+          if (prevKind !== iconKind) {
+            try { el.dataset.xcomImportedIconKind = iconKind } catch (_) { /* ignore */ }
+            try {
+              while (el.firstChild) el.removeChild(el.firstChild)
+              el.appendChild(this.createMarkerIconSvg(iconKind))
+            } catch (_) {
+              // ignore
+            }
+          }
+
+          try {
+            const summary = this.withRosterLabels(String(f?.properties?.summary || '').trim())
+            el.title = summary || `Imported T=${String(templateId || '')}`
+          } catch (_) {
+            // ignore
+          }
+
+          try { this.syncImportedTeamMarkerBadge(el, f, rosterLabelByUnitId) } catch (_) { /* ignore */ }
+        }
+      }
+
+      this._hiddenImportedMarkerFeatureById.set(id, f)
+    }
+  }
+
+  syncHiddenMeshNodesOverlay() {
+    if (!this.map || !globalThis.maplibregl?.Marker) return
+    const map = this.map
+
+    const hiddenKeys = new Set()
+    try {
+      for (const it of this.getHiddenItems()) {
+        const kind = String(it?.kind ?? '').trim()
+        if (kind !== 'mesh') continue
+        const key = String(it?.id ?? '').trim()
+        if (key) hiddenKeys.add(key)
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    if (!hiddenKeys.size) {
+      try { this.clearHiddenMeshMarkers() } catch (_) { /* ignore */ }
+      return
+    }
+
+    let nodes = []
+    try {
+      const s = globalThis.xcomMesh?.getState?.()
+      nodes = Array.isArray(s?.nodes) ? s.nodes : (globalThis.meshGetNodes ? globalThis.meshGetNodes() : [])
+    } catch (_) {
+      nodes = []
+    }
+
+    try {
+      const openmanet = Array.isArray(this._openmanetNodes) ? this._openmanetNodes : []
+      if (openmanet.length) nodes = [...(Array.isArray(nodes) ? nodes : []), ...openmanet]
+    } catch (_) {
+      // ignore
+    }
+
+    const assignedByKey = this.meshAssignedLabelByNodeKey()
+    const want = new Map()
+
+    for (const n of Array.isArray(nodes) ? nodes : []) {
+      const pos = n?.position
+      const lat = Number(pos?.lat)
+      const lon = Number(pos?.lon)
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
+
+      const key = this.meshNodeKeyForNode(n)
+      if (!key) continue
+      if (!hiddenKeys.has(key)) continue
+      want.set(key, { node: n, lat, lon })
+    }
+
+    // Remove markers that no longer exist
+    for (const [key, m] of this._hiddenMeshMarkerByKey.entries()) {
+      if (!want.has(key)) {
+        try { m.remove() } catch (_) { /* ignore */ }
+        this._hiddenMeshMarkerByKey.delete(key)
+        this._hiddenMeshPopupByKey.delete(key)
+      }
+    }
+
+    // Add/update
+    for (const [key, item] of want.entries()) {
+      const n = item.node
+      const assigned = assignedByKey.get(key) || ''
+      const titleBase = String(n?.shortName || n?.longName || '').trim() || key
+      const title = assigned ? `${titleBase}\n${assigned}` : titleBase
+      const html = this.meshNodePopupHtml(n, assigned, key)
+
+      let marker = this._hiddenMeshMarkerByKey.get(key) || null
+      if (!marker) {
+        const el = document.createElement('div')
+        el.className = 'xcomMapMarker xcomMapMarker--mesh xcomMapMarker--hidden'
+        el.title = title
+        el.appendChild(this.createMarkerIconSvg('mesh'))
+
+        marker = new globalThis.maplibregl.Marker({ element: el }).setLngLat([item.lon, item.lat]).addTo(map)
+        this._hiddenMeshMarkerByKey.set(key, marker)
+      } else {
+        try { marker.setLngLat([item.lon, item.lat]) } catch (_) { /* ignore */ }
+        try {
+          const el = marker.getElement ? marker.getElement() : null
+          if (el) el.title = title
+        } catch (_) { /* ignore */ }
+      }
+
+      // Popup (best-effort)
+      try {
+        if (globalThis.maplibregl?.Popup) {
+          let popup = this._hiddenMeshPopupByKey.get(key) || null
+          if (!popup) {
+            popup = new globalThis.maplibregl.Popup({ closeButton: true, closeOnClick: true })
+            this._hiddenMeshPopupByKey.set(key, popup)
+          }
+          popup.setHTML(html)
+          marker.setPopup(popup)
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
   }
 
   applyOfflineDarkFilter() {

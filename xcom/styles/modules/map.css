@@ -234,6 +234,12 @@
   text-shadow: 0 1px 1px rgba(255, 255, 255, 0.75);
 }
 
+.xcomMapMarker--hidden {
+  opacity: 0.55;
+  filter: grayscale(1) saturate(0.3);
+  border-style: dashed;
+}
+
 .xcomMapMarker--stale {
   opacity: 0.35;
   filter: grayscale(1) saturate(0.35);
