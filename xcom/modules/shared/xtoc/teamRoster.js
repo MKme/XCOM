@@ -169,6 +169,48 @@ function formatUnitWithLabel(unitId, label) {
   return `${unit} (${trimmed})`
 }
 
+function cleanBadgeToken(t) {
+  // Strip leading/trailing punctuation but keep internal hyphens (e.g. "D-0").
+  return String(t ?? '').replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '')
+}
+
+function isUnitToken(t) {
+  return /^U\d+$/i.test(t)
+}
+
+function isTacticalCallsignToken(t) {
+  // Prefer short tactical callsigns like D0, D-0, D10, D-10.
+  // Explicitly ignore U## tokens.
+  return /^[A-Za-z]+-?\d+$/.test(t) && !isUnitToken(t)
+}
+
+function badgeTextFromLabel(label) {
+  const raw = String(label ?? '').trim()
+  if (!raw) return 'U'
+
+  const parts = raw.split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return 'U'
+
+  const tokens = parts.map(cleanBadgeToken).filter(Boolean)
+
+  // Prefer a tactical callsign token anywhere in the label (e.g. "ASG D-0 [LORD]").
+  for (const t of tokens) {
+    if (isTacticalCallsignToken(t)) return t.toUpperCase()
+  }
+
+  // Otherwise, if a unit token exists, use it (e.g. "U12").
+  for (const t of tokens) {
+    if (isUnitToken(t)) return t.toUpperCase()
+  }
+
+  // Fallback: classic "initials" behavior.
+  const a = (parts[0] && parts[0][0]) ? parts[0][0] : 'U'
+  const b = parts.length > 1
+    ? (parts[parts.length - 1] ? parts[parts.length - 1][0] : '')
+    : (parts[0] && parts[0][1] ? parts[0][1] : '')
+  return (a + (b || '')).toUpperCase()
+}
+
 function buildSafeLabelByUnitId() {
   const map = new Map()
   for (const m of listRosterMembers()) {
@@ -254,6 +296,7 @@ try {
   globalThis.xcomFormatUnitWithLabel = formatUnitWithLabel
   globalThis.xcomWithRosterLabels = withRosterLabels
   globalThis.xcomSetMeshNodeAssignment = setMeshNodeAssignment
+  globalThis.xcomBadgeTextFromLabel = badgeTextFromLabel
 } catch (_) {
   // ignore
 }

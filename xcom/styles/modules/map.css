@@ -171,12 +171,28 @@
   height: 22px;
   border-radius: 999px;
   background: #ffffff;
+  position: relative;
 }
 
 .xcomMapMarker--team svg {
   width: 16px;
   height: 16px;
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55));
+  opacity: 0.75;
+}
+
+.xcomMapMarkerText {
+  pointer-events: none;
+  user-select: none;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.75);
 }
 
 .xcomMapMarker--stale {

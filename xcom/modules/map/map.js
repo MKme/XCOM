@@ -689,6 +689,88 @@ class MapModule {
     return s
   }
 
+  extractFirstUnitId(text) {
+    const t = String(text ?? '')
+    if (!t) return null
+    const m = t.match(/\bU(\d+)\b/)
+    if (!m) return null
+    const n = Number(m[1])
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+
+  getRosterSafeLabelByUnitId() {
+    const out = new Map()
+    try {
+      const roster = (typeof globalThis.xcomGetTeamRoster === 'function') ? globalThis.xcomGetTeamRoster() : null
+      const members = Array.isArray(roster?.members) ? roster.members : []
+      for (const m of members) {
+        const unitId = Number(m?.unitId)
+        if (!Number.isFinite(unitId) || unitId <= 0) continue
+        const label = String(m?.label ?? '').trim()
+        const call = String(m?.hamCallsign ?? '').trim()
+        out.set(unitId, label || call || `U${unitId}`)
+      }
+    } catch (_) {
+      // ignore
+    }
+    return out
+  }
+
+  syncImportedTeamMarkerBadge(el, feature, rosterLabelByUnitId) {
+    if (!el) return
+
+    let templateId = 0
+    let summary = ''
+    try {
+      templateId = Number(feature?.properties?.templateId || 0) || 0
+      summary = String(feature?.properties?.summary || '').trim()
+    } catch (_) {
+      templateId = 0
+      summary = ''
+    }
+
+    const existing = el.querySelector ? el.querySelector('.xcomMapMarkerText') : null
+
+    if (templateId !== 4) {
+      try { if (existing) existing.remove() } catch (_) { /* ignore */ }
+      return
+    }
+
+    const unitId = this.extractFirstUnitId(summary)
+    const label = unitId != null
+      ? (rosterLabelByUnitId?.get?.(unitId) || `U${unitId}`)
+      : ''
+
+    let badge = ''
+    try {
+      if (label && typeof globalThis.xcomBadgeTextFromLabel === 'function') badge = globalThis.xcomBadgeTextFromLabel(label)
+    } catch (_) {
+      badge = ''
+    }
+
+    if (!badge && label) badge = String(label).trim().slice(0, 3).toUpperCase()
+    badge = String(badge || '').trim()
+
+    if (!badge) {
+      try { if (existing) existing.remove() } catch (_) { /* ignore */ }
+      return
+    }
+
+    if (existing) {
+      try { existing.textContent = badge } catch (_) { /* ignore */ }
+      return
+    }
+
+    try {
+      const badgeEl = document.createElement('span')
+      badgeEl.className = 'xcomMapMarkerText'
+      badgeEl.textContent = badge
+      el.appendChild(badgeEl)
+    } catch (_) {
+      // ignore
+    }
+  }
+
   importedTemplateEnabled(templateId) {
     const t = Number(templateId || 0)
     if (!Number.isFinite(t) || t <= 0) return true
@@ -905,6 +987,7 @@ class MapModule {
     if (!this.map || !globalThis.maplibregl?.Marker) return
     const map = this.map
 
+    const rosterLabelByUnitId = this.getRosterSafeLabelByUnitId()
     const staleCutoff = Date.now() - (7 * 24 * 60 * 60 * 1000)
     const want = new Map()
 
@@ -956,6 +1039,8 @@ class MapModule {
           // ignore
         }
 
+        try { this.syncImportedTeamMarkerBadge(el, f, rosterLabelByUnitId) } catch (_) { /* ignore */ }
+
         el.addEventListener('click', (e) => {
           try {
             e.preventDefault()
@@ -998,6 +1083,8 @@ class MapModule {
           } catch (_) {
             // ignore
           }
+
+          try { this.syncImportedTeamMarkerBadge(el, f, rosterLabelByUnitId) } catch (_) { /* ignore */ }
         }
       }
 
@@ -1055,9 +1142,14 @@ class MapModule {
       const onImportedUpdated = () => {
         try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
       }
+      const onRosterUpdated = () => {
+        try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
+      }
       try { globalThis.addEventListener('xcomImportedPacketsUpdated', onImportedUpdated) } catch (_) { /* ignore */ }
+      try { globalThis.addEventListener('xcomTeamRosterUpdated', onRosterUpdated) } catch (_) { /* ignore */ }
       globalThis.__xcomMapCleanup = () => {
         try { globalThis.removeEventListener('xcomImportedPacketsUpdated', onImportedUpdated) } catch (_) { /* ignore */ }
+        try { globalThis.removeEventListener('xcomTeamRosterUpdated', onRosterUpdated) } catch (_) { /* ignore */ }
       }
     }
 
