@@ -538,6 +538,7 @@ class RadioApp {
                     'modules/shared/xtoc/maplibre.js',
                     // Module
                     'modules/repeater-map/repeater-data.js',
+                    'modules/repeater-map/repeater-data-legacy.js',
                     'modules/repeater-map/repeater-map.js'
                 ],
                 styles: ['styles/modules/repeater-map.css'],
@@ -1515,9 +1516,24 @@ class RadioApp {
 
         // Expose a tiny global hint so shared helpers (MapLibre style builder) can
         // avoid long hangs on remote resources when offline / LAN-only.
+        let prevOk;
+        try { prevOk = globalThis.XCOM_HAS_INTERNET; } catch (_) { /* ignore */ }
         try {
             globalThis.XCOM_ONLINE = online;
             globalThis.XCOM_HAS_INTERNET = ok;
+        } catch (_) {
+            // ignore
+        }
+
+        // Notify modules when reachability changes. Some map modules start with an offline
+        // fallback style (until the probe runs) and need to re-apply their base style to
+        // upgrade back to the chosen online vector basemap.
+        try {
+            if (prevOk !== ok) {
+                globalThis.dispatchEvent(new CustomEvent('xcomConnectivityUpdated', {
+                    detail: { online, hasInternet, ok, prevOk }
+                }));
+            }
         } catch (_) {
             // ignore
         }

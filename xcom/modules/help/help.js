@@ -314,6 +314,15 @@ class HelpModule {
                         <li><strong>Friendly labels:</strong> popups use team roster labels when available (import via <strong>Import Team</strong> or <strong>Scan Team QR</strong>).</li>
                         <li><strong>Packet archive:</strong> all packets (including non-location) are stored in <strong>XTOC Data</strong>; geo packets can be imported to the map from there too.</li>
                     </ul>
+
+                    <h3>Mesh nodes overlay (Meshtastic / MeshCore / OpenMANET)</h3>
+                    <ul>
+                        <li><strong>Enable:</strong> open <strong>Map</strong> &rarr; <strong>Overlays</strong> and toggle <strong>Mesh nodes</strong>.</li>
+                        <li><strong>Meshtastic/MeshCore:</strong> plots the latest GPS packets seen in Mesh traffic/imports as map markers.</li>
+                        <li><strong>OpenMANET:</strong> set <strong>OpenMANET API URL</strong> (example <code>http://10.0.0.1:8087</code>) and <strong>OpenMANET refresh (ms)</strong> to poll node positions.</li>
+                        <li><strong>Assign to roster:</strong> click a node marker and pick a Team member in the popup (requires a roster import via <strong>Import Team</strong>, <strong>Scan Team QR</strong>, or an XTOC backup import).</li>
+                        <li><strong>CORS tip:</strong> if the browser blocks OpenMANET polling, connect to the XTOC MANET bridge; XCOM will proxy OpenMANET requests through the bridge.</li>
+                    </ul>
                 </div>
 
                 <div class="help-section">
@@ -578,7 +587,7 @@ class HelpModule {
                 
                 <div class="help-section">
                     <h2>About</h2>
-                    <p>XCOM™ v1.0.29</p>
+                    <p>XCOM™ v1.0.31</p>
                     <p>&copy; 2025 - All rights reserved</p>
                     <p>This application is designed for amateur radio operators to assist with various radio-related tasks. It is continually being improved with new features and modules.</p>
 

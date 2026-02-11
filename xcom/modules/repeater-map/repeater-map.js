@@ -433,12 +433,18 @@ class RepeaterMap {
         
         // Clear existing markers list (MapLibre uses a single geojson source)
         this.repeaterMarkers = [];
+
+        // Prefer the merged dataset (ARD + legacy supplement) when available.
+        const dataset = Array.isArray(window.repeaterData)
+            ? window.repeaterData
+            : (typeof repeaterData !== 'undefined' ? repeaterData : []);
         
         // Get repeaters in radius
         let repeaters = getRepeatersInRadius(
             this.userLocation.lat,
             this.userLocation.lng,
-            this.currentRadius
+            this.currentRadius,
+            dataset
         );
         
         // Apply filters

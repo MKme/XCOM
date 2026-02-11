@@ -512,7 +512,9 @@ body.xGateOpen {
     min-width: 0;
     min-height: 0;
     padding: 14px;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
 }
 
 /* The module container is a neutral frame; modules can bring their own panels. */

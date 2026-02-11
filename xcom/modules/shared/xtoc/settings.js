@@ -16,6 +16,10 @@ const KEY_TACTICAL_LAYER_IMPORTED_TPL_PREFIX = 'xtoc.tacticalMap.layers.imported
 const KEY_TACTICAL_LAYER_MESH_NODES = 'xtoc.tacticalMap.layers.meshNodes'
 const KEY_TACTICAL_TRUSTED_MODE = 'xtoc.tacticalMap.trustedMode'
 
+// OpenMANET (node positions via openmanetd)
+const KEY_OPENMANET_API_BASE_URL = 'xtoc.openmanet.apiBaseUrl'
+const KEY_OPENMANET_REFRESH_MS = 'xtoc.openmanet.refreshMs'
+
 // Map base style: online vector styles (dark/light) or offline raster.
 // Keep values identical to XTOC for code reuse.
 // 'offlineRasterDark' and 'topoDark' are UI hints only; the style is raster + a display filter.
@@ -93,6 +97,32 @@ function setTacticalMapTrustedModeEnabled(enabled) {
   else localStorage.removeItem(KEY_TACTICAL_TRUSTED_MODE)
 }
 
+// OpenMANET
+function getOpenManetApiBaseUrl() {
+  return localStorage.getItem(KEY_OPENMANET_API_BASE_URL) || ''
+}
+
+function setOpenManetApiBaseUrl(url) {
+  const v = String(url || '').trim().replace(/\/$/, '')
+  if (!v) {
+    localStorage.removeItem(KEY_OPENMANET_API_BASE_URL)
+    return
+  }
+  localStorage.setItem(KEY_OPENMANET_API_BASE_URL, v)
+}
+
+function getOpenManetRefreshMs() {
+  const s = localStorage.getItem(KEY_OPENMANET_REFRESH_MS)
+  const n = s ? Number(s) : NaN
+  return Number.isFinite(n) && n >= 500 ? Math.floor(n) : 2000
+}
+
+function setOpenManetRefreshMs(ms) {
+  const n = Number(ms)
+  if (!Number.isFinite(n) || n < 500) return
+  localStorage.setItem(KEY_OPENMANET_REFRESH_MS, String(Math.floor(n)))
+}
+
 // Mesh nodes overlay (defaults ON if unset)
 function getTacticalMapMeshNodesEnabled() {
   return localStorage.getItem(KEY_TACTICAL_LAYER_MESH_NODES) !== '0'
@@ -131,6 +161,10 @@ try {
   globalThis.setTacticalMapImportedLast7dOnly = setTacticalMapImportedLast7dOnly
   globalThis.getTacticalMapTrustedModeEnabled = getTacticalMapTrustedModeEnabled
   globalThis.setTacticalMapTrustedModeEnabled = setTacticalMapTrustedModeEnabled
+  globalThis.getOpenManetApiBaseUrl = getOpenManetApiBaseUrl
+  globalThis.setOpenManetApiBaseUrl = setOpenManetApiBaseUrl
+  globalThis.getOpenManetRefreshMs = getOpenManetRefreshMs
+  globalThis.setOpenManetRefreshMs = setOpenManetRefreshMs
   globalThis.getTacticalMapMeshNodesEnabled = getTacticalMapMeshNodesEnabled
   globalThis.setTacticalMapMeshNodesEnabled = setTacticalMapMeshNodesEnabled
   globalThis.getTacticalMapImportedTemplateEnabled = getTacticalMapImportedTemplateEnabled

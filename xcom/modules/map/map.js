@@ -13,7 +13,11 @@
 // - cacheTilesForBounds/clearTileCache
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
-const TOPO_RASTER_TEMPLATE = globalThis.TOPO_RASTER_TEMPLATE || 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png'
+// NOTE: Shared MapLibre helpers define a top-level `const TOPO_RASTER_TEMPLATE`.
+// Because XCOM loads modules as classic <script> tags in a shared global scope,
+// we MUST avoid redeclaring that identifier here (it would throw "Identifier has
+// already been declared" and prevent the entire Map module from loading).
+const MAP_TOPO_RASTER_TEMPLATE = globalThis.TOPO_RASTER_TEMPLATE || 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png'
 
 function formatMeshtasticNodeId(num) {
   const n = Math.floor(Number(num))
@@ -28,6 +32,11 @@ class MapModule {
 
     this._lastViewSaveTimer = null
     this._isDownloading = false
+
+    // Connectivity probe can flip XCOM_HAS_INTERNET after the map is created.
+    // When the user chose an online vector basemap (light/dark), we need to
+    // re-apply the base style so the map upgrades from offline fallback.
+    this._connectivitySyncTimer = null
 
     // Imported overlay (from XTOC Comm / XTOC backup imports)
     this._importedEnabled = true
@@ -53,6 +62,12 @@ class MapModule {
     this._meshMarkerByKey = new Map()
     this._meshPopupByKey = new Map()
     this._meshUnsub = null
+
+    // OpenMANET nodes (via openmanetd; fetched over LAN/MANET)
+    this._openmanetNodes = []
+    this._openmanetTimer = null
+    this._openmanetAbort = null
+    this._openmanetStatusEl = null
 
     this.init()
   }
@@ -98,7 +113,7 @@ class MapModule {
 
             <div class="mapRow" id="mapTopoRow" style="display:none">
               <div class="mapSmallMuted">
-                Topographic tiles: <code>${TOPO_RASTER_TEMPLATE}</code>
+                Topographic tiles: <code>${MAP_TOPO_RASTER_TEMPLATE}</code>
               </div>
             </div>
 
@@ -181,7 +196,12 @@ class MapModule {
             <div class="mapRow" style="margin-top: 12px;">
               <label class="mapInline"><input id="mapMeshNodes" type="checkbox" /> Mesh nodes</label>
               <div class="mapSmallMuted" id="mapMeshLegend"></div>
-              <div class="mapSmallMuted">Plots latest Meshtastic/MeshCore GPS packets as node markers.</div>
+              <div class="mapSmallMuted">Plots latest Meshtastic/MeshCore GPS packets and OpenMANET node positions as markers.</div>
+              <div class="mapSmallMuted" style="margin-top:6px;">OpenMANET API URL (optional)</div>
+              <input id="mapOpenmanetUrl" type="text" spellcheck="false" placeholder="http://10.0.0.1:8087" />
+              <div class="mapSmallMuted" style="margin-top:6px;">OpenMANET refresh (ms)</div>
+              <input id="mapOpenmanetRefreshMs" type="number" min="500" max="60000" step="100" value="2000" />
+              <div class="mapSmallMuted" id="mapOpenmanetStatus" style="margin-top:6px;"></div>
             </div>
           </div>
 
@@ -226,6 +246,11 @@ class MapModule {
     const meshNodesEl = document.getElementById('mapMeshNodes')
     const meshLegendEl = document.getElementById('mapMeshLegend')
     this._meshLegendEl = meshLegendEl
+
+    const openmanetUrlEl = document.getElementById('mapOpenmanetUrl')
+    const openmanetRefreshEl = document.getElementById('mapOpenmanetRefreshMs')
+    const openmanetStatusEl = document.getElementById('mapOpenmanetStatus')
+    this._openmanetStatusEl = openmanetStatusEl
 
     // Base-style-dependent UI (Topographic vs user-configured raster template)
     const rasterRowEl = document.getElementById('mapRasterRow')
@@ -346,6 +371,39 @@ class MapModule {
       if (trustedModeEl) trustedModeEl.checked = false
       this._trustedModeEnabled = false
     }
+
+    // Seed OpenMANET settings (optional).
+    try {
+      if (openmanetUrlEl) openmanetUrlEl.value = globalThis.getOpenManetApiBaseUrl ? globalThis.getOpenManetApiBaseUrl() : ''
+    } catch (_) {
+      if (openmanetUrlEl) openmanetUrlEl.value = ''
+    }
+    try {
+      if (openmanetRefreshEl) openmanetRefreshEl.value = String(globalThis.getOpenManetRefreshMs ? globalThis.getOpenManetRefreshMs() : 2000)
+    } catch (_) {
+      if (openmanetRefreshEl) openmanetRefreshEl.value = '2000'
+    }
+    try { if (openmanetStatusEl) openmanetStatusEl.textContent = '' } catch (_) { /* ignore */ }
+
+    const restartOpenmanet = () => {
+      try { this.restartOpenmanetPolling() } catch (_) { /* ignore */ }
+    }
+
+    openmanetUrlEl?.addEventListener('change', () => {
+      try {
+        globalThis.setOpenManetApiBaseUrl && globalThis.setOpenManetApiBaseUrl(openmanetUrlEl.value)
+      } catch (_) { /* ignore */ }
+      restartOpenmanet()
+    })
+
+    openmanetRefreshEl?.addEventListener('change', () => {
+      const n = Math.max(500, Math.min(60000, Math.floor(Number(openmanetRefreshEl.value || 2000))))
+      openmanetRefreshEl.value = String(n)
+      try {
+        globalThis.setOpenManetRefreshMs && globalThis.setOpenManetRefreshMs(n)
+      } catch (_) { /* ignore */ }
+      restartOpenmanet()
+    })
 
     // Seed Imported type toggles
     this._importedTplEls = []
@@ -539,7 +597,7 @@ class MapModule {
 
     const isRaster = base === 'offlineRaster' || base === 'offlineRasterDark' || base === 'topo' || base === 'topoDark'
     if (isRaster) {
-      const tpl = (base === 'topo' || base === 'topoDark') ? TOPO_RASTER_TEMPLATE : rasterTemplate
+      const tpl = (base === 'topo' || base === 'topoDark') ? MAP_TOPO_RASTER_TEMPLATE : rasterTemplate
       // Raster style.
       return {
         version: 8,
@@ -588,6 +646,27 @@ class MapModule {
     } catch (e) {
       console.warn('Failed to set style', e)
     }
+  }
+
+  onConnectivityUpdated(e) {
+    // Only react while this module is actually mounted; the app swaps modules by
+    // replacing DOM nodes, and old module instances can linger.
+    if (!this.map || !this.mapEl) return
+    try {
+      if (this.mapEl.isConnected === false) return
+    } catch (_) {
+      // ignore
+    }
+
+    const base = globalThis.getMapBaseStyle ? globalThis.getMapBaseStyle() : 'light'
+    // Only vector bases depend on the internet probe (XCOM_HAS_INTERNET).
+    if (base !== 'light' && base !== 'dark') return
+
+    if (this._connectivitySyncTimer) clearTimeout(this._connectivitySyncTimer)
+    this._connectivitySyncTimer = setTimeout(() => {
+      this._connectivitySyncTimer = null
+      try { this.applyBaseStyle() } catch (_) { /* ignore */ }
+    }, 0)
   }
 
   escapeHtml(s) {
@@ -1157,14 +1236,177 @@ class MapModule {
       nodes = []
     }
 
-    const withPos = (Array.isArray(nodes) ? nodes : []).filter((n) => {
+    const openmanet = Array.isArray(this._openmanetNodes) ? this._openmanetNodes : []
+    const all = [...(Array.isArray(nodes) ? nodes : []), ...openmanet]
+
+    const withPos = all.filter((n) => {
       const pos = n?.position
       const lat = Number(pos?.lat)
       const lon = Number(pos?.lon)
       return Number.isFinite(lat) && Number.isFinite(lon)
     }).length
     const hidden = !this._meshNodesEnabled
-    el.textContent = `Mesh nodes: ${nodes.length} (${withPos} with position)${hidden ? ' (hidden)' : ''}`
+    el.textContent = `Mesh nodes: ${all.length} (${withPos} with position)${hidden ? ' (hidden)' : ''}`
+  }
+
+  openmanetSetStatus(text) {
+    const el = this._openmanetStatusEl
+    if (!el) return
+    el.textContent = String(text || '').trim()
+  }
+
+  stopOpenmanetPolling() {
+    try {
+      if (this._openmanetTimer) clearInterval(this._openmanetTimer)
+    } catch (_) {
+      // ignore
+    }
+    this._openmanetTimer = null
+
+    try {
+      if (this._openmanetAbort) this._openmanetAbort.abort()
+    } catch (_) {
+      // ignore
+    }
+    this._openmanetAbort = null
+  }
+
+  restartOpenmanetPolling() {
+    this.stopOpenmanetPolling()
+
+    const normalizeBaseUrl = (url) => String(url || '').trim().replace(/\/$/, '')
+
+    let apiBaseUrl = ''
+    try {
+      apiBaseUrl = globalThis.getOpenManetApiBaseUrl ? globalThis.getOpenManetApiBaseUrl() : ''
+    } catch (_) {
+      apiBaseUrl = ''
+    }
+    apiBaseUrl = normalizeBaseUrl(apiBaseUrl)
+
+    let refreshMs = 2000
+    try {
+      refreshMs = globalThis.getOpenManetRefreshMs ? globalThis.getOpenManetRefreshMs() : 2000
+    } catch (_) {
+      refreshMs = 2000
+    }
+    refreshMs = Math.max(500, Math.min(60000, Math.floor(Number(refreshMs || 2000))))
+
+    if (!apiBaseUrl) {
+      this._openmanetNodes = []
+      this.openmanetSetStatus('')
+      try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+      try { this.updateMeshLegend() } catch (_) { /* ignore */ }
+      return
+    }
+
+    const getBridgeBaseUrl = () => {
+      // Prefer transport (if loaded), otherwise read from localStorage.
+      let base = ''
+      try { base = globalThis.xcomHaLow?.getConfig?.()?.baseUrl || '' } catch (_) { base = '' }
+      if (base) return normalizeBaseUrl(base)
+      try {
+        const raw = localStorage.getItem('xcom.halow.config.v1')
+        if (!raw) return ''
+        const obj = JSON.parse(raw)
+        return normalizeBaseUrl(obj?.baseUrl || '')
+      } catch (_) {
+        return ''
+      }
+    }
+
+    const toNode = (raw, now) => {
+      const hostname = String(raw?.hostname ?? raw?.hostName ?? '').trim()
+      const mac = String(raw?.mac ?? '').trim()
+      const ipaddr = String(raw?.ipaddr ?? raw?.ipAddr ?? raw?.ip_address ?? '').trim()
+      const id = hostname || mac || ipaddr
+      if (!id) return null
+
+      const pos = raw?.position || null
+      const lat = Number(pos?.latitude ?? pos?.lat)
+      const lon = Number(pos?.longitude ?? pos?.lon)
+      const alt = Number(pos?.altitude ?? pos?.alt)
+
+      const position = (Number.isFinite(lat) && Number.isFinite(lon))
+        ? { lat, lon, ...(Number.isFinite(alt) ? { alt } : {}), ts: now }
+        : null
+
+      return {
+        driver: 'openmanet',
+        id,
+        shortName: hostname || id,
+        longName: ipaddr || mac || '',
+        ...(position ? { position } : {}),
+      }
+    }
+
+    const fetchViaBridge = async (signal) => {
+      const bridgeBaseUrl = getBridgeBaseUrl()
+      if (!bridgeBaseUrl) throw new Error('Bridge URL is empty')
+      const url = `${bridgeBaseUrl}/openmanet/nodes?base_url=${encodeURIComponent(apiBaseUrl)}`
+      const res = await fetch(url, { cache: 'no-store', signal })
+      if (!res.ok) throw new Error(`Bridge HTTP ${res.status}`)
+      const json = await res.json()
+      if (!json?.ok) throw new Error(String(json?.error || 'Bridge error'))
+      if (!Array.isArray(json?.nodes)) throw new Error('Bridge response missing nodes[]')
+      return json.nodes
+    }
+
+    const fetchDirect = async (signal) => {
+      const url = `${apiBaseUrl}/openmanet.service.v1.NodeService/ListNodes`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: '{}',
+        cache: 'no-store',
+        signal,
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = await res.json()
+      const nodes = json?.nodes ?? json?.Nodes
+      if (!Array.isArray(nodes)) throw new Error('Response missing nodes[]')
+      return nodes
+    }
+
+    const ac = new AbortController()
+    this._openmanetAbort = ac
+    let inFlight = false
+
+    const tick = async () => {
+      if (inFlight) return
+      inFlight = true
+      this.openmanetSetStatus('Connecting…')
+
+      const ctrl = new AbortController()
+      const onAbort = () => ctrl.abort()
+      try { ac.signal.addEventListener('abort', onAbort) } catch (_) { /* ignore */ }
+      const t = setTimeout(() => ctrl.abort(), 2500)
+      try {
+        let rawNodes
+        try {
+          rawNodes = await fetchViaBridge(ctrl.signal)
+        } catch (_) {
+          rawNodes = await fetchDirect(ctrl.signal)
+        }
+
+        const now = Date.now()
+        const nodes = (Array.isArray(rawNodes) ? rawNodes : []).map((n) => toNode(n, now)).filter(Boolean)
+        this._openmanetNodes = nodes
+        this.openmanetSetStatus(`OK • ${nodes.length} node(s)`)
+        try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
+        try { this.updateMeshLegend() } catch (_) { /* ignore */ }
+      } catch (e) {
+        if (String(e?.name) === 'AbortError') return
+        this.openmanetSetStatus(`Error: ${String(e?.message || e)}`)
+      } finally {
+        try { clearTimeout(t) } catch (_) { /* ignore */ }
+        try { ac.signal.removeEventListener('abort', onAbort) } catch (_) { /* ignore */ }
+        inFlight = false
+      }
+    }
+
+    tick()
+    this._openmanetTimer = setInterval(tick, refreshMs)
   }
 
   meshNodeKeyForNode(node) {
@@ -1180,7 +1422,7 @@ class MapModule {
         driver = 'meshtastic'
       }
     }
-    if (driver !== 'meshcore') driver = 'meshtastic'
+    if (driver !== 'meshcore' && driver !== 'openmanet') driver = 'meshtastic'
 
     let id = String(n?.id || '').trim()
     if (!id && driver === 'meshtastic' && Number.isFinite(num)) {
@@ -1232,6 +1474,54 @@ class MapModule {
 
     const row = (k, v) => `<div style="font-size:12px; color:#444;"><span style="font-weight:700;">${this.escapeHtml(k)}:</span> ${this.escapeHtml(v)}</div>`
 
+    // Optional: allow assigning this node to a roster unit (for labeling/tracking).
+    let assignHtml = ''
+    try {
+      const members = globalThis.xcomListRosterMembers ? globalThis.xcomListRosterMembers() : []
+      const list = Array.isArray(members) ? members : []
+      if (list.length) {
+        let selectedUnitId = ''
+        for (const m of list) {
+          if (String(m?.meshNodeId ?? '').trim() === key) {
+            selectedUnitId = String(m?.unitId ?? '').trim()
+            break
+          }
+        }
+
+        let opts = '<option value="">Unassigned</option>'
+        for (const m of list) {
+          const unitId = Number(m?.unitId)
+          if (!Number.isFinite(unitId) || unitId <= 0) continue
+          let label = String(m?.label ?? '').trim()
+          try {
+            if (globalThis.xcomFormatUnitWithLabel) label = globalThis.xcomFormatUnitWithLabel(unitId, label)
+          } catch (_) {
+            // ignore
+          }
+          const value = String(unitId)
+          const sel = value === selectedUnitId ? ' selected' : ''
+          opts += `<option value="${this.escapeHtml(value)}"${sel}>${this.escapeHtml(label || `U${value}`)}</option>`
+        }
+
+        assignHtml = `
+          <div style="margin-top:10px;">
+            <div style="font-size:12px; font-weight:700; margin-bottom:4px;">Assign to team member</div>
+            <select class="xcomMeshAssignSelect" data-node-key="${this.escapeHtml(key)}" style="width:100%; padding:6px; font-size:12px;">
+              ${opts}
+            </select>
+          </div>
+        `
+      } else {
+        assignHtml = `
+          <div style="margin-top:10px; font-size:12px; color:#666;">
+            Tip: import a roster in Comms â†’ Team to assign nodes.
+          </div>
+        `
+      }
+    } catch (_) {
+      assignHtml = ''
+    }
+
     return `
       <div style="font-weight:700; margin-bottom:6px;">Mesh Node</div>
       ${assigned ? row('Assigned', assigned) : ''}
@@ -1241,6 +1531,7 @@ class MapModule {
       ${key ? row('Key', key) : ''}
       ${row('Location', loc)}
       ${row('Last', when)}
+      ${assignHtml}
     `
   }
 
@@ -1254,6 +1545,21 @@ class MapModule {
       try { this.syncMeshNodesOverlay() } catch (_) { /* ignore */ }
     }
     try { globalThis.addEventListener('xcomTeamRosterUpdated', onRosterUpdated) } catch (_) { /* ignore */ }
+
+    const onAssignChange = (e) => {
+      try {
+        const sel = e?.target
+        if (!sel || !sel.classList || !sel.classList.contains('xcomMeshAssignSelect')) return
+        const nodeKey = String(sel?.dataset?.nodeKey || '').trim()
+        if (!nodeKey) return
+        const unitId = sel?.value ?? ''
+        if (typeof globalThis.xcomSetMeshNodeAssignment !== 'function') return
+        globalThis.xcomSetMeshNodeAssignment(nodeKey, unitId)
+      } catch (_) {
+        // ignore
+      }
+    }
+    try { document.addEventListener('change', onAssignChange) } catch (_) { /* ignore */ }
 
     let unsub = null
     try {
@@ -1271,7 +1577,12 @@ class MapModule {
       try { if (this._meshUnsub) this._meshUnsub() } catch (_) { /* ignore */ }
       this._meshUnsub = null
       try { globalThis.removeEventListener('xcomTeamRosterUpdated', onRosterUpdated) } catch (_) { /* ignore */ }
+      try { document.removeEventListener('change', onAssignChange) } catch (_) { /* ignore */ }
+      try { this.stopOpenmanetPolling() } catch (_) { /* ignore */ }
     }
+
+    // Start OpenMANET polling (if configured).
+    try { this.restartOpenmanetPolling() } catch (_) { /* ignore */ }
   }
 
   syncMeshNodesOverlay() {
@@ -1284,6 +1595,13 @@ class MapModule {
       nodes = Array.isArray(s?.nodes) ? s.nodes : (globalThis.meshGetNodes ? globalThis.meshGetNodes() : [])
     } catch (_) {
       nodes = []
+    }
+
+    try {
+      const openmanet = Array.isArray(this._openmanetNodes) ? this._openmanetNodes : []
+      if (openmanet.length) nodes = [...(Array.isArray(nodes) ? nodes : []), ...openmanet]
+    } catch (_) {
+      // ignore
     }
 
     if (!this._meshNodesEnabled) {
@@ -1400,7 +1718,7 @@ class MapModule {
     if (!this.map) return
     const base = globalThis.getMapBaseStyle ? globalThis.getMapBaseStyle() : 'light'
     const tpl = (base === 'topo' || base === 'topoDark')
-      ? TOPO_RASTER_TEMPLATE
+      ? MAP_TOPO_RASTER_TEMPLATE
       : (document.getElementById('mapRasterTemplate')?.value
         || (globalThis.getMapRasterTemplate ? globalThis.getMapRasterTemplate() : ''))
 
@@ -1460,7 +1778,7 @@ class MapModule {
     }
 
     const tpl = (base === 'topo' || base === 'topoDark')
-      ? TOPO_RASTER_TEMPLATE
+      ? MAP_TOPO_RASTER_TEMPLATE
       : (document.getElementById('mapRasterTemplate')?.value
         || (globalThis.getMapRasterTemplate ? globalThis.getMapRasterTemplate() : ''))
     const minZoom = Number(document.getElementById('mapMinZoom').value || 6)
@@ -1519,4 +1837,23 @@ class MapModule {
       setTimeout(() => this.setProgress(''), 2000)
     }
   }
+}
+
+// Keep the tactical map basemap in sync with the internet reachability probe.
+// (XCOM starts conservatively in offline fallback style, then upgrades when the probe succeeds.)
+try {
+  if (!globalThis.__xcomMapConnectivityHookInstalled && typeof globalThis.addEventListener === 'function') {
+    globalThis.addEventListener('xcomConnectivityUpdated', (e) => {
+      try {
+        if (globalThis.mapModule && typeof globalThis.mapModule.onConnectivityUpdated === 'function') {
+          globalThis.mapModule.onConnectivityUpdated(e)
+        }
+      } catch (_) {
+        // ignore
+      }
+    })
+    globalThis.__xcomMapConnectivityHookInstalled = true
+  }
+} catch (_) {
+  // ignore
 }

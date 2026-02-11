@@ -55,13 +55,22 @@
 
 #shortwave .swGrid2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
 #shortwave .swTabs {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+#shortwave .swGrid2 > * {
+  min-width: 0;
+}
+
+#shortwave .swTab {
+  flex: 1 1 140px;
 }
 
 #shortwave .swTab,
@@ -205,3 +214,9 @@
 #shortwave .swColItu { width: 54px; }
 #shortwave .swColLang { width: 70px; }
 #shortwave .swColTarget { width: 80px; }
+
+@media (max-width: 480px) {
+  #shortwave .swGrid2 {
+    grid-template-columns: 1fr;
+  }
+}

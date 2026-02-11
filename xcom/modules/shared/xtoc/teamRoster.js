@@ -193,6 +193,58 @@ function withRosterLabels(text) {
   })
 }
 
+function setMeshNodeAssignment(nodeKey, unitId) {
+  try {
+    const key = String(nodeKey ?? '').trim()
+    if (!key) return { ok: false, reason: 'bad_node_key' }
+
+    const u = Math.floor(Number(unitId))
+    const assignUnitId = Number.isFinite(u) && u > 0 ? u : null
+
+    const store = getTeamRosterStore()
+    const members = Array.isArray(store?.members) ? store.members : []
+    let changed = false
+
+    const nextMembers = members
+      .map((m) => {
+        const nm = normalizeRosterMember(m)
+        if (!nm) return null
+
+        const currentKey = String(nm?.meshNodeId ?? '').trim()
+        const next = { ...nm }
+
+        // Clear this key from everyone except the selected unit.
+        if (currentKey === key && (!assignUnitId || next.unitId !== assignUnitId)) {
+          next.meshNodeId = undefined
+          changed = true
+        }
+
+        // Set the key on the selected unit.
+        if (assignUnitId && next.unitId === assignUnitId) {
+          if (currentKey !== key) {
+            next.meshNodeId = key
+            changed = true
+          }
+        }
+
+        return normalizeRosterMember(next)
+      })
+      .filter(Boolean)
+      .slice(0, MAX_ROSTER_MEMBERS)
+
+    if (changed) {
+      setTeamRosterStore({ v: 1, updatedAt: Date.now(), members: nextMembers })
+    } else {
+      // Still notify so UI can refresh popups/titles if needed.
+      notifyRosterUpdated()
+    }
+
+    return { ok: true, changed }
+  } catch (e) {
+    return { ok: false, reason: e?.message ? String(e.message) : String(e) }
+  }
+}
+
 // Expose globals (XCOM loads scripts as classic <script>).
 try {
   globalThis.xcomGetTeamRoster = getTeamRosterStore
@@ -201,6 +253,7 @@ try {
   globalThis.xcomClearTeamRoster = clearTeamRoster
   globalThis.xcomFormatUnitWithLabel = formatUnitWithLabel
   globalThis.xcomWithRosterLabels = withRosterLabels
+  globalThis.xcomSetMeshNodeAssignment = setMeshNodeAssignment
 } catch (_) {
   // ignore
 }
