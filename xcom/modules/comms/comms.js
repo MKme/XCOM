@@ -739,9 +739,63 @@ class CommsModule {
     const wrap = document.getElementById('commsTemplateFields')
     const now = Date.now()
 
+    let rosterMembers = []
+    try {
+      const roster = (typeof globalThis.xcomGetTeamRoster === 'function') ? globalThis.xcomGetTeamRoster() : null
+      rosterMembers = Array.isArray(roster?.members) ? roster.members : []
+    } catch (_) {
+      rosterMembers = []
+    }
+
+    const rosterNormalized = rosterMembers
+      .map((m) => ({
+        unitId: Math.floor(Number(m?.unitId)),
+        label: String(m?.label || '').trim(),
+      }))
+      .filter((m) => Number.isFinite(m.unitId) && m.unitId > 0 && m.unitId <= 65535)
+      .sort((a, b) => a.unitId - b.unitId)
+
+    const buildUnitMultiSelect = ({ selectId, textId, placeholder, title, tip, sizeMax = 8 }) => {
+      if (!rosterNormalized.length) {
+        const ph = placeholder ? this.escapeHtml(String(placeholder)) : 'e.g. 12,14,27'
+        return `<input id="${textId}" type="text" placeholder="${ph}" />`
+      }
+
+      const size = Math.min(sizeMax, Math.max(3, rosterNormalized.length))
+      const opts = rosterNormalized
+        .map((m, idx) => {
+          const label = m.label || `U${m.unitId}`
+          const selected = idx === 0 ? ' selected' : ''
+          return `<option value="${m.unitId}"${selected}>U${m.unitId} — ${this.escapeHtml(label)}</option>`
+        })
+        .join('')
+      const titleAttr = title ? ` title="${this.escapeHtml(String(title))}"` : ''
+      const tipHtml = tip ? `<div class="commsSmallMuted">${this.escapeHtml(String(tip))}</div>` : ''
+      return `
+        <select id="${selectId}" multiple size="${size}"${titleAttr}>
+          ${opts}
+        </select>
+        ${tipHtml}
+      `
+    }
+
+    const srcPicker = buildUnitMultiSelect({
+      selectId: 't_src_units',
+      textId: 't_src_units_text',
+      placeholder: 'e.g. 12,14,27',
+      title: 'Select one or more units for a squad/group packet.',
+    })
+
+    const missionTeamPicker = buildUnitMultiSelect({
+      selectId: 't_team_units',
+      textId: 't_team_units_text',
+      placeholder: 'e.g. 12,14,19',
+      title: 'Select one or more mission assignees.',
+    })
+
     const commonSrcDstPri = (withDst = true) => `
       <div class="commsGrid2">
-        <div class="commsRow"><label>Src (unit #)</label><input id="t_src" type="number" min="0" step="1" value="1" /></div>
+        <div class="commsRow"><label>Source Unit(s)</label>${srcPicker}</div>
         ${withDst ? '<div class="commsRow"><label>Dst (unit #)</label><input id="t_dst" type="number" min="0" step="1" value="0" /></div>' : '<div></div>'}
       </div>
       <div class="commsGrid2">
@@ -756,16 +810,52 @@ class CommsModule {
     `
 
     if (t === 4) {
+      let rosterMembers = []
+      try {
+        const roster = (typeof globalThis.xcomGetTeamRoster === 'function') ? globalThis.xcomGetTeamRoster() : null
+        rosterMembers = Array.isArray(roster?.members) ? roster.members : []
+      } catch (_) {
+        rosterMembers = []
+      }
+
+      const normalized = rosterMembers
+        .map((m) => ({
+          unitId: Math.floor(Number(m?.unitId)),
+          label: String(m?.label || '').trim(),
+        }))
+        .filter((m) => Number.isFinite(m.unitId) && m.unitId > 0 && m.unitId <= 65535)
+        .sort((a, b) => a.unitId - b.unitId)
+
+      const unitPicker =
+        normalized.length
+          ? (() => {
+              const size = Math.min(8, Math.max(3, normalized.length))
+              const opts = normalized
+                .map((m, idx) => {
+                  const label = m.label || `U${m.unitId}`
+                  const selected = idx === 0 ? ' selected' : ''
+                  return `<option value="${m.unitId}"${selected}>U${m.unitId} — ${this.escapeHtml(label)}</option>`
+                })
+                .join('')
+              return `
+                <select id="t_units" multiple size="${size}" title="Select one or more units for a squad check-in.">
+                  ${opts}
+                </select>
+                <div class="commsSmallMuted">Tip: select multiple for squad/group check-ins.</div>
+              `
+            })()
+          : `<input id="t_units_text" type="text" placeholder="e.g. 12,14,27" />`
+
       wrap.innerHTML = `
+        <div class="commsRow"><label>Units</label>${unitPicker}</div>
         <div class="commsGrid2">
-          <div class="commsRow"><label>Unit ID</label><input id="t_unit" type="number" min="0" step="1" value="1" /></div>
           <div class="commsRow"><label>Status</label><input id="t_status" type="number" min="0" max="255" step="1" value="0" /></div>
+          <div class="commsRow"><label>Time (ms)</label><input id="t_time" type="number" value="${now}" /></div>
         </div>
         <div class="commsGrid2">
           <div class="commsRow"><label>Lat</label><input id="t_lat" type="number" step="0.00001" /></div>
           <div class="commsRow"><label>Lon</label><input id="t_lon" type="number" step="0.00001" /></div>
         </div>
-        <div class="commsRow"><label>Time (ms)</label><input id="t_time" type="number" value="${now}" /></div>
       `
       return
     }
@@ -773,7 +863,7 @@ class CommsModule {
     if (t === 7) {
       wrap.innerHTML = `
         <div class="commsGrid2">
-          <div class="commsRow"><label>Src (unit #)</label><input id="t_src" type="number" min="0" step="1" value="1" /></div>
+          <div class="commsRow"><label>Source Unit(s)</label>${srcPicker}</div>
           <div class="commsRow"><label>Time (ms)</label><input id="t_time" type="number" value="${now}" /></div>
         </div>
         <div class="commsGrid2">
@@ -808,7 +898,7 @@ class CommsModule {
         <div class="commsRow"><label>Title</label><input id="t_mission_title" type="text" placeholder="\"Deliver supplies\" / \"Recon\" / ..." /></div>
         <div class="commsGrid2">
           <div class="commsRow"><label>Pri</label><input id="t_pri" type="number" min="0" max="3" step="1" value="0" /></div>
-          <div class="commsRow"><label>Team (unit # list)</label><input id="t_assigned_to" type="text" placeholder="e.g. 12,14,19" /></div>
+          <div class="commsRow"><label>Team Unit ID(s)</label>${missionTeamPicker}</div>
         </div>
         <div class="commsGrid2">
           <div class="commsRow"><label>Lat</label><input id="t_lat" type="number" step="0.00001" placeholder="" /></div>
@@ -827,7 +917,7 @@ class CommsModule {
     if (t === 6) {
       wrap.innerHTML = `
         <div class="commsGrid2">
-          <div class="commsRow"><label>Src (unit #)</label><input id="t_src" type="number" min="0" step="1" value="1" /></div>
+          <div class="commsRow"><label>Source Unit(s)</label>${srcPicker}</div>
           <div class="commsRow"><label>Type Code</label><input id="t_type" type="number" min="0" max="255" step="1" value="0" /></div>
         </div>
         <div class="commsGrid2">
@@ -1140,9 +1230,41 @@ class CommsModule {
       const now = Date.now()
       let clearPacket
       let payloadObj
+
+      const readUnitIds = (selectId, textId, max = 32) => {
+        let unitIds = []
+
+        const sel = document.getElementById(selectId)
+        if (sel && sel.selectedOptions) {
+          unitIds = Array.from(sel.selectedOptions)
+            .map((o) => Math.floor(Number(o.value)))
+            .filter((n) => Number.isFinite(n) && n > 0 && n <= 65535)
+        }
+
+        if (unitIds.length === 0) {
+          const text = String(document.getElementById(textId)?.value || '').trim()
+          unitIds = parseUnitIdListText(text, max)
+        }
+
+        return unitIds
+      }
+
+      const readSrc = () => {
+        const srcIds = readUnitIds('t_src_units', 't_src_units_text', 32)
+        const src = srcIds[0] || 0
+        if (!Number.isFinite(src) || src <= 0) throw new Error('Pick at least one source unit')
+        return { src, srcIds }
+      }
+
       if (templateId === 4) {
+        const unitIds = readUnitIds('t_units', 't_units_text', 32)
+
+        const primaryUnitId = unitIds[0] || 0
+        if (!Number.isFinite(primaryUnitId) || primaryUnitId <= 0) throw new Error('Pick at least one unit')
+
         const p = {
-          unitId: Number(document.getElementById('t_unit').value || 0),
+          unitId: primaryUnitId,
+          ...(unitIds.length > 1 ? { unitIds } : {}),
           lat: Number(document.getElementById('t_lat').value),
           lon: Number(document.getElementById('t_lon').value),
           t: Number(document.getElementById('t_time').value || Date.now()),
@@ -1160,8 +1282,10 @@ class CommsModule {
             return { lat: Number(a), lon: Number(b) }
           })
           .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+        const { src, srcIds } = readSrc()
         const payload = {
-          src: Number(document.getElementById('t_src').value || 1),
+          src,
+          ...(srcIds.length > 1 ? { srcIds } : {}),
           t: Number(document.getElementById('t_time').value || Date.now()),
           threat: Number(document.getElementById('t_threat').value || 0),
           meaningCode: Number(document.getElementById('t_meaning').value || 0),
@@ -1174,7 +1298,7 @@ class CommsModule {
       } else if (templateId === 8) {
         const tVal = Number(document.getElementById('t_time')?.value || now)
         const ts = (Number.isFinite(tVal) && tVal > 0) ? tVal : now
-        const team = parseUnitIdListText(document.getElementById('t_assigned_to')?.value, 32)
+        const team = readUnitIds('t_team_units', 't_team_units_text', 32)
         const assignedTo = team[0] || 0
         const payload = {
           id: String(document.getElementById('t_mission_id')?.value || '').trim(),
@@ -1194,8 +1318,10 @@ class CommsModule {
         payloadObj = payload
         clearPacket = `X1.8.C.${window.generatePacketId(8)}.1/1.${window.encodeMissionClear(payload)}`
       } else if (templateId === 6) {
+        const { src, srcIds } = readSrc()
         const payload = {
-          src: Number(document.getElementById('t_src').value || 1),
+          src,
+          ...(srcIds.length > 1 ? { srcIds } : {}),
           condition: Number(document.getElementById('t_condition').value || 0),
           t: Number(document.getElementById('t_time').value || Date.now()),
           typeCode: Number(document.getElementById('t_type').value || 0),
@@ -1207,8 +1333,10 @@ class CommsModule {
         payloadObj = payload
         clearPacket = `X1.6.C.${window.generatePacketId(8)}.1/1.${window.encodeAssetClear(payload)}`
       } else if (templateId === 5) {
+        const { src, srcIds } = readSrc()
         const payload = {
-          src: Number(document.getElementById('t_src').value || 1),
+          src,
+          ...(srcIds.length > 1 ? { srcIds } : {}),
           pri: Number(document.getElementById('t_pri').value || 1),
           t: Number(document.getElementById('t_time').value || Date.now()),
           itemCode: Number(document.getElementById('t_item').value || 0),
@@ -1220,8 +1348,10 @@ class CommsModule {
         payloadObj = payload
         clearPacket = `X1.5.C.${window.generatePacketId(8)}.1/1.${window.encodeResourceClear(payload)}`
       } else if (templateId === 3) {
+        const { src, srcIds } = readSrc()
         const payload = {
-          src: Number(document.getElementById('t_src').value || 1),
+          src,
+          ...(srcIds.length > 1 ? { srcIds } : {}),
           dst: Number(document.getElementById('t_dst').value || 0),
           pri: Number(document.getElementById('t_pri').value || 1),
           t: Number(document.getElementById('t_time').value || Date.now()),
@@ -1234,8 +1364,10 @@ class CommsModule {
         payloadObj = payload
         clearPacket = `X1.3.C.${window.generatePacketId(8)}.1/1.${window.encodeTaskClear(payload)}`
       } else if (templateId === 2) {
+        const { src, srcIds } = readSrc()
         const payload = {
-          src: Number(document.getElementById('t_src').value || 1),
+          src,
+          ...(srcIds.length > 1 ? { srcIds } : {}),
           pri: Number(document.getElementById('t_pri').value || 1),
           t: Number(document.getElementById('t_time').value || Date.now()),
           typeCode: Number(document.getElementById('t_type').value || 0),
@@ -1248,8 +1380,10 @@ class CommsModule {
         payloadObj = payload
         clearPacket = `X1.2.C.${window.generatePacketId(8)}.1/1.${window.encodeContactClear(payload)}`
       } else {
+        const { src, srcIds } = readSrc()
         const payload = {
-          src: Number(document.getElementById('t_src').value || 1),
+          src,
+          ...(srcIds.length > 1 ? { srcIds } : {}),
           dst: Number(document.getElementById('t_dst').value || 0),
           pri: Number(document.getElementById('t_pri').value || 1),
           status: Number(document.getElementById('t_status').value || 0),
@@ -2390,24 +2524,43 @@ class CommsModule {
       return ['OK', 'HELP', 'RTB', 'UNK'][i] || 'UNK'
     }
 
+    const srcLabel = (d) => {
+      const ids = Array.isArray(d?.srcIds) && d.srcIds.length ? d.srcIds : (d?.src != null ? [d.src] : [])
+      const out = []
+      const seen = new Set()
+      for (const v of ids) {
+        const n = Math.floor(Number(v))
+        if (!Number.isFinite(n) || n <= 0) continue
+        if (seen.has(n)) continue
+        seen.add(n)
+        out.push(n)
+      }
+      return out.length ? out.map((n) => `U${n}`).join(',') : ''
+    }
+
     if (tpl === 4) {
       const unitId = Number(decoded?.unitId)
+      const unitIds = Array.isArray(decoded?.unitIds) && decoded.unitIds.length
+        ? decoded.unitIds
+        : (Number.isFinite(unitId) ? [unitId] : [])
+      const unitsLabel = unitIds.length ? unitIds.map((n) => `U${n}`).join(',') : ''
       const lat = Number(decoded?.lat)
       const lon = Number(decoded?.lon)
-      if (isSecure) return `SECURE CHECKIN U${Number.isFinite(unitId) ? unitId : ''}`.trim()
-      if (Number.isFinite(lat) && Number.isFinite(lon) && Number.isFinite(unitId)) {
-        return `CHECKIN U${unitId} ${lat.toFixed(4)},${lon.toFixed(4)}`
+      if (isSecure) return `SECURE CHECKIN ${unitsLabel}`.trim()
+      if (Number.isFinite(lat) && Number.isFinite(lon) && unitIds.length) {
+        return `CHECKIN ${unitsLabel} ${lat.toFixed(4)},${lon.toFixed(4)}`.trim()
       }
-      return `CHECKIN${Number.isFinite(unitId) ? ` U${unitId}` : ''}`.trim()
+      return `CHECKIN${unitsLabel ? ` ${unitsLabel}` : ''}`.trim()
     }
 
     if (tpl === 1) {
       const pri = priLabel(decoded?.pri)
       const st = statusLabel(decoded?.status)
       const src = Number(decoded?.src)
+      const from = srcLabel(decoded)
       const dst = Number(decoded?.dst)
       const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
-      const head = `${pri} ${st} FROM U${Number.isFinite(src) ? src : ''} TO ${dst === 0 ? 'ALL' : `U${Number.isFinite(dst) ? dst : ''}`}`.trim()
+      const head = `${pri} ${st} FROM${from ? ` ${from}` : Number.isFinite(src) ? ` U${src}` : ''} TO ${dst === 0 ? 'ALL' : `U${Number.isFinite(dst) ? dst : ''}`}`.trim()
       if (isSecure) return `SECURE ${head}`.trim()
       return `${head}${note ? ` — ${note}` : ''}`.trim()
     }
@@ -2415,11 +2568,12 @@ class CommsModule {
     if (tpl === 2) {
       const pri = priLabel(decoded?.pri)
       const src = Number(decoded?.src)
+      const from = srcLabel(decoded)
       const typeCode = Number(decoded?.typeCode)
       const count = Number(decoded?.count)
       const dir = Number(decoded?.dir)
       const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
-      const head = `${pri} CONTACT U${Number.isFinite(src) ? src : ''} type=${Number.isFinite(typeCode) ? typeCode : ''} count=${Number.isFinite(count) ? count : ''} dir=${Number.isFinite(dir) ? dir : ''}`.trim()
+      const head = `${pri} CONTACT${from ? ` ${from}` : Number.isFinite(src) ? ` U${src}` : ''} type=${Number.isFinite(typeCode) ? typeCode : ''} count=${Number.isFinite(count) ? count : ''} dir=${Number.isFinite(dir) ? dir : ''}`.trim()
       if (isSecure) return `SECURE ${head}`.trim()
       return `${head}${note ? ` — ${note}` : ''}`.trim()
     }
@@ -2427,11 +2581,12 @@ class CommsModule {
     if (tpl === 3) {
       const pri = priLabel(decoded?.pri)
       const src = Number(decoded?.src)
+      const from = srcLabel(decoded)
       const dst = Number(decoded?.dst)
       const actionCode = Number(decoded?.actionCode)
       const dueMins = Number(decoded?.dueMins)
       const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
-      const head = `${pri} TASK U${Number.isFinite(src) ? src : ''}→${dst === 0 ? 'ALL' : `U${Number.isFinite(dst) ? dst : ''}`} action=${Number.isFinite(actionCode) ? actionCode : ''} due=${Number.isFinite(dueMins) ? dueMins : ''}m`.trim()
+      const head = `${pri} TASK${from ? ` ${from}` : Number.isFinite(src) ? ` U${src}` : ''}→${dst === 0 ? 'ALL' : `U${Number.isFinite(dst) ? dst : ''}`} action=${Number.isFinite(actionCode) ? actionCode : ''} due=${Number.isFinite(dueMins) ? dueMins : ''}m`.trim()
       if (isSecure) return `SECURE ${head}`.trim()
       return `${head}${note ? ` — ${note}` : ''}`.trim()
     }
@@ -2439,21 +2594,23 @@ class CommsModule {
     if (tpl === 5) {
       const pri = priLabel(decoded?.pri)
       const src = Number(decoded?.src)
+      const from = srcLabel(decoded)
       const itemCode = Number(decoded?.itemCode)
       const qty = Number(decoded?.qty)
       const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
-      const head = `${pri} RESOURCE U${Number.isFinite(src) ? src : ''} item=${Number.isFinite(itemCode) ? itemCode : ''} qty=${Number.isFinite(qty) ? qty : ''}`.trim()
+      const head = `${pri} RESOURCE${from ? ` ${from}` : Number.isFinite(src) ? ` U${src}` : ''} item=${Number.isFinite(itemCode) ? itemCode : ''} qty=${Number.isFinite(qty) ? qty : ''}`.trim()
       if (isSecure) return `SECURE ${head}`.trim()
       return `${head}${note ? ` — ${note}` : ''}`.trim()
     }
 
     if (tpl === 6) {
       const src = Number(decoded?.src)
+      const from = srcLabel(decoded)
       const condition = Number(decoded?.condition)
       const typeCode = Number(decoded?.typeCode)
       const label = String(decoded?.label || '').trim()
       const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
-      const head = `ASSET U${Number.isFinite(src) ? src : ''} cond=${Number.isFinite(condition) ? condition : ''} type=${Number.isFinite(typeCode) ? typeCode : ''}`.trim()
+      const head = `ASSET${from ? ` ${from}` : Number.isFinite(src) ? ` U${src}` : ''} cond=${Number.isFinite(condition) ? condition : ''} type=${Number.isFinite(typeCode) ? typeCode : ''}`.trim()
       if (isSecure) return `SECURE ${head}${label ? ` \"${label}\"` : ''}`.trim()
       return `${head}${label ? ` \"${label}\"` : ''}${note ? ` — ${note}` : ''}`.trim()
     }
@@ -2464,9 +2621,10 @@ class CommsModule {
       const label = String(decoded?.label || '').trim()
       const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
       const src = Number(decoded?.src)
+      const from = srcLabel(decoded)
 
       const threatLabel = ['SAFE', 'DANGER', 'UNKNOWN'][Math.max(0, Math.min(2, Math.floor(threat || 0)))] || 'UNKNOWN'
-      const head = `${threatLabel} ZONE${Number.isFinite(src) ? ` U${src}` : ''} meaning=${Number.isFinite(meaningCode) ? meaningCode : ''}`.trim()
+      const head = `${threatLabel} ZONE${from ? ` ${from}` : Number.isFinite(src) ? ` U${src}` : ''} meaning=${Number.isFinite(meaningCode) ? meaningCode : ''}`.trim()
 
       if (isSecure) return `SECURE ${head}${label ? ` \"${label}\"` : ''}`.trim()
       return `${head}${label ? ` \"${label}\"` : ''}${note ? ` — ${note}` : ''}`.trim()
@@ -2899,6 +3057,24 @@ class CommsModule {
       kv.push([k, s])
     }
 
+    const formatUnitList = (ids) => {
+      if (!Array.isArray(ids)) return ''
+      const out = []
+      const seen = new Set()
+      for (const v of ids) {
+        const n = Math.floor(Number(v))
+        if (!Number.isFinite(n) || n <= 0) continue
+        if (seen.has(n)) continue
+        seen.add(n)
+        out.push(n)
+      }
+      return out.length ? out.map((n) => `U${n}`).join(', ') : ''
+    }
+
+    const srcUnits = formatUnitList(
+      (Array.isArray(decodedObj?.srcIds) && decodedObj.srcIds.length) ? decodedObj.srcIds : (decodedObj?.src != null ? [decodedObj.src] : []),
+    )
+
     addKV('Message ID', wrapper?.id)
     addKV('Template', templateLabel)
     addKV('Mode', modeLabel)
@@ -2907,13 +3083,16 @@ class CommsModule {
     addKV('Timestamp (UTC)', time.utc)
 
     if (t === 4) {
-      addKV('Unit ID', decodedObj?.unitId)
+      const unitIds = Array.isArray(decodedObj?.unitIds) && decodedObj.unitIds.length
+        ? decodedObj.unitIds
+        : (decodedObj?.unitId != null ? [decodedObj.unitId] : [])
+      if (unitIds.length) addKV('Units', unitIds.map((n) => `U${n}`).join(', '))
       addKV('Status code', decodedObj?.status)
       if (Number.isFinite(decodedObj?.lat) && Number.isFinite(decodedObj?.lon)) {
         addKV('Location', `${Number(decodedObj.lat).toFixed(5)}, ${Number(decodedObj.lon).toFixed(5)}`)
       }
     } else if (t === 1) {
-      addKV('From (src)', decodedObj?.src)
+      addKV('Source Unit(s)', srcUnits)
       addKV('To (dst)', decodedObj?.dst)
       addKV('Priority', decodedObj?.pri)
       addKV('Status code', decodedObj?.status)
@@ -2922,7 +3101,7 @@ class CommsModule {
       }
       if (decodedObj?.note) addKV('Note', decodedObj.note)
     } else if (t === 2) {
-      addKV('From (src)', decodedObj?.src)
+      addKV('Source Unit(s)', srcUnits)
       addKV('Priority', decodedObj?.pri)
       addKV('Contact type code', decodedObj?.typeCode)
       addKV('Count', decodedObj?.count)
@@ -2932,7 +3111,7 @@ class CommsModule {
       }
       if (decodedObj?.note) addKV('Note', decodedObj.note)
     } else if (t === 3) {
-      addKV('From (src)', decodedObj?.src)
+      addKV('Source Unit(s)', srcUnits)
       addKV('To (dst)', decodedObj?.dst)
       addKV('Priority', decodedObj?.pri)
       addKV('Action code', decodedObj?.actionCode)
@@ -2942,7 +3121,7 @@ class CommsModule {
       }
       if (decodedObj?.note) addKV('Note', decodedObj.note)
     } else if (t === 5) {
-      addKV('From (src)', decodedObj?.src)
+      addKV('Source Unit(s)', srcUnits)
       addKV('Priority', decodedObj?.pri)
       addKV('Item code', decodedObj?.itemCode)
       addKV('Quantity', decodedObj?.qty)
@@ -2951,7 +3130,7 @@ class CommsModule {
       }
       if (decodedObj?.note) addKV('Note', decodedObj.note)
     } else if (t === 6) {
-      addKV('From (src)', decodedObj?.src)
+      addKV('Source Unit(s)', srcUnits)
       addKV('Condition code', decodedObj?.condition)
       addKV('Type code', decodedObj?.typeCode)
       if (decodedObj?.label) addKV('Label', decodedObj.label)
@@ -2960,7 +3139,7 @@ class CommsModule {
       }
       if (decodedObj?.note) addKV('Note', decodedObj.note)
     } else if (t === 7) {
-      addKV('From (src)', decodedObj?.src)
+      addKV('Source Unit(s)', srcUnits)
       addKV('Threat code', decodedObj?.threat)
       addKV('Meaning code', decodedObj?.meaningCode)
       if (decodedObj?.label) addKV('Label', decodedObj.label)

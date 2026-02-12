@@ -54,37 +54,153 @@ function generatePacketId(len = 8) {
   return out
 }
 
+const TEMPLATE_MAX_UNIT_IDS = 32
+
+function normalizeUnitIdList(ids, max = TEMPLATE_MAX_UNIT_IDS) {
+  if (!Array.isArray(ids)) return []
+  const out = []
+  const seen = new Set()
+  for (const v of ids) {
+    const n = Math.floor(Number(v))
+    if (!Number.isFinite(n) || n <= 0 || n > 65535) continue
+    if (seen.has(n)) continue
+    seen.add(n)
+    out.push(n)
+    if (out.length >= max) break
+  }
+  return out
+}
+
+function extraUnitIdsBeyondPrimary(primary, ids, max = TEMPLATE_MAX_UNIT_IDS) {
+  const list = normalizeUnitIdList(ids, max)
+  if (!list.length) return []
+  const out = []
+  const seen = new Set()
+  // Exclude primary from extras even if it appears in the list.
+  seen.add(Math.floor(Number(primary)))
+  for (const v of list) {
+    if (seen.has(v)) continue
+    seen.add(v)
+    out.push(v)
+    if (out.length >= max - 1) break
+  }
+  return out
+}
+
 // -----------------------------
 // Template 4: CHECKIN/LOC (CLEAR)
 // -----------------------------
 
-const CHECKIN_LOC_VERSION = 1
-const CHECKIN_LOC_LEN = 16
+const CHECKIN_LOC_VERSION_V1 = 1
+const CHECKIN_LOC_VERSION_V2 = 2
+const CHECKIN_LOC_LEN_V1 = 16
+const CHECKIN_LOC_MAX_UNITS = 32
 
 function encodeCheckinLocClear(payload) {
-  const buf = new Uint8Array(CHECKIN_LOC_LEN)
+  const rawIds = Array.isArray(payload?.unitIds) && payload.unitIds.length ? payload.unitIds : [payload.unitId]
+  const unitIds = []
+  const seen = new Set()
+  for (const v of rawIds) {
+    const n = Math.floor(Number(v))
+    if (!Number.isFinite(n) || n <= 0 || n > 65535) continue
+    if (seen.has(n)) continue
+    seen.add(n)
+    unitIds.push(n)
+    if (unitIds.length >= CHECKIN_LOC_MAX_UNITS) break
+  }
+
+  if (unitIds.length <= 1) {
+    const unitId = unitIds[0] != null ? unitIds[0] : Math.floor(Number(payload.unitId) || 0)
+    if (!Number.isFinite(unitId) || unitId <= 0 || unitId > 65535) throw new Error('Invalid unitId')
+
+    const buf = new Uint8Array(CHECKIN_LOC_LEN_V1)
+    const dv = new DataView(buf.buffer)
+    dv.setUint8(0, CHECKIN_LOC_VERSION_V1)
+    dv.setUint16(1, unitId, false)
+    dv.setInt32(3, Math.round(payload.lat * 1e5), false)
+    dv.setInt32(7, Math.round(payload.lon * 1e5), false)
+    dv.setUint32(11, Math.floor(payload.t / 60000), false)
+    dv.setUint8(15, payload.status)
+    return encodeBase64Url(buf)
+  }
+
+  const n = unitIds.length
+  const headerLen = 2 + n * 2
+  const fixedLen = 4 + 4 + 4 + 1
+  const buf = new Uint8Array(headerLen + fixedLen)
   const dv = new DataView(buf.buffer)
-  dv.setUint8(0, CHECKIN_LOC_VERSION)
-  dv.setUint16(1, payload.unitId, false)
-  dv.setInt32(3, Math.round(payload.lat * 1e5), false)
-  dv.setInt32(7, Math.round(payload.lon * 1e5), false)
-  dv.setUint32(11, Math.floor(payload.t / 60000), false)
-  dv.setUint8(15, payload.status)
+  dv.setUint8(0, CHECKIN_LOC_VERSION_V2)
+  dv.setUint8(1, n)
+  let o = 2
+  for (const id of unitIds) {
+    dv.setUint16(o, id, false)
+    o += 2
+  }
+  dv.setInt32(o, Math.round(payload.lat * 1e5), false)
+  o += 4
+  dv.setInt32(o, Math.round(payload.lon * 1e5), false)
+  o += 4
+  dv.setUint32(o, Math.floor(payload.t / 60000), false)
+  o += 4
+  dv.setUint8(o, payload.status)
   return encodeBase64Url(buf)
 }
 
 function decodeCheckinLocClear(payloadB64Url) {
   const bytes = decodeBase64Url(payloadB64Url)
-  if (bytes.length < CHECKIN_LOC_LEN) throw new Error('CHECKIN payload too short')
+  if (bytes.length < 1) throw new Error('CHECKIN payload too short')
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const ver = dv.getUint8(0)
-  if (ver !== CHECKIN_LOC_VERSION) throw new Error(`Unsupported CHECKIN version ${ver}`)
-  const unitId = dv.getUint16(1, false)
-  const lat = dv.getInt32(3, false) / 1e5
-  const lon = dv.getInt32(7, false) / 1e5
-  const unixMinutes = dv.getUint32(11, false)
-  const status = dv.getUint8(15)
-  return { unitId, lat, lon, status, t: unixMinutes * 60000 }
+
+  if (ver === CHECKIN_LOC_VERSION_V1) {
+    if (bytes.length < CHECKIN_LOC_LEN_V1) throw new Error('CHECKIN payload too short')
+    const unitId = dv.getUint16(1, false)
+    const lat = dv.getInt32(3, false) / 1e5
+    const lon = dv.getInt32(7, false) / 1e5
+    const unixMinutes = dv.getUint32(11, false)
+    const status = dv.getUint8(15)
+    return { unitId, lat, lon, status, t: unixMinutes * 60000 }
+  }
+
+  if (ver === CHECKIN_LOC_VERSION_V2) {
+    if (bytes.length < 2) throw new Error('CHECKIN payload too short')
+    const unitCount = dv.getUint8(1)
+    if (!unitCount) throw new Error('CHECKIN unit count missing')
+    if (unitCount > CHECKIN_LOC_MAX_UNITS) throw new Error('CHECKIN unit count too large')
+
+    const requiredLen = 15 + unitCount * 2
+    if (bytes.length < requiredLen) throw new Error('CHECKIN payload truncated')
+
+    let o = 2
+    const rawIds = []
+    for (let i = 0; i < unitCount; i++) {
+      rawIds.push(dv.getUint16(o, false))
+      o += 2
+    }
+
+    const lat = dv.getInt32(o, false) / 1e5
+    o += 4
+    const lon = dv.getInt32(o, false) / 1e5
+    o += 4
+    const unixMinutes = dv.getUint32(o, false)
+    o += 4
+    const status = dv.getUint8(o)
+
+    const unitIds = []
+    const seen = new Set()
+    for (const id of rawIds) {
+      if (!Number.isFinite(id) || id <= 0) continue
+      if (seen.has(id)) continue
+      seen.add(id)
+      unitIds.push(id)
+      if (unitIds.length >= CHECKIN_LOC_MAX_UNITS) break
+    }
+    if (!unitIds.length) throw new Error('CHECKIN unitIds missing')
+
+    return { unitId: unitIds[0], unitIds, lat, lon, status, t: unixMinutes * 60000 }
+  }
+
+  throw new Error(`Unsupported CHECKIN version ${ver}`)
 }
 
 function makeCheckinLocClearPacket(payload) {
@@ -104,11 +220,14 @@ function encodeSitrepClear(payload) {
   const noteBytes = payload.note && String(payload.note).trim() ? enc.encode(String(payload.note).trim()) : undefined
   const hasLoc = Number.isFinite(payload.lat) && Number.isFinite(payload.lon)
   const hasNote = !!noteBytes && noteBytes.length > 0
+  const extraSrcIds = extraUnitIdsBeyondPrimary(payload.src, payload.srcIds)
+  const hasSrcIds = extraSrcIds.length > 0
 
   const baseLen = 12
   const locLen = hasLoc ? 8 : 0
   const noteLen = hasNote ? 1 + Math.min(noteBytes.length, 120) : 0
-  const buf = new Uint8Array(baseLen + locLen + noteLen)
+  const srcIdsLen = hasSrcIds ? 1 + extraSrcIds.length * 2 : 0
+  const buf = new Uint8Array(baseLen + locLen + noteLen + srcIdsLen)
   const dv = new DataView(buf.buffer)
 
   dv.setUint8(0, SITREP_VERSION)
@@ -121,6 +240,7 @@ function encodeSitrepClear(payload) {
   let flags = 0
   if (hasLoc) flags |= 1
   if (hasNote) flags |= 2
+  if (hasSrcIds) flags |= 4
   dv.setUint8(11, flags)
 
   let o = 12
@@ -136,6 +256,14 @@ function encodeSitrepClear(payload) {
     o += 1
     buf.set(noteBytes.subarray(0, n), o)
     o += n
+  }
+  if (hasSrcIds) {
+    dv.setUint8(o, extraSrcIds.length)
+    o += 1
+    for (const unitId of extraSrcIds) {
+      dv.setUint16(o, unitId, false)
+      o += 2
+    }
   }
 
   return encodeBase64Url(buf)
@@ -157,6 +285,7 @@ function decodeSitrepClear(payloadB64Url) {
   const flags = dv.getUint8(11)
   const hasLoc = (flags & 1) !== 0
   const hasNote = (flags & 2) !== 0
+  const hasSrcIds = (flags & 4) !== 0
 
   let o = 12
   let lat
@@ -180,7 +309,32 @@ function decodeSitrepClear(payloadB64Url) {
     o += n
   }
 
-  return { src, dst, pri, status, t: unixMinutes * 60000, lat, lon, note }
+  let srcIds
+  if (hasSrcIds) {
+    if (bytes.length < o + 1) throw new Error('SITREP srcIds truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n * 2) throw new Error('SITREP srcIds truncated')
+    const extras = []
+    for (let i = 0; i < n; i++) {
+      extras.push(dv.getUint16(o, false))
+      o += 2
+    }
+    const out = []
+    const seen = new Set()
+    const add = (v) => {
+      const n = Math.floor(Number(v))
+      if (!Number.isFinite(n) || n <= 0) return
+      if (seen.has(n)) return
+      seen.add(n)
+      out.push(n)
+    }
+    add(src)
+    for (const v of extras) add(v)
+    if (out.length > 1) srcIds = out
+  }
+
+  return { src, ...(srcIds ? { srcIds } : {}), dst, pri, status, t: unixMinutes * 60000, lat, lon, note }
 }
 
 function makeSitrepClearPacket(payload) {
@@ -200,10 +354,13 @@ function encodeContactClear(p) {
   const noteBytes = p.note && String(p.note).trim() ? enc.encode(String(p.note).trim()) : undefined
   const hasLoc = Number.isFinite(p.lat) && Number.isFinite(p.lon)
   const hasNote = !!noteBytes && noteBytes.length > 0
+  const extraSrcIds = extraUnitIdsBeyondPrimary(p.src, p.srcIds)
+  const hasSrcIds = extraSrcIds.length > 0
   const baseLen = 13
   const locLen = hasLoc ? 8 : 0
   const noteLen = hasNote ? 1 + Math.min(noteBytes.length, 120) : 0
-  const buf = new Uint8Array(baseLen + locLen + noteLen)
+  const srcIdsLen = hasSrcIds ? 1 + extraSrcIds.length * 2 : 0
+  const buf = new Uint8Array(baseLen + locLen + noteLen + srcIdsLen)
   const dv = new DataView(buf.buffer)
   dv.setUint8(0, CONTACT_VERSION)
   dv.setUint16(1, p.src, false)
@@ -215,6 +372,7 @@ function encodeContactClear(p) {
   let flags = 0
   if (hasLoc) flags |= 1
   if (hasNote) flags |= 2
+  if (hasSrcIds) flags |= 4
   dv.setUint8(12, flags)
   let o = 13
   if (hasLoc) {
@@ -229,6 +387,14 @@ function encodeContactClear(p) {
     o += 1
     buf.set(noteBytes.subarray(0, n), o)
     o += n
+  }
+  if (hasSrcIds) {
+    dv.setUint8(o, extraSrcIds.length)
+    o += 1
+    for (const unitId of extraSrcIds) {
+      dv.setUint16(o, unitId, false)
+      o += 2
+    }
   }
   return encodeBase64Url(buf)
 }
@@ -248,6 +414,7 @@ function decodeContactClear(b64) {
   const flags = dv.getUint8(12)
   const hasLoc = (flags & 1) !== 0
   const hasNote = (flags & 2) !== 0
+  const hasSrcIds = (flags & 4) !== 0
   let o = 13
   let lat
   let lon
@@ -265,7 +432,32 @@ function decodeContactClear(b64) {
     note = dec.decode(bytes.subarray(o, o + n))
     o += n
   }
-  return { src, pri, t: unixMinutes * 60000, typeCode, count, dir, lat, lon, note }
+  let srcIds
+  if (hasSrcIds) {
+    if (bytes.length < o + 1) throw new Error('CONTACT srcIds truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n * 2) throw new Error('CONTACT srcIds truncated')
+    const extras = []
+    for (let i = 0; i < n; i++) {
+      extras.push(dv.getUint16(o, false))
+      o += 2
+    }
+    const out = []
+    const seen = new Set()
+    const add = (v) => {
+      const n = Math.floor(Number(v))
+      if (!Number.isFinite(n) || n <= 0) return
+      if (seen.has(n)) return
+      seen.add(n)
+      out.push(n)
+    }
+    add(src)
+    for (const v of extras) add(v)
+    if (out.length > 1) srcIds = out
+  }
+
+  return { src, ...(srcIds ? { srcIds } : {}), pri, t: unixMinutes * 60000, typeCode, count, dir, lat, lon, note }
 }
 
 function makeContactClearPacket(p) {
@@ -285,10 +477,13 @@ function encodeTaskClear(p) {
   const noteBytes = p.note && String(p.note).trim() ? enc.encode(String(p.note).trim()) : undefined
   const hasLoc = Number.isFinite(p.lat) && Number.isFinite(p.lon)
   const hasNote = !!noteBytes && noteBytes.length > 0
+  const extraSrcIds = extraUnitIdsBeyondPrimary(p.src, p.srcIds)
+  const hasSrcIds = extraSrcIds.length > 0
   const baseLen = 14
   const locLen = hasLoc ? 8 : 0
   const noteLen = hasNote ? 1 + Math.min(noteBytes.length, 120) : 0
-  const buf = new Uint8Array(baseLen + locLen + noteLen)
+  const srcIdsLen = hasSrcIds ? 1 + extraSrcIds.length * 2 : 0
+  const buf = new Uint8Array(baseLen + locLen + noteLen + srcIdsLen)
   const dv = new DataView(buf.buffer)
   dv.setUint8(0, TASK_VERSION)
   dv.setUint16(1, p.src, false)
@@ -300,6 +495,7 @@ function encodeTaskClear(p) {
   let flags = 0
   if (hasLoc) flags |= 1
   if (hasNote) flags |= 2
+  if (hasSrcIds) flags |= 4
   dv.setUint8(13, flags)
   let o = 14
   if (hasLoc) {
@@ -314,6 +510,14 @@ function encodeTaskClear(p) {
     o += 1
     buf.set(noteBytes.subarray(0, n), o)
     o += n
+  }
+  if (hasSrcIds) {
+    dv.setUint8(o, extraSrcIds.length)
+    o += 1
+    for (const unitId of extraSrcIds) {
+      dv.setUint16(o, unitId, false)
+      o += 2
+    }
   }
   return encodeBase64Url(buf)
 }
@@ -333,6 +537,7 @@ function decodeTaskClear(b64) {
   const flags = dv.getUint8(13)
   const hasLoc = (flags & 1) !== 0
   const hasNote = (flags & 2) !== 0
+  const hasSrcIds = (flags & 4) !== 0
   let o = 14
   let lat
   let lon
@@ -350,7 +555,32 @@ function decodeTaskClear(b64) {
     note = dec.decode(bytes.subarray(o, o + n))
     o += n
   }
-  return { src, dst, pri, t: unixMinutes * 60000, actionCode, dueMins, lat, lon, note }
+  let srcIds
+  if (hasSrcIds) {
+    if (bytes.length < o + 1) throw new Error('TASK srcIds truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n * 2) throw new Error('TASK srcIds truncated')
+    const extras = []
+    for (let i = 0; i < n; i++) {
+      extras.push(dv.getUint16(o, false))
+      o += 2
+    }
+    const out = []
+    const seen = new Set()
+    const add = (v) => {
+      const n = Math.floor(Number(v))
+      if (!Number.isFinite(n) || n <= 0) return
+      if (seen.has(n)) return
+      seen.add(n)
+      out.push(n)
+    }
+    add(src)
+    for (const v of extras) add(v)
+    if (out.length > 1) srcIds = out
+  }
+
+  return { src, ...(srcIds ? { srcIds } : {}), dst, pri, t: unixMinutes * 60000, actionCode, dueMins, lat, lon, note }
 }
 
 function makeTaskClearPacket(p) {
@@ -370,10 +600,13 @@ function encodeResourceClear(p) {
   const noteBytes = p.note && String(p.note).trim() ? enc.encode(String(p.note).trim()) : undefined
   const hasLoc = Number.isFinite(p.lat) && Number.isFinite(p.lon)
   const hasNote = !!noteBytes && noteBytes.length > 0
+  const extraSrcIds = extraUnitIdsBeyondPrimary(p.src, p.srcIds)
+  const hasSrcIds = extraSrcIds.length > 0
   const baseLen = 12
   const locLen = hasLoc ? 8 : 0
   const noteLen = hasNote ? 1 + Math.min(noteBytes.length, 120) : 0
-  const buf = new Uint8Array(baseLen + locLen + noteLen)
+  const srcIdsLen = hasSrcIds ? 1 + extraSrcIds.length * 2 : 0
+  const buf = new Uint8Array(baseLen + locLen + noteLen + srcIdsLen)
   const dv = new DataView(buf.buffer)
   dv.setUint8(0, RESOURCE_VERSION)
   dv.setUint16(1, p.src, false)
@@ -384,6 +617,7 @@ function encodeResourceClear(p) {
   let flags = 0
   if (hasLoc) flags |= 1
   if (hasNote) flags |= 2
+  if (hasSrcIds) flags |= 4
   dv.setUint8(11, flags)
   let o = 12
   if (hasLoc) {
@@ -398,6 +632,14 @@ function encodeResourceClear(p) {
     o += 1
     buf.set(noteBytes.subarray(0, n), o)
     o += n
+  }
+  if (hasSrcIds) {
+    dv.setUint8(o, extraSrcIds.length)
+    o += 1
+    for (const unitId of extraSrcIds) {
+      dv.setUint16(o, unitId, false)
+      o += 2
+    }
   }
   return encodeBase64Url(buf)
 }
@@ -416,6 +658,7 @@ function decodeResourceClear(b64) {
   const flags = dv.getUint8(11)
   const hasLoc = (flags & 1) !== 0
   const hasNote = (flags & 2) !== 0
+  const hasSrcIds = (flags & 4) !== 0
   let o = 12
   let lat
   let lon
@@ -433,7 +676,32 @@ function decodeResourceClear(b64) {
     note = dec.decode(bytes.subarray(o, o + n))
     o += n
   }
-  return { src, pri, t: unixMinutes * 60000, itemCode, qty, lat, lon, note }
+  let srcIds
+  if (hasSrcIds) {
+    if (bytes.length < o + 1) throw new Error('RESOURCE srcIds truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n * 2) throw new Error('RESOURCE srcIds truncated')
+    const extras = []
+    for (let i = 0; i < n; i++) {
+      extras.push(dv.getUint16(o, false))
+      o += 2
+    }
+    const out = []
+    const seen = new Set()
+    const add = (v) => {
+      const n = Math.floor(Number(v))
+      if (!Number.isFinite(n) || n <= 0) return
+      if (seen.has(n)) return
+      seen.add(n)
+      out.push(n)
+    }
+    add(src)
+    for (const v of extras) add(v)
+    if (out.length > 1) srcIds = out
+  }
+
+  return { src, ...(srcIds ? { srcIds } : {}), pri, t: unixMinutes * 60000, itemCode, qty, lat, lon, note }
 }
 
 function makeResourceClearPacket(p) {
@@ -455,12 +723,15 @@ function encodeAssetClear(p) {
   const hasLoc = Number.isFinite(p.lat) && Number.isFinite(p.lon)
   const hasLabel = !!labelBytes && labelBytes.length > 0
   const hasNote = !!noteBytes && noteBytes.length > 0
+  const extraSrcIds = extraUnitIdsBeyondPrimary(p.src, p.srcIds)
+  const hasSrcIds = extraSrcIds.length > 0
 
   const baseLen = 10
   const locLen = hasLoc ? 8 : 0
   const labelLen = hasLabel ? 1 + Math.min(labelBytes.length, 48) : 0
   const noteLen = hasNote ? 1 + Math.min(noteBytes.length, 120) : 0
-  const buf = new Uint8Array(baseLen + locLen + labelLen + noteLen)
+  const srcIdsLen = hasSrcIds ? 1 + extraSrcIds.length * 2 : 0
+  const buf = new Uint8Array(baseLen + locLen + labelLen + noteLen + srcIdsLen)
   const dv = new DataView(buf.buffer)
 
   dv.setUint8(0, ASSET_VERSION)
@@ -473,6 +744,7 @@ function encodeAssetClear(p) {
   if (hasLoc) flags |= 1
   if (hasLabel) flags |= 2
   if (hasNote) flags |= 4
+  if (hasSrcIds) flags |= 8
   dv.setUint8(9, flags)
 
   let o = 10
@@ -496,6 +768,14 @@ function encodeAssetClear(p) {
     buf.set(noteBytes.subarray(0, n), o)
     o += n
   }
+  if (hasSrcIds) {
+    dv.setUint8(o, extraSrcIds.length)
+    o += 1
+    for (const unitId of extraSrcIds) {
+      dv.setUint16(o, unitId, false)
+      o += 2
+    }
+  }
   return encodeBase64Url(buf)
 }
 
@@ -513,6 +793,7 @@ function decodeAssetClear(b64) {
   const hasLoc = (flags & 1) !== 0
   const hasLabel = (flags & 2) !== 0
   const hasNote = (flags & 4) !== 0
+  const hasSrcIds = (flags & 8) !== 0
 
   let o = 10
   let lat
@@ -543,7 +824,32 @@ function decodeAssetClear(b64) {
     note = dec.decode(bytes.subarray(o, o + n))
     o += n
   }
-  return { src, condition, t: unixMinutes * 60000, typeCode, lat, lon, label, note }
+  let srcIds
+  if (hasSrcIds) {
+    if (bytes.length < o + 1) throw new Error('ASSET srcIds truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n * 2) throw new Error('ASSET srcIds truncated')
+    const extras = []
+    for (let i = 0; i < n; i++) {
+      extras.push(dv.getUint16(o, false))
+      o += 2
+    }
+    const out = []
+    const seen = new Set()
+    const add = (v) => {
+      const n = Math.floor(Number(v))
+      if (!Number.isFinite(n) || n <= 0) return
+      if (seen.has(n)) return
+      seen.add(n)
+      out.push(n)
+    }
+    add(src)
+    for (const v of extras) add(v)
+    if (out.length > 1) srcIds = out
+  }
+
+  return { src, ...(srcIds ? { srcIds } : {}), condition, t: unixMinutes * 60000, typeCode, lat, lon, label, note }
 }
 
 function makeAssetClearPacket(p) {
@@ -565,6 +871,8 @@ function encodeZoneClear(p) {
   const noteBytes = p.note && String(p.note).trim() ? enc.encode(String(p.note).trim()) : undefined
   const hasLabel = !!labelBytes && labelBytes.length > 0
   const hasNote = !!noteBytes && noteBytes.length > 0
+  const extraSrcIds = extraUnitIdsBeyondPrimary(p.src, p.srcIds)
+  const hasSrcIds = extraSrcIds.length > 0
 
   const shapeIsCircle = p.shape && p.shape.kind === 'circle'
   const labelLen = hasLabel ? 1 + Math.min(labelBytes.length, 48) : 0
@@ -580,7 +888,8 @@ function encodeZoneClear(p) {
   }
 
   const baseLen = 10
-  const buf = new Uint8Array(baseLen + labelLen + noteLen + shapeLen)
+  const srcIdsLen = hasSrcIds ? 1 + extraSrcIds.length * 2 : 0
+  const buf = new Uint8Array(baseLen + labelLen + noteLen + shapeLen + srcIdsLen)
   const dv = new DataView(buf.buffer)
 
   dv.setUint8(0, ZONE_VERSION)
@@ -593,6 +902,7 @@ function encodeZoneClear(p) {
   if (hasLabel) flags |= 1
   if (hasNote) flags |= 2
   if (shapeIsCircle) flags |= 4
+  if (hasSrcIds) flags |= 8
   dv.setUint8(9, flags)
 
   let o = 10
@@ -634,6 +944,15 @@ function encodeZoneClear(p) {
     }
   }
 
+  if (hasSrcIds) {
+    dv.setUint8(o, extraSrcIds.length)
+    o += 1
+    for (const unitId of extraSrcIds) {
+      dv.setUint16(o, unitId, false)
+      o += 2
+    }
+  }
+
   return encodeBase64Url(buf)
 }
 
@@ -652,6 +971,7 @@ function decodeZoneClear(b64) {
   const hasLabel = (flags & 1) !== 0
   const hasNote = (flags & 2) !== 0
   const shapeIsCircle = (flags & 4) !== 0
+  const hasSrcIds = (flags & 8) !== 0
 
   let o = 10
   const dec = new TextDecoder()
@@ -702,7 +1022,32 @@ function decodeZoneClear(b64) {
     shape = { kind: 'poly', points }
   }
 
-  return { src, t: unixMinutes * 60000, threat, meaningCode, label, note, shape }
+  let srcIds
+  if (hasSrcIds) {
+    if (bytes.length < o + 1) throw new Error('ZONE srcIds truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n * 2) throw new Error('ZONE srcIds truncated')
+    const extras = []
+    for (let i = 0; i < n; i++) {
+      extras.push(dv.getUint16(o, false))
+      o += 2
+    }
+    const out = []
+    const seen = new Set()
+    const add = (v) => {
+      const n = Math.floor(Number(v))
+      if (!Number.isFinite(n) || n <= 0) return
+      if (seen.has(n)) return
+      seen.add(n)
+      out.push(n)
+    }
+    add(src)
+    for (const v of extras) add(v)
+    if (out.length > 1) srcIds = out
+  }
+
+  return { src, ...(srcIds ? { srcIds } : {}), t: unixMinutes * 60000, threat, meaningCode, label, note, shape }
 }
 
 function makeZoneClearPacket(p) {
@@ -854,6 +1199,15 @@ function encodeMissionClear(m) {
     dv.setUint8(o, extraAssignees.length)
     o += 1
     for (const unitId of extraAssignees) {
+      dv.setUint16(o, unitId, false)
+      o += 2
+    }
+  }
+
+  if (hasSrcIds) {
+    dv.setUint8(o, extraSrcIds.length)
+    o += 1
+    for (const unitId of extraSrcIds) {
       dv.setUint16(o, unitId, false)
       o += 2
     }

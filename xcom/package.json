@@ -15,7 +15,7 @@
     "fetch-shortwave": "node scripts/fetch-shortwave-schedule.js",
     "fetch-tiles": "node scripts/fetch-tiles.js",
     "test-callsign-geo": "node scripts/test-callsign-geocoding.js",
-    "test-trusted-mode": "node --test scripts/tests/trusted-mode.test.js scripts/tests/openmanet.test.js scripts/tests/forced-offline.test.js scripts/tests/badgeText.test.js scripts/tests/hidden-items.test.js",
+    "test-trusted-mode": "node --test scripts/tests/trusted-mode.test.js scripts/tests/openmanet.test.js scripts/tests/forced-offline.test.js scripts/tests/badgeText.test.js scripts/tests/hidden-items.test.js scripts/tests/packet.checkin.multi.test.js",
     "test-layout": "playwright test",
     "playwright:install": "playwright install chromium",
     "test": "npm run test-trusted-mode && npm run test-callsign-geo && npm run test-layout"
