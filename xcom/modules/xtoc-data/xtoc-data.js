@@ -9,6 +9,10 @@ class XtocDataModule {
     this._packets = []
     this._selectedKey = ''
     this._refreshTimer = null
+    this._refreshScheduledKeepSelection = false
+    this._refreshInFlight = false
+    this._refreshQueued = false
+    this._refreshQueuedKeepSelection = false
     this._packetsUpdatedHandler = null
     this.init()
   }
@@ -157,19 +161,24 @@ class XtocDataModule {
     const copySummaryBtn = document.getElementById('xtocDataCopySummaryBtn')
     const importToMapBtn = document.getElementById('xtocDataImportToMapBtn')
 
-    const schedule = () => {
+    const schedule = (opts = {}) => {
+      const keepSelection = opts.keepSelection === true
+      this._refreshScheduledKeepSelection = this._refreshScheduledKeepSelection || keepSelection
+
       if (this._refreshTimer) clearTimeout(this._refreshTimer)
       this._refreshTimer = setTimeout(() => {
         this._refreshTimer = null
-        void this.refresh()
-      }, 120)
+        const ks = this._refreshScheduledKeepSelection
+        this._refreshScheduledKeepSelection = false
+        void this.refresh({ keepSelection: ks })
+      }, keepSelection ? 240 : 120)
     }
 
     queryEl?.addEventListener('input', schedule)
-    last7El?.addEventListener('change', () => void this.refresh())
-    geoOnlyEl?.addEventListener('change', () => void this.refresh())
-    sourceEl?.addEventListener('change', () => void this.refresh())
-    refreshBtn?.addEventListener('click', () => void this.refresh())
+    last7El?.addEventListener('change', () => schedule())
+    geoOnlyEl?.addEventListener('change', () => schedule())
+    sourceEl?.addEventListener('change', () => schedule())
+    refreshBtn?.addEventListener('click', () => schedule())
 
     clearBtn?.addEventListener('click', async () => {
       const ok = confirm('Delete ALL stored XTOC packets from this device?\n\nThis cannot be undone.')
@@ -185,7 +194,7 @@ class XtocDataModule {
       }
       this._selectedKey = ''
       this.renderDetails(null)
-      void this.refresh()
+      schedule()
       try { globalThis.dispatchEvent(new Event('xcomXtocPacketsUpdated')) } catch (_) { /* ignore */ }
     })
 
@@ -258,13 +267,17 @@ class XtocDataModule {
     this._packetsUpdatedHandler = () => {
       // If module is no longer mounted, skip.
       try { if (!document.getElementById('xtoc-data')) return } catch (_) { return }
-      void this.refresh({ keepSelection: true })
+      schedule({ keepSelection: true })
     }
     try { globalThis.addEventListener('xcomXtocPacketsUpdated', this._packetsUpdatedHandler) } catch (_) { /* ignore */ }
 
     globalThis.__xcomXtocDataCleanup = () => {
       try { if (this._refreshTimer) clearTimeout(this._refreshTimer) } catch (_) { /* ignore */ }
       this._refreshTimer = null
+      this._refreshScheduledKeepSelection = false
+      this._refreshInFlight = false
+      this._refreshQueued = false
+      this._refreshQueuedKeepSelection = false
       try {
         if (this._packetsUpdatedHandler) globalThis.removeEventListener('xcomXtocPacketsUpdated', this._packetsUpdatedHandler)
       } catch (_) {
@@ -399,52 +412,88 @@ class XtocDataModule {
   async refresh(opts = {}) {
     const keepSelection = opts.keepSelection === true
 
+    if (this._refreshInFlight) {
+      this._refreshQueued = true
+      if (keepSelection) this._refreshQueuedKeepSelection = true
+      return
+    }
+    this._refreshInFlight = true
+
+    const scroller = keepSelection ? document.querySelector('main.xMain') : null
+    const beforeScrollTop = scroller ? Number(scroller.scrollTop || 0) || 0 : 0
+
     const countsEl = document.getElementById('xtocDataCounts')
     if (countsEl) countsEl.textContent = 'Loading…'
 
-    if (typeof globalThis.xcomListXtocPackets !== 'function' || typeof globalThis.xcomCountXtocPackets !== 'function') {
-      this._packets = []
-      this.renderTable([])
-      this.renderCounts(0, 0)
-      const details = document.getElementById('xtocDataDetails')
-      if (details) details.innerHTML = `<div class="xtocWarn">Packet store helpers not loaded. Ensure <code>modules/shared/xtoc/packetStore.js</code> is loaded for this module.</div>`
-      return
-    }
+    try {
+      if (typeof globalThis.xcomListXtocPackets !== 'function' || typeof globalThis.xcomCountXtocPackets !== 'function') {
+        this._packets = []
+        this.renderTable([])
+        this.renderCounts(0, 0)
+        const details = document.getElementById('xtocDataDetails')
+        if (details) details.innerHTML = `<div class="xtocWarn">Packet store helpers not loaded. Ensure <code>modules/shared/xtoc/packetStore.js</code> is loaded for this module.</div>`
+        return
+      }
 
-    const query = String(document.getElementById('xtocDataQuery')?.value || '').trim()
-    const last7 = !!document.getElementById('xtocDataLast7')?.checked
-    const geoOnly = !!document.getElementById('xtocDataGeoOnly')?.checked
-    const source = String(document.getElementById('xtocDataSource')?.value || '').trim()
+      const query = String(document.getElementById('xtocDataQuery')?.value || '').trim()
+      const last7 = !!document.getElementById('xtocDataLast7')?.checked
+      const geoOnly = !!document.getElementById('xtocDataGeoOnly')?.checked
+      const source = String(document.getElementById('xtocDataSource')?.value || '').trim()
 
-    const sinceMs = last7 ? (Date.now() - (7 * 24 * 60 * 60 * 1000)) : null
-    const listRes = await globalThis.xcomListXtocPackets({
-      limit: 2000,
-      ...(sinceMs ? { sinceMs } : {}),
-      ...(query ? { query } : {}),
-      ...(source ? { source } : {}),
-      ...(geoOnly ? { hasGeo: true } : {}),
-    })
-    const countRes = await globalThis.xcomCountXtocPackets()
+      const sinceMs = last7 ? (Date.now() - (7 * 24 * 60 * 60 * 1000)) : null
+      const listRes = await globalThis.xcomListXtocPackets({
+        limit: 2000,
+        ...(sinceMs ? { sinceMs } : {}),
+        ...(query ? { query } : {}),
+        ...(source ? { source } : {}),
+        ...(geoOnly ? { hasGeo: true } : {}),
+      })
+      const countRes = await globalThis.xcomCountXtocPackets()
 
-    const packets = (listRes && listRes.ok && Array.isArray(listRes.packets)) ? listRes.packets : []
-    const total = (countRes && countRes.ok) ? Number(countRes.count || 0) || 0 : 0
+      const packets = (listRes && listRes.ok && Array.isArray(listRes.packets)) ? listRes.packets : []
+      const total = (countRes && countRes.ok) ? Number(countRes.count || 0) || 0 : 0
 
-    this._packets = packets
-    this.renderTable(packets)
-    this.renderCounts(total, packets.length)
+      this._packets = packets
+      this.renderTable(packets)
+      this.renderCounts(total, packets.length)
 
-    if (!keepSelection) {
-      this._selectedKey = ''
-      this.renderDetails(null)
-      return
-    }
+      if (!keepSelection) {
+        this._selectedKey = ''
+        this.renderDetails(null)
+        return
+      }
 
-    // Keep existing selection if still present.
-    const found = this._packets.find((p) => String(p?.key || '') === this._selectedKey) || null
-    if (found) this.renderDetails(found)
-    else {
-      this._selectedKey = ''
-      this.renderDetails(null)
+      // Keep existing selection if still present.
+      const found = this._packets.find((p) => String(p?.key || '') === this._selectedKey) || null
+      if (found) this.renderDetails(found)
+      else {
+        this._selectedKey = ''
+        this.renderDetails(null)
+      }
+    } finally {
+      // On some mobile browsers, frequent DOM updates can snap the scroll container back to the top.
+      // Preserve the user's scroll position during live updates (keepSelection=true).
+      if (scroller && beforeScrollTop > 0) {
+        const restore = beforeScrollTop
+        const restoreScroll = () => {
+          try {
+            const after = Number(scroller.scrollTop || 0) || 0
+            if (after <= 2) scroller.scrollTop = restore
+          } catch (_) {
+            // ignore
+          }
+        }
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(restoreScroll)
+        else setTimeout(restoreScroll, 0)
+      }
+
+      this._refreshInFlight = false
+
+      const queued = this._refreshQueued
+      const queuedKeepSelection = this._refreshQueuedKeepSelection
+      this._refreshQueued = false
+      this._refreshQueuedKeepSelection = false
+      if (queued) void this.refresh({ keepSelection: queuedKeepSelection })
     }
   }
 }
