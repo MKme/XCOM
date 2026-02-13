@@ -44,8 +44,9 @@ class MapModule {
     this._trustedModeEnabled = false
     this._importedLegendEl = null
     this._importedSourceId = 'xcom-imported-src'
-    // Legacy dot layer id (removed; points now render as DOM icon markers)
+    // Zone center points (templateId=7) render as style-layer circles (like XTOC).
     this._importedPointLayerId = 'xcom-imported-pt'
+    this._importedOutlineLayerId = 'xcom-imported-ol'
     this._importedLineLayerId = 'xcom-imported-ln'
     this._importedFillLayerId = 'xcom-imported-fl'
     this._importedKeyWarnLineLayerId = 'xcom-imported-ln-keywarn'
@@ -1239,6 +1240,24 @@ class MapModule {
     if (!this.map) return
     const map = this.map
 
+    // Threat (zone) palette (match XTOC Tactical Map).
+    const zoneFillExpr = [
+      'case',
+      ['==', ['get', 'threat'], 0], 'rgba(46,230,166,0.18)',
+      ['==', ['get', 'threat'], 1], 'rgba(255,96,96,0.18)',
+      'rgba(246,201,69,0.18)',
+    ]
+    const zoneStrokeExpr = [
+      'case',
+      ['==', ['get', 'threat'], 0], 'rgba(46,230,166,0.95)',
+      ['==', ['get', 'threat'], 1], 'rgba(255,96,96,0.95)',
+      'rgba(246,201,69,0.95)',
+    ]
+
+    const fillColorExpr = ['coalesce', ['get', 'fill'], ['case', ['has', 'threat'], zoneFillExpr, 'rgba(246,201,69,0.18)']]
+    const polyStrokeColorExpr = ['coalesce', ['get', 'stroke'], ['case', ['has', 'threat'], zoneStrokeExpr, 'rgba(0,0,0,0.65)']]
+    const lineStrokeColorExpr = ['coalesce', ['get', 'stroke'], ['case', ['has', 'threat'], zoneStrokeExpr, 'rgba(124,199,255,0.95)']]
+
     // Bind global update listener once per module instance.
     if (!this._importedHandlersBound) {
       this._importedHandlersBound = true
@@ -1281,9 +1300,26 @@ class MapModule {
           source: this._importedSourceId,
           filter: ['==', ['geometry-type'], 'Polygon'],
           paint: {
-            // Match Comms import preview: zones are blue.
-            'fill-color': '#66c2ff',
-            'fill-opacity': 0.15,
+            // Match XTOC Tactical Map: zones are threat-colored.
+            'fill-color': fillColorExpr,
+            'fill-outline-color': polyStrokeColorExpr,
+          },
+        })
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    try {
+      if (!map.getLayer(this._importedOutlineLayerId)) {
+        map.addLayer({
+          id: this._importedOutlineLayerId,
+          type: 'line',
+          source: this._importedSourceId,
+          filter: ['==', ['geometry-type'], 'Polygon'],
+          paint: {
+            'line-color': polyStrokeColorExpr,
+            'line-width': ['coalesce', ['get', 'strokeWidth'], 2],
           },
         })
       }
@@ -1297,11 +1333,10 @@ class MapModule {
           id: this._importedLineLayerId,
           type: 'line',
           source: this._importedSourceId,
-          // Match Comms import preview: outlines for polygons + any optional lines.
-          filter: ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'LineString']],
+          filter: ['==', ['geometry-type'], 'LineString'],
           paint: {
-            'line-color': '#66c2ff',
-            'line-width': 3,
+            'line-color': lineStrokeColorExpr,
+            'line-width': ['coalesce', ['get', 'strokeWidth'], 3],
           },
         })
       }
@@ -1332,11 +1367,33 @@ class MapModule {
       // ignore
     }
 
-    // Remove legacy dot layer if present (points are DOM icon markers now).
-    try { if (map.getLayer(this._importedPointLayerId)) map.removeLayer(this._importedPointLayerId) } catch (_) { /* ignore */ }
+    // Zone center points (templateId=7) as circles (match XTOC zone center markers).
+    try {
+      if (!map.getLayer(this._importedPointLayerId)) {
+        map.addLayer({
+          id: this._importedPointLayerId,
+          type: 'circle',
+          source: this._importedSourceId,
+          filter: [
+            'all',
+            ['==', ['geometry-type'], 'Point'],
+            ['==', ['get', 'kind'], 'zoneCenter'],
+          ],
+          paint: {
+            'circle-radius': 8,
+            'circle-color': ['coalesce', ['get', 'stroke'], ['case', ['has', 'threat'], zoneStrokeExpr, 'rgba(124,199,255,0.95)']],
+            'circle-stroke-color': 'rgba(0,0,0,0.65)',
+            'circle-stroke-width': 2,
+          },
+        })
+      }
+    } catch (_) {
+      // ignore
+    }
 
     // Click handlers (bind once; layer ids remain stable across re-adds)
     try { map.off('click', this._importedFillLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
+    try { map.off('click', this._importedOutlineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.off('click', this._importedLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.off('click', this._importedKeyWarnLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.off('click', this._importedPointLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
@@ -1382,16 +1439,18 @@ class MapModule {
     }
 
     try { map.on('click', this._importedFillLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
+    try { map.on('click', this._importedOutlineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.on('click', this._importedLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.on('click', this._importedKeyWarnLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
+    try { map.on('click', this._importedPointLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
   }
 
   setImportedLayerVisibility(visible) {
     if (!this.map) return
     const map = this.map
     const v = visible ? 'visible' : 'none'
-    // Legacy dot layer should never be visible.
-    try { if (map.getLayer(this._importedPointLayerId)) map.setLayoutProperty(this._importedPointLayerId, 'visibility', 'none') } catch (_) {}
+    try { if (map.getLayer(this._importedPointLayerId)) map.setLayoutProperty(this._importedPointLayerId, 'visibility', v) } catch (_) {}
+    try { if (map.getLayer(this._importedOutlineLayerId)) map.setLayoutProperty(this._importedOutlineLayerId, 'visibility', v) } catch (_) {}
     try { if (map.getLayer(this._importedLineLayerId)) map.setLayoutProperty(this._importedLineLayerId, 'visibility', v) } catch (_) {}
     try { if (map.getLayer(this._importedKeyWarnLineLayerId)) map.setLayoutProperty(this._importedKeyWarnLineLayerId, 'visibility', v) } catch (_) {}
     try { if (map.getLayer(this._importedFillLayerId)) map.setLayoutProperty(this._importedFillLayerId, 'visibility', v) } catch (_) {}
@@ -1433,11 +1492,19 @@ class MapModule {
       return
     }
 
+    const isZoneCenter = (f) => {
+      try {
+        return f?.geometry?.type === 'Point' && String(f?.properties?.kind ?? '').trim() === 'zoneCenter'
+      } catch (_) {
+        return false
+      }
+    }
+
     const srcFeatures = allFeatures.filter((f) => {
-      try { return f?.geometry?.type !== 'Point' } catch (_) { return true }
+      try { return f?.geometry?.type !== 'Point' || isZoneCenter(f) } catch (_) { return true }
     })
     const pointFeatures = allFeatures.filter((f) => {
-      try { return f?.geometry?.type === 'Point' } catch (_) { return false }
+      try { return f?.geometry?.type === 'Point' && !isZoneCenter(f) } catch (_) { return false }
     })
 
     try {

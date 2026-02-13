@@ -668,7 +668,7 @@ class CommsModule {
         type: 'line',
         source: this._zoneSourceId,
         paint: {
-          'line-color': '#66c2ff',
+          'line-color': 'rgba(246,201,69,0.95)',
           'line-width': 3,
         },
       })
@@ -679,8 +679,8 @@ class CommsModule {
         type: 'fill',
         source: this._zoneSourceId,
         paint: {
-          'fill-color': '#66c2ff',
-          'fill-opacity': 0.15,
+          'fill-color': 'rgba(246,201,69,0.18)',
+          'fill-outline-color': 'rgba(246,201,69,0.95)',
         },
       })
     }
@@ -3677,8 +3677,8 @@ class CommsModule {
             source: this._importGeoSourceId,
             filter: ['==', ['geometry-type'], 'Polygon'],
             paint: {
-              'fill-color': '#66c2ff',
-              'fill-opacity': 0.15,
+              'fill-color': 'rgba(246,201,69,0.18)',
+              'fill-outline-color': 'rgba(246,201,69,0.95)',
             },
           })
 
@@ -3689,7 +3689,7 @@ class CommsModule {
             source: this._importGeoSourceId,
             filter: ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'LineString']],
             paint: {
-              'line-color': '#66c2ff',
+              'line-color': 'rgba(246,201,69,0.95)',
               'line-width': 3,
             },
           })
