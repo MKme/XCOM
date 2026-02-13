@@ -199,7 +199,7 @@ class HelpModule {
                     <h2>XTOC Comm Module</h2>
                     <h3>Overview</h3>
                     <p>
-                        XTOC Comm is an XTOC-compatible packet workshop and import bridge: create standardized reports, chunk them for transport limits, and move them via copy/paste, QR, Mesh, or MANET (LAN).
+                        XTOC Comm is an XTOC-compatible packet workshop and import bridge: create standardized reports, chunk them for transport limits, and move them via copy/paste, Voice (TTS), QR, Mesh, or MANET (LAN).
                         It also supports importing XTOC exports so field devices have roster labels, SECURE keys (KID), and packet history for offline operations.
                     </p>
 
@@ -207,7 +207,7 @@ class HelpModule {
                     <ul>
                         <li><strong>Templates:</strong> T=1&ndash;8 (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION).</li>
                         <li><strong>Modes:</strong> <strong>CLEAR</strong> (human-readable fields) or <strong>SECURE</strong> (encrypted).</li>
-                        <li><strong>Transport profiles:</strong> choose Copy/Paste, JS8/APRS, Winlink, Meshtastic/MeshCore, MANET (LAN), or QR &mdash; then click <strong>Generate</strong>.</li>
+                        <li><strong>Transport profiles:</strong> choose Copy/Paste, Voice (TTS), JS8/APRS, Winlink, Meshtastic/MeshCore, MANET (LAN), or QR &mdash; then click <strong>Generate</strong>.</li>
                         <li><strong>Location tools:</strong> <strong>Pick Location</strong> and <strong>Draw Zone</strong> open a mini-map so you can embed coordinates/areas into packets.</li>
                     </ul>
 
@@ -220,6 +220,7 @@ class HelpModule {
                     <h3>Moving packets</h3>
                     <ul>
                         <li><strong>Copy</strong> puts the generated packet lines on your clipboard.</li>
+                        <li><strong>Output Voice</strong> spells out the packet text character-by-character for manual voice relays (Voice transport).</li>
                         <li><strong>Make QR</strong> renders a scannable QR for the first packet line (best for QR/Copy-Paste transports).</li>
                         <li><strong>Scan QR</strong> (Import/Reassemble) reads packet lines from camera and decodes them.</li>
                         <li><strong>Send via Mesh</strong> sends each generated packet line as a mesh text message (Meshtastic or MeshCore; requires Mesh connected).</li>

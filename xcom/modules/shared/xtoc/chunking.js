@@ -11,6 +11,9 @@ function getTransportMaxPacketChars(profile) {
       return 67
     case 'HamOther':
       return 80
+    case 'Voice':
+      // Voice relay / TTS spelling. Keep lines short enough for humans to follow.
+      return 80
     case 'Winlink':
       return 400
     case 'Meshtastic':
