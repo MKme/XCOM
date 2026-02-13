@@ -161,7 +161,7 @@ select optgroup {
 .appShell {
     height: 100dvh;
     display: grid;
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: var(--shellSidebarW, 260px) 1fr;
 }
 
 /* Sidebar */
@@ -172,6 +172,29 @@ select optgroup {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    position: relative;
+}
+
+.xSidebarResizer {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    touch-action: none;
+    background: transparent;
+}
+
+.xSidebarResizer:hover,
+.xSidebarResizer:active {
+    background: rgba(46, 230, 166, 0.10);
+}
+
+body.xSidebarResizing,
+body.xSidebarResizing * {
+    cursor: col-resize !important;
+    user-select: none !important;
 }
 
 .xBrand {
@@ -244,6 +267,7 @@ select optgroup {
     border-radius: 10px;
     color: var(--muted);
     border: 1px solid transparent;
+    min-width: 0;
 }
 
 .xNavIcon {
@@ -252,6 +276,14 @@ select optgroup {
     align-items: center;
     justify-content: center;
     color: rgba(159, 178, 198, 0.95);
+}
+
+.xNavItem > span:not(.xNavIcon) {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .xNavItem:hover .xNavIcon { color: rgba(214, 227, 240, 0.95); }
@@ -767,6 +799,8 @@ body.xGateOpen {
         overflow: auto;
         box-shadow: 18px 0 40px rgba(0,0,0,0.55);
     }
+
+    .xSidebarResizer { display: none; }
 
     body.xNavOpen .xSidebar {
         transform: translateX(0);

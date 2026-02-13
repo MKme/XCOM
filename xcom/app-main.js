@@ -21,6 +21,39 @@ const LS_LICENSE_OK = 'xcom.license.ok';
 const LS_LICENSE_KEY = 'xcom.license.key';
 const LS_LICENSE_CHECKED_AT = 'xcom.license.checkedAt';
 
+const LS_SIDEBAR_WIDTH = 'xcom.sidebarWidth';
+const XCOM_SIDEBAR_DEFAULT_W = 260;
+const XCOM_SIDEBAR_MIN_W = 180;
+const XCOM_SIDEBAR_MAX_W = XCOM_SIDEBAR_DEFAULT_W;
+
+function xcomClampSidebarWidth(width) {
+    const w = Number(width);
+    if (!Number.isFinite(w)) return XCOM_SIDEBAR_DEFAULT_W;
+    return Math.max(XCOM_SIDEBAR_MIN_W, Math.min(XCOM_SIDEBAR_MAX_W, w));
+}
+
+function xcomGetSidebarWidthFromShell(shell) {
+    try {
+        const raw = String(getComputedStyle(shell).getPropertyValue('--shellSidebarW') || '').trim();
+        const parsed = Number.parseFloat(raw);
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    } catch (_) {
+        // ignore
+    }
+    return XCOM_SIDEBAR_DEFAULT_W;
+}
+
+function xcomApplySidebarWidth(shell, nextWidth) {
+    const width = xcomClampSidebarWidth(nextWidth);
+    try {
+        if (width === XCOM_SIDEBAR_DEFAULT_W) shell.style.removeProperty('--shellSidebarW');
+        else shell.style.setProperty('--shellSidebarW', `${width}px`);
+    } catch (_) {
+        // ignore
+    }
+    return width;
+}
+
 // Forced Offline guards (installed via modules/shared/xtoc/settings.js)
 try { globalThis.installForcedOfflineNetworkGuards?.(); } catch (_) { /* ignore */ }
 try { globalThis.syncForcedOfflineToServiceWorker?.(); } catch (_) { /* ignore */ }
@@ -1155,6 +1188,7 @@ class RadioApp {
             });
         });
 
+        this.setupSidebarResizer();
         this.setupMobileNav();
         this.setupTopbarIndicators();
         
@@ -1633,6 +1667,60 @@ class RadioApp {
         } catch (_) {
             return window.innerWidth <= 900;
         }
+    }
+
+    setupSidebarResizer() {
+        const shell = document.querySelector('.appShell');
+        const handle = document.getElementById('xSidebarResizer');
+        if (!shell || !handle) return;
+
+        // Restore saved width (desktop only)
+        try {
+            const raw = localStorage.getItem(LS_SIDEBAR_WIDTH);
+            if (raw) {
+                const parsed = Number.parseFloat(String(raw));
+                if (Number.isFinite(parsed)) {
+                    const width = xcomApplySidebarWidth(shell, parsed);
+                    if (width === XCOM_SIDEBAR_DEFAULT_W) localStorage.removeItem(LS_SIDEBAR_WIDTH);
+                }
+            }
+        } catch (_) {
+            // ignore
+        }
+
+        handle.addEventListener('pointerdown', (e) => {
+            if (this.isMobileView()) return;
+            if (e.button !== 0) return;
+
+            e.preventDefault();
+            try { handle.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+
+            document.body.classList.add('xSidebarResizing');
+            const startX = e.clientX;
+            const startW = xcomGetSidebarWidthFromShell(shell);
+            let lastW = startW;
+
+            const onMove = (ev) => {
+                lastW = xcomApplySidebarWidth(shell, startW + (ev.clientX - startX));
+            };
+
+            const onEnd = () => {
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onEnd);
+                window.removeEventListener('pointercancel', onEnd);
+                document.body.classList.remove('xSidebarResizing');
+                try {
+                    if (lastW === XCOM_SIDEBAR_DEFAULT_W) localStorage.removeItem(LS_SIDEBAR_WIDTH);
+                    else localStorage.setItem(LS_SIDEBAR_WIDTH, String(lastW));
+                } catch (_) {
+                    // ignore
+                }
+            };
+
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onEnd);
+            window.addEventListener('pointercancel', onEnd);
+        });
     }
 
     setupMobileNav() {
