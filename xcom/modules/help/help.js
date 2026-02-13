@@ -130,7 +130,7 @@ class HelpModule {
                         </div>
                         <div class="module-card">
                             <h3>Mesh</h3>
-                            <p>Connect to a Meshtastic or MeshCore device (Web Bluetooth), configure destination/channel, send test messages, and view inbound/outbound traffic. XTOC Comm can send generated packets directly over the mesh.</p>
+                            <p>Connect to a Meshtastic or MeshCore device (Web Bluetooth), import channel labels (Meshtastic), click channels or heard nodes to quick-set Broadcast/DM, send test messages, and view inbound/outbound traffic. XTOC Comm can send generated packets directly over the mesh.</p>
                         </div>
                         <div class="module-card">
                             <h3>Map</h3>
@@ -366,6 +366,8 @@ class HelpModule {
                     <ol>
                         <li>Open <strong>Mesh</strong> and click <strong>Connect</strong>.</li>
                         <li>Choose <strong>Broadcast</strong> (channel) or <strong>Direct</strong> (id), set your channel and (Meshtastic only) ACK preference.</li>
+                        <li>(Optional) Use <strong>Channels</strong> to import Meshtastic channel labels and quick-select a channel.</li>
+                        <li>Use <strong>Nodes heard</strong> to click a node and quick-set the Direct destination for a DM.</li>
                         <li>Send a <strong>Test message</strong> and confirm it appears in the Traffic log.</li>
                         <li>Open <strong>XTOC Comm</strong>, generate packets, then click <strong>Send via Mesh</strong> to transmit each packet line as a mesh text message.</li>
                     </ol>
@@ -374,6 +376,7 @@ class HelpModule {
                     <ul>
                         <li>If the browser cannot see your device, confirm Bluetooth is on and the device is not already connected to another client.</li>
                         <li>If messages appear truncated, choose the <strong>Meshtastic (180 chars)</strong> or <strong>MeshCore (160 bytes)</strong> transport profile in XTOC Comm before generating.</li>
+                        <li>Channel label import is currently supported for <strong>Meshtastic</strong> devices (labels are stored locally on this device).</li>
                         <li>Traffic and settings are stored locally under <code>xcom.mesh.*</code> keys in localStorage.</li>
                     </ul>
                 </div>
@@ -597,7 +600,7 @@ class HelpModule {
                 
                 <div class="help-section">
                     <h2>About</h2>
-                    <p>XCOM™ v1.0.36</p>
+                    <p>XCOM™ v1.0.37</p>
                     <p>&copy; 2025 - All rights reserved</p>
                     <p>This application is designed for amateur radio operators to assist with various radio-related tasks. It is continually being improved with new features and modules.</p>
 

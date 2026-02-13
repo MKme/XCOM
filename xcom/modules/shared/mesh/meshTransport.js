@@ -21,6 +21,7 @@ const LS_MESH_LAST_DEVICE_ID_LEGACY = LS_MESH_PREFIX + 'lastBleDeviceId.v1'
 const LS_MESH_LAST_DEVICE_ID_MT = LS_MESH_PREFIX + 'lastBleDeviceId.meshtastic.v1'
 const LS_MESH_LAST_DEVICE_ID_MC = LS_MESH_PREFIX + 'lastBleDeviceId.meshcore.v1'
 const LS_MESH_NODES = LS_MESH_PREFIX + 'nodes.v1'
+const LS_MESH_CHANNELS = LS_MESH_PREFIX + 'channels.v1'
 const LS_MESH_COVERAGE = LS_MESH_PREFIX + 'coverage.v1'
 
 function meshReadJson(key, fallback) {
@@ -288,7 +289,7 @@ function meshClearTraffic() {
 }
 
 // -----------------------------
-// Node DB (persistent)
+// State DBs (persistent)
 // -----------------------------
 
 function meshAsFiniteNumber(v) {
@@ -300,6 +301,112 @@ function meshAsNonEmptyString(v) {
   const s = (v == null) ? '' : String(v)
   const t = s.trim()
   return t ? t : null
+}
+
+// -----------------------------
+// Channel DB (persistent)
+// -----------------------------
+
+function meshDefaultChannelName(driver, index) {
+  const i = Math.max(0, Math.floor(Number(index) || 0))
+  if (driver === 'meshtastic') {
+    if (i === 0) return 'Primary'
+    if (i === 7) return 'Admin'
+    return `Channel ${i}`
+  }
+  return `Channel ${i}`
+}
+
+function meshReadChannelDb() {
+  const raw = meshReadJson(LS_MESH_CHANNELS, null)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { meshtastic: [], meshcore: [] }
+  const mt = Array.isArray(raw.meshtastic) ? raw.meshtastic : []
+  const mc = Array.isArray(raw.meshcore) ? raw.meshcore : []
+  return { meshtastic: mt, meshcore: mc }
+}
+
+function meshWriteChannelDb(db) {
+  const safe = (db && typeof db === 'object' && !Array.isArray(db)) ? db : { meshtastic: [], meshcore: [] }
+  meshWriteJson(LS_MESH_CHANNELS, safe)
+}
+
+function meshNormalizeChannelEntry(driver, entry) {
+  const d = driver === 'meshcore' ? 'meshcore' : 'meshtastic'
+  const idx = meshAsFiniteNumber(entry?.index ?? entry?.idx ?? entry?.channel ?? entry?.channelIndex ?? null)
+  if (idx == null) return null
+
+  const max = d === 'meshcore' ? 255 : 7
+  const index = Math.max(0, Math.min(max, Math.floor(idx)))
+
+  const name = meshAsNonEmptyString(entry?.name ?? null) || meshDefaultChannelName(d, index)
+  const role = meshAsNonEmptyString(entry?.role ?? null) || undefined
+  const ts = meshAsFiniteNumber(entry?.ts ?? entry?.updatedAt ?? null) ?? Date.now()
+
+  return { index, name, ...(role ? { role } : {}), ts }
+}
+
+function meshNormalizeMeshtasticChannelPacket(ch) {
+  if (!ch || typeof ch !== 'object') return null
+  const any = ch
+  const idx = meshAsFiniteNumber(any?.index ?? any?.channelNum ?? any?.channelNumber ?? any?.channel ?? null)
+  if (idx == null) return null
+  const index = Math.max(0, Math.min(7, Math.floor(idx)))
+
+  const settings = any?.settings ?? null
+  const name = meshAsNonEmptyString(settings?.name ?? any?.name ?? null) || meshDefaultChannelName('meshtastic', index)
+
+  let role = null
+  try {
+    const r = any?.role ?? settings?.role ?? null
+    if (typeof r === 'string') role = meshAsNonEmptyString(r)
+    else if (typeof r === 'number' && Number.isFinite(r)) {
+      // Optional: map numeric roles to enum labels when present.
+      const Enum =
+        globalThis?.Meshtastic?.Protobuf?.Channel?.Channel_Role ||
+        globalThis?.Meshtastic?.Protobufs?.Channel?.Channel_Role ||
+        globalThis?.Meshtastic?.Protobuf?.Channel?.Channel_Role_ ||
+        null
+      const label = Enum && Enum[r]
+      role = meshAsNonEmptyString(label ?? null) || String(r)
+    }
+  } catch (_) {
+    role = null
+  }
+
+  return { index, name, ...(role ? { role } : {}), ts: Date.now() }
+}
+
+function meshUpsertChannel(db, driver, entry) {
+  const d = driver === 'meshcore' ? 'meshcore' : 'meshtastic'
+  const norm = meshNormalizeChannelEntry(d, entry)
+  if (!norm) return db
+
+  const base = (db && typeof db === 'object' && !Array.isArray(db)) ? db : { meshtastic: [], meshcore: [] }
+  const arr = Array.isArray(base[d]) ? base[d] : []
+  const idx = arr.findIndex((c) => Number(c?.index) === norm.index)
+  const next = idx >= 0 ? arr.map((c, i) => (i === idx ? { ...(c || {}), ...norm } : c)) : [...arr, norm]
+  // Keep sorted and capped (defensive: avoid unbounded growth).
+  next.sort((a, b) => Number(a?.index ?? 0) - Number(b?.index ?? 0))
+  base[d] = next.slice(0, 64)
+  return base
+}
+
+function meshChannelDbToArray(db, driver) {
+  try {
+    const d = driver === 'meshcore' ? 'meshcore' : 'meshtastic'
+    const arr = Array.isArray(db?.[d]) ? db[d] : []
+    return arr
+      .filter((c) => c && typeof c === 'object' && Number.isFinite(Number(c.index)))
+      .map((c) => ({
+        index: Math.floor(Number(c.index)),
+        name: meshAsNonEmptyString(c.name) || meshDefaultChannelName(d, Number(c.index)),
+        ...(meshAsNonEmptyString(c.role) ? { role: meshAsNonEmptyString(c.role) } : {}),
+        ...(Number.isFinite(Number(c.ts)) ? { ts: Number(c.ts) } : {}),
+      }))
+      .sort((a, b) => a.index - b.index)
+  } catch (_) {
+    return []
+  }
 }
 
 function meshFormatMeshtasticNodeId(num) {
@@ -735,6 +842,8 @@ class MeshtasticDriver {
     this._onUser = null
     this._onPosition = null
     this._onTelemetry = null
+
+    this._channelSubscribers = new Set()
   }
 
   _emitLog(level, msg, data) {
@@ -751,6 +860,22 @@ class MeshtasticDriver {
   onUser(fn) { this._onUser = fn }
   onPosition(fn) { this._onPosition = fn }
   onTelemetry(fn) { this._onTelemetry = fn }
+
+  onChannel(fn) {
+    if (typeof fn !== 'function') return () => {}
+    this._channelSubscribers.add(fn)
+    return () => this._channelSubscribers.delete(fn)
+  }
+
+  _emitChannel(ch) {
+    try {
+      for (const fn of Array.from(this._channelSubscribers)) {
+        try { fn(ch) } catch (_) { /* ignore */ }
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
 
   _emitDeviceStatus(status) {
     const s = Number(status)
@@ -862,6 +987,9 @@ class MeshtasticDriver {
             try { this._onDeviceInfo(this.lastDeviceInfo) } catch (_) { /* ignore */ }
           }
         }))
+      }
+      if (ev?.onChannelPacket?.subscribe) {
+        this.subs.push(ev.onChannelPacket.subscribe((ch) => this._emitChannel(ch)))
       }
     } catch (_) {
       // ignore
@@ -1008,6 +1136,40 @@ class MeshtasticDriver {
     }
 
     throw new Error('Meshtastic connection does not support sendText()')
+  }
+
+  async requestChannels(opts) {
+    if (!this.bleConn || !this.connected) throw new Error('Not connected to a Meshtastic device')
+    const conn = this.bleConn
+
+    const timeoutMs = Math.max(500, Math.min(15000, Math.floor(Number(opts?.timeoutMs) || 4000)))
+    const want = [0, 1, 2, 3, 4, 5, 6, 7]
+    const got = new Map()
+
+    const unsub = this.onChannel((ch) => {
+      const norm = meshNormalizeMeshtasticChannelPacket(ch)
+      if (norm) got.set(norm.index, norm)
+    })
+
+    try {
+      if (typeof conn?.getAllChannels === 'function') {
+        try { await conn.getAllChannels() } catch (_) { /* ignore */ }
+      } else if (typeof conn?.getChannel === 'function') {
+        for (const i of want) {
+          try { await conn.getChannel(i) } catch (_) { /* ignore */ }
+        }
+      } else {
+        throw new Error('Meshtastic connection does not support channel import (getChannel/getAllChannels missing)')
+      }
+
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline && got.size < want.length) {
+        await new Promise((r) => setTimeout(r, 50))
+      }
+      return Array.from(got.values()).sort((a, b) => a.index - b.index)
+    } finally {
+      try { unsub() } catch (_) { /* ignore */ }
+    }
   }
 }
 
@@ -1261,6 +1423,7 @@ class MeshCoreDriver {
   // Interface compatibility with MeshtasticDriver (not all events exist in MeshCore).
   onUser(_fn) {}
   onTelemetry(_fn) {}
+  onChannel(_fn) {}
 
   _emitNodeInfoFromInfo(info, source) {
     if (!info || typeof info !== 'object') return
@@ -1728,6 +1891,7 @@ class XcomMeshTransport {
     this.reconnectAttempt = 0
 
     this.nodeDb = meshReadNodeDb()
+    this.channelDb = meshReadChannelDb()
   }
 
   getConfig() { return _meshConfigGet() }
@@ -1755,6 +1919,38 @@ class XcomMeshTransport {
   getNodeDb() { return this.nodeDb || {} }
   getNodes() { return meshNodeDbToArray(this.getNodeDb()) }
   clearNodes() { this.nodeDb = {}; meshWriteNodeDb({}); this._notify() }
+
+  getChannelDb() { return this.channelDb || { meshtastic: [], meshcore: [] } }
+  getChannels(driver) {
+    const cfg = this.getConfig()
+    const d = driver || ((cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic')
+    return meshChannelDbToArray(this.getChannelDb(), d)
+  }
+  clearChannels(driver) {
+    const d = driver
+      ? (driver === 'meshcore' ? 'meshcore' : 'meshtastic')
+      : null
+
+    if (!d) {
+      this.channelDb = { meshtastic: [], meshcore: [] }
+      meshWriteChannelDb(this.channelDb)
+      this._notify()
+      return
+    }
+
+    const db = this.getChannelDb()
+    db[d] = []
+    this.channelDb = db
+    meshWriteChannelDb(db)
+    this._notify()
+  }
+
+  _upsertChannel(driver, entry) {
+    const db = this.getChannelDb()
+    const next = meshUpsertChannel(db, driver, entry)
+    this.channelDb = next
+    meshWriteChannelDb(next)
+  }
 
   _upsertNode(num, patch) {
     const cfg = this.getConfig()
@@ -1785,6 +1981,7 @@ class XcomMeshTransport {
       status: { ...this.status },
       traffic: this.getTrafficLog(),
       nodes: this.getNodes(),
+      channels: this.getChannels(),
     }
   }
 
@@ -1863,6 +2060,26 @@ class XcomMeshTransport {
     return await this._connectInternal({ auto: false })
   }
 
+  async importChannels() {
+    if (!this.driver) throw new Error('Mesh not connected')
+    const cfg = this.getConfig()
+    const driverName = (cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic'
+
+    if (driverName !== 'meshtastic') {
+      throw new Error('Channel import is currently supported for Meshtastic only.')
+    }
+    if (typeof this.driver?.requestChannels !== 'function') {
+      throw new Error('Active Meshtastic driver does not support channel import.')
+    }
+
+    const list = await this.driver.requestChannels({ timeoutMs: 6000 })
+    for (const c of Array.isArray(list) ? list : []) {
+      this._upsertChannel('meshtastic', c)
+    }
+    this._notify()
+    return this.getChannels('meshtastic')
+  }
+
   async _connectInternal(opts) {
     if (this.connectInFlight) return await this.connectInFlight
 
@@ -1888,6 +2105,18 @@ class XcomMeshTransport {
 
         const d = driverName === 'meshcore' ? new MeshCoreDriver() : new MeshtasticDriver()
         d.onLog((e) => this._appendLog({ dir: 'sys', ...e }))
+        d.onChannel((ch) => {
+          try {
+            if (driverName !== 'meshtastic') return
+            const norm = meshNormalizeMeshtasticChannelPacket(ch)
+            if (!norm) return
+            this._upsertChannel('meshtastic', norm)
+          } catch (_) {
+            // ignore
+          } finally {
+            this._notify()
+          }
+        })
         d.onDeviceStatus((e) => {
           try {
             const dev = d.getBleDevice?.()
@@ -2187,9 +2416,31 @@ class XcomMeshTransport {
     if (!msg) throw new Error('Nothing to send')
     if (!this.driver) throw new Error('Mesh not connected')
 
-    const cfg = this.getConfig()
     const ts = Date.now()
-    this._appendLog({ dir: 'out', ts, kind: 'text', text: msg, opts: opts || null })
+
+    // Best-effort metadata for UI threading.
+    let meta = null
+    try {
+      const cfg = this.getConfig()
+      const driverName = cfg?.driver === 'meshcore' ? 'meshcore' : 'meshtastic'
+      if (driverName === 'meshcore') {
+        const mc = { ...(cfg?.meshcore || {}), ...(opts || {}) }
+        const destination = mc.destination === 'direct' ? 'direct' : 'broadcast'
+        const channel = Math.max(0, Math.min(255, Math.floor(Number(mc.channel) || 0)))
+        const toNodeId = meshAsNonEmptyString(mc.toNodeId ?? null) || undefined
+        meta = { driver: driverName, destination, channel, ...(destination === 'direct' && toNodeId ? { toNodeId } : {}) }
+      } else {
+        const mt = { ...(cfg?.meshtastic || {}), ...(opts || {}) }
+        const destination = mt.destination === 'direct' ? 'direct' : 'broadcast'
+        const channel = Math.max(0, Math.min(7, Math.floor(Number(mt.channel) || 0)))
+        const toNodeId = meshAsNonEmptyString(mt.toNodeId ?? null) || undefined
+        meta = { driver: driverName, destination, channel, ...(destination === 'direct' && toNodeId ? { toNodeId } : {}) }
+      }
+    } catch (_) {
+      meta = null
+    }
+
+    this._appendLog({ dir: 'out', ts, kind: 'text', text: msg, opts: opts || null, ...(meta || {}) })
 
     const res = await this.driver.sendText(msg, opts)
     // If we want to attach ack status later, we can update log entries.
@@ -2212,6 +2463,9 @@ try {
   globalThis.meshClearTrafficLog = () => xcomMesh.clearTrafficLog()
   globalThis.meshGetNodes = () => xcomMesh.getNodes()
   globalThis.meshClearNodes = () => xcomMesh.clearNodes()
+  globalThis.meshGetChannels = () => xcomMesh.getChannels()
+  globalThis.meshClearChannels = (d) => xcomMesh.clearChannels(d)
+  globalThis.meshImportChannels = () => xcomMesh.importChannels()
   globalThis.meshGetCoverageSamples = () => meshReadCoverage()
   globalThis.meshAppendCoverageSample = (s) => meshAppendCoverage(s, xcomMesh.getConfig()?.ui?.maxCoverageEntries || 2000)
   globalThis.meshClearCoverageSamples = () => meshClearCoverage()

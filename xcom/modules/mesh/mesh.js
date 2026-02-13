@@ -76,6 +76,7 @@ class MeshModule {
     this.showNodes = true
     this.showCoverage = true
     this.coverageMetric = 'snr' // 'snr' | 'rssi'
+    this.nodeFilter = ''
 
     this._lastTrafficLen = 0
     this.coverageLogging = false
@@ -127,7 +128,7 @@ class MeshModule {
         </div>
       </div>
       <div class="meshShell">
-        <div class="meshCard">
+        <div class="meshCard meshSpanFull">
           <div class="meshCardTitle">Mesh</div>
           <div class="meshSmallMuted">
             Connect XCOM to a Meshtastic or MeshCore device using <strong>Web Bluetooth</strong> (Chrome/Edge/Android).
@@ -207,6 +208,28 @@ class MeshModule {
         </div>
 
         <div class="meshCard">
+          <div class="meshCardTitle">Channels</div>
+          <div class="meshSmallMuted" style="margin-bottom: 10px;">
+            Click a channel to set <strong>Broadcast</strong> + channel index. Import labels from a connected Meshtastic device.
+          </div>
+          <div class="meshButtonRow" style="margin-top: 0;">
+            <button id="meshImportChannelsBtn" type="button" class="primary">Import labels</button>
+            <button id="meshClearChannelsBtn" type="button" class="danger">Clear</button>
+          </div>
+          <div id="meshChannelList" class="meshChipRow" style="margin-top: 10px;"></div>
+        </div>
+
+        <div class="meshCard">
+          <div class="meshCardTitle">Nodes heard</div>
+          <div class="meshRow">
+            <label>Filter</label>
+            <input id="meshNodeFilter" type="text" placeholder="name / id / #" />
+          </div>
+          <div id="meshNodeCount" class="meshSmallMuted"></div>
+          <div id="meshNodeList" class="meshList"></div>
+        </div>
+
+        <div class="meshCard meshSpanFull">
           <div class="meshCardTitle">Mesh Map</div>
           <div class="meshSmallMuted" style="margin-bottom: 10px;">
             Shows known nodes (from Meshtastic position/user packets) and optional coverage points logged on this device.
@@ -257,6 +280,11 @@ class MeshModule {
     const disconnectBtn = document.getElementById('meshDisconnectBtn')
     const clearBtn = document.getElementById('meshClearLogBtn')
     const sendBtn = document.getElementById('meshSendTestBtn')
+    const importChBtn = document.getElementById('meshImportChannelsBtn')
+    const clearChBtn = document.getElementById('meshClearChannelsBtn')
+    const channelListEl = document.getElementById('meshChannelList')
+    const nodeFilterEl = document.getElementById('meshNodeFilter')
+    const nodeListEl = document.getElementById('meshNodeList')
 
     if (connectBtn) connectBtn.addEventListener('click', async () => {
       try {
@@ -351,6 +379,77 @@ class MeshModule {
         await this.sendText(text)
       } catch (e) {
         alert(formatError(e))
+      }
+    })
+
+    if (importChBtn) importChBtn.addEventListener('click', async () => {
+      try {
+        if (typeof globalThis.meshImportChannels !== 'function') throw new Error('Channel import not available in this build')
+        await globalThis.meshImportChannels()
+      } catch (e) {
+        alert(formatError(e))
+      }
+    })
+
+    if (clearChBtn) clearChBtn.addEventListener('click', () => {
+      try {
+        if (typeof globalThis.meshClearChannels === 'function') globalThis.meshClearChannels('meshtastic')
+      } catch (_) {
+        // ignore
+      }
+    })
+
+    if (nodeFilterEl) nodeFilterEl.addEventListener('input', () => {
+      try {
+        this.nodeFilter = String(nodeFilterEl.value || '').trim()
+        this.renderFromState()
+      } catch (_) {
+        // ignore
+      }
+    })
+
+    if (channelListEl) channelListEl.addEventListener('click', (ev) => {
+      try {
+        const btn = ev?.target?.closest?.('button[data-channel-index]')
+        if (!btn) return
+        const idx = Number(btn.dataset.channelIndex)
+        if (!Number.isFinite(idx)) return
+
+        const cfg = globalThis.getMeshConfig ? globalThis.getMeshConfig() : null
+        const driver = (cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic'
+        if (typeof globalThis.setMeshConfig === 'function') {
+          if (driver === 'meshcore') globalThis.setMeshConfig({ meshcore: { destination: 'broadcast', channel: idx } })
+          else globalThis.setMeshConfig({ meshtastic: { destination: 'broadcast', channel: idx } })
+        }
+        try { document.getElementById('meshTestText')?.focus?.() } catch (_) { /* ignore */ }
+      } catch (_) {
+        // ignore
+      }
+    })
+
+    if (nodeListEl) nodeListEl.addEventListener('click', (ev) => {
+      try {
+        const btn = ev?.target?.closest?.('button[data-node-id],button[data-node-num]')
+        if (!btn) return
+        const nodeId = String(btn.dataset.nodeId || '').trim()
+        const nodeNum = Number(btn.dataset.nodeNum)
+
+        const cfg = globalThis.getMeshConfig ? globalThis.getMeshConfig() : null
+        const driver = (cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic'
+
+        let toNodeId = nodeId
+        if (!toNodeId && Number.isFinite(nodeNum)) {
+          toNodeId = driver === 'meshtastic' ? String(Math.floor(nodeNum)) : String(Math.floor(nodeNum))
+        }
+        if (!toNodeId) return
+
+        if (typeof globalThis.setMeshConfig === 'function') {
+          if (driver === 'meshcore') globalThis.setMeshConfig({ meshcore: { destination: 'direct', toNodeId } })
+          else globalThis.setMeshConfig({ meshtastic: { destination: 'direct', toNodeId } })
+        }
+        try { document.getElementById('meshTestText')?.focus?.() } catch (_) { /* ignore */ }
+      } catch (_) {
+        // ignore
       }
     })
 
@@ -555,6 +654,133 @@ class MeshModule {
     if (connectBtn) connectBtn.disabled = connected || busy || linkConnected
     if (disconnectBtn) disconnectBtn.disabled = !connected && !busy && !linkConnected
     if (sendBtn) sendBtn.disabled = !connected
+
+    // channels + nodes heard lists
+    try {
+      const driver = (cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic'
+      const mt = (cfg && cfg.meshtastic) ? cfg.meshtastic : {}
+      const mc = (cfg && cfg.meshcore) ? cfg.meshcore : {}
+      const active = (driver === 'meshcore') ? mc : mt
+
+      const importBtn = document.getElementById('meshImportChannelsBtn')
+      const clearBtn = document.getElementById('meshClearChannelsBtn')
+      if (importBtn) {
+        importBtn.disabled = !connected || driver !== 'meshtastic' || typeof globalThis.meshImportChannels !== 'function'
+        importBtn.textContent = 'Import labels'
+      }
+      if (clearBtn) {
+        clearBtn.disabled = driver !== 'meshtastic' || typeof globalThis.meshClearChannels !== 'function'
+      }
+
+      const chListEl = document.getElementById('meshChannelList')
+      if (chListEl) {
+        const imported = Array.isArray(state?.channels)
+          ? state.channels
+          : (typeof globalThis.meshGetChannels === 'function' ? globalThis.meshGetChannels() : [])
+
+        const fallback = []
+        for (let i = 0; i < 8; i++) {
+          const name = (driver === 'meshtastic' && i === 0) ? 'Primary' : (driver === 'meshtastic' && i === 7) ? 'Admin' : `Channel ${i}`
+          fallback.push({ index: i, name })
+        }
+
+        const channels = (Array.isArray(imported) && imported.length) ? imported : fallback
+        chListEl.innerHTML = ''
+        for (const ch of channels) {
+          const idx = Number(ch?.index ?? ch?.channel ?? 0)
+          if (!Number.isFinite(idx)) continue
+          const name = String(ch?.name ?? `Channel ${idx}`)
+          const btn = document.createElement('button')
+          btn.type = 'button'
+          btn.className = 'meshChip'
+          btn.dataset.channelIndex = String(Math.floor(idx))
+
+          const activeSel = (active?.destination !== 'direct') && Number(active?.channel) === Math.floor(idx)
+          if (activeSel) btn.classList.add('active')
+
+          btn.textContent = `${name} (#${Math.floor(idx)})`
+          chListEl.appendChild(btn)
+        }
+      }
+
+      const nodesAll = Array.isArray(state?.nodes) ? state.nodes : (typeof globalThis.meshGetNodes === 'function' ? globalThis.meshGetNodes() : [])
+      const nodes = Array.isArray(nodesAll) ? nodesAll.filter((n) => String(n?.driver || '') === driver) : []
+
+      const needle = String(this.nodeFilter || '').trim().toLowerCase()
+      const filtered = needle
+        ? nodes.filter((n) => {
+          const hay = `${n?.shortName || ''} ${n?.longName || ''} ${n?.id || ''} ${n?.num != null ? '#' + String(n.num) : ''}`.toLowerCase()
+          return hay.includes(needle)
+        })
+        : nodes
+
+      let selectedNum = null
+      const rawTo = String(active?.toNodeId || '').trim()
+      if (active?.destination === 'direct' && driver === 'meshtastic' && rawTo) {
+        if (rawTo.startsWith('!')) {
+          const n = parseInt(rawTo.slice(1), 16)
+          if (Number.isFinite(n)) selectedNum = (n >>> 0)
+        } else {
+          const n = Number(rawTo)
+          if (Number.isFinite(n)) selectedNum = Math.floor(n)
+        }
+      }
+
+      const countEl = document.getElementById('meshNodeCount')
+      if (countEl) countEl.textContent = `${filtered.length} node(s)`
+
+      const listEl = document.getElementById('meshNodeList')
+      if (listEl) {
+        listEl.innerHTML = ''
+        for (const n of filtered.slice(0, 200)) {
+          const id = String(n?.id || '').trim()
+          const num = Number.isFinite(Number(n?.num)) ? Math.floor(Number(n.num)) : null
+          const label = String(n?.shortName || n?.longName || (id ? id : (num != null ? `#${num}` : 'Node'))).trim() || 'Node'
+          const lastSeenTs = Number(n?.lastSeenTs || 0) || 0
+          const when = lastSeenTs ? new Date(lastSeenTs).toISOString() : 'â€”'
+
+          const btn = document.createElement('button')
+          btn.type = 'button'
+          btn.className = 'meshNodeRowBtn'
+          if (id) btn.dataset.nodeId = id
+          if (num != null) btn.dataset.nodeNum = String(num)
+
+          const isSelected = (active?.destination === 'direct') && (
+            (driver === 'meshcore' && rawTo && rawTo === id) ||
+            (driver === 'meshtastic' && (
+              (rawTo && id && rawTo === id) ||
+              (selectedNum != null && num != null && num === selectedNum)
+            ))
+          )
+          if (isSelected) btn.classList.add('active')
+
+          const meta = document.createElement('div')
+          meta.className = 'meshNodeMeta'
+          const left = document.createElement('div')
+          const right = document.createElement('div')
+          left.textContent = id ? (driver === 'meshcore' ? `Prefix: ${id}` : `ID: ${id}`) : (num != null ? `#${num}` : '')
+          right.textContent = when
+          meta.appendChild(left)
+          meta.appendChild(right)
+
+          const title = document.createElement('div')
+          title.textContent = label
+
+          btn.appendChild(title)
+          btn.appendChild(meta)
+          listEl.appendChild(btn)
+        }
+
+        if (filtered.length === 0) {
+          const empty = document.createElement('div')
+          empty.className = 'meshSmallMuted'
+          empty.textContent = 'No nodes heard yet. Connect, then wait for traffic or send a message.'
+          listEl.appendChild(empty)
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
 
     // map overlays / summary
     this.processNewTrafficForCoverage(state)
