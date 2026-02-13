@@ -66,7 +66,7 @@ class PacketRadioModule {
         <div class="xModuleIntro">
           <div class="xModuleIntroTitle">What you can do here</div>
           <div class="xModuleIntroText">
-            Find packet nodes and BBS stations on a map, filter by distance, and keep a personal local list. Use the frequency table as a starting point (always listen first).
+            Find packet radio nodes (routing stations) and BBS (bulletin board system) stations, which store-and-forward messages and bulletins via linked networks worldwide, on a map, filter by distance, and keep a personal local list.
           </div>
         </div>
         <div class="controls">
@@ -297,7 +297,9 @@ class PacketRadioModule {
     const c = globalThis.getMapDefaultCoords ? globalThis.getMapDefaultCoords() : { lat: 39.8283, lon: -98.5795 };
     const z = globalThis.getMapDefaultZoom ? globalThis.getMapDefaultZoom() : 3;
 
-    this.map = globalThis.createMapLibreMap
+    const useHelper = typeof globalThis.createMapLibreMap === 'function'
+
+    this.map = useHelper
       ? globalThis.createMapLibreMap({
           container: 'packetMap',
           centerLon: c.lon,
@@ -311,9 +313,11 @@ class PacketRadioModule {
           zoom: z,
         });
 
-    try {
-      this.map.addControl(new globalThis.maplibregl.NavigationControl(), 'top-right');
-    } catch (_) { /* ignore */ }
+    if (!useHelper) {
+      try {
+        this.map.addControl(new globalThis.maplibregl.NavigationControl(), 'top-right');
+      } catch (_) { /* ignore */ }
+    }
 
     const saveView = () => {
       try {

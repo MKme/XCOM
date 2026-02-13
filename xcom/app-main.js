@@ -25,6 +25,293 @@ const LS_LICENSE_CHECKED_AT = 'xcom.license.checkedAt';
 try { globalThis.installForcedOfflineNetworkGuards?.(); } catch (_) { /* ignore */ }
 try { globalThis.syncForcedOfflineToServiceWorker?.(); } catch (_) { /* ignore */ }
 
+// -----------------------------------------------------------------------------
+// Local backup / restore (data safety)
+//
+// Reality check:
+// - If a user clears "Site data" / uninstalls the PWA, browsers delete localStorage + IndexedDB.
+// - The only way to protect against that is an explicit export/import backup.
+//
+// This backup captures:
+// - localStorage keys for XCOM + shared XTOC-style settings (xcom.* + xtoc.*)
+// - XTOC packet archive stored in IndexedDB (xcom.xtoc.db)
+// -----------------------------------------------------------------------------
+
+const XCOM_BACKUP_V1 = 1;
+// NOTE: localStorage is per-origin (not per-path). XCOM shares some XTOC-style settings keys.
+// We snapshot both prefixes, but we only *clear* xcom.* on restore to avoid wiping XTOC installs
+// that might live on the same origin.
+const XCOM_BACKUP_LS_PREFIXES = ['xcom.', 'xtoc.'];
+const XCOM_BACKUP_LS_CLEAR_PREFIXES = ['xcom.'];
+// Keep XTOC license state out of XCOM backups by default.
+const XCOM_BACKUP_LS_EXCLUDE_PREFIXES = ['xtoc.license.'];
+
+const XCOM_XTOC_DB_NAME = 'xcom.xtoc.db';
+const XCOM_XTOC_DB_VERSION = 1;
+const XCOM_XTOC_STORE_PACKETS = 'packets';
+
+function xcomIsRecord(x) {
+    return !!x && typeof x === 'object' && !Array.isArray(x);
+}
+
+function xcomBackupSnapshotLocalStorage() {
+    const out = {};
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (!k) continue;
+            if (!XCOM_BACKUP_LS_PREFIXES.some((p) => k.startsWith(p))) continue;
+            if (XCOM_BACKUP_LS_EXCLUDE_PREFIXES.some((p) => k.startsWith(p))) continue;
+            const v = localStorage.getItem(k);
+            if (v == null) continue;
+            out[k] = v;
+        }
+    } catch (_) {
+        // ignore
+    }
+    return out;
+}
+
+function xcomBackupClearLocalStorage() {
+    try {
+        // Iterate backwards because we're mutating as we go.
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const k = localStorage.key(i);
+            if (!k) continue;
+            if (!XCOM_BACKUP_LS_CLEAR_PREFIXES.some((p) => k.startsWith(p))) continue;
+            localStorage.removeItem(k);
+        }
+    } catch (_) {
+        // ignore
+    }
+}
+
+async function xcomOpenXtocPacketDb() {
+    return await new Promise((resolve, reject) => {
+        try {
+            const req = indexedDB.open(XCOM_XTOC_DB_NAME, XCOM_XTOC_DB_VERSION);
+            req.onerror = () => reject(req.error || new Error('Failed to open IndexedDB'));
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(XCOM_XTOC_STORE_PACKETS)) {
+                    const store = db.createObjectStore(XCOM_XTOC_STORE_PACKETS, { keyPath: 'key' });
+                    store.createIndex('receivedAt', 'receivedAt', { unique: false });
+                    store.createIndex('storedAt', 'storedAt', { unique: false });
+                    store.createIndex('templateId', 'templateId', { unique: false });
+                    store.createIndex('mode', 'mode', { unique: false });
+                    store.createIndex('source', 'source', { unique: false });
+                    store.createIndex('hasGeo', 'hasGeo', { unique: false });
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
+async function xcomBackupDumpXtocPackets(opts = {}) {
+    const maxRaw = Number(opts.maxPackets);
+    const maxPackets = Number.isFinite(maxRaw) ? Math.max(0, Math.floor(maxRaw)) : 50000;
+
+    try {
+        const db = await xcomOpenXtocPacketDb();
+        return await new Promise((resolve) => {
+            const out = [];
+            try {
+                const tx = db.transaction([XCOM_XTOC_STORE_PACKETS], 'readonly');
+                const store = tx.objectStore(XCOM_XTOC_STORE_PACKETS);
+                const req = store.openCursor();
+
+                req.onerror = () => resolve({ ok: false, reason: req.error?.message || 'Cursor failed', packets: [] });
+                req.onsuccess = () => {
+                    const cursor = req.result;
+                    if (!cursor) {
+                        resolve({ ok: true, packets: out });
+                        return;
+                    }
+                    out.push(cursor.value);
+                    if (maxPackets > 0 && out.length >= maxPackets) {
+                        resolve({ ok: true, packets: out, truncated: true, maxPackets });
+                        return;
+                    }
+                    cursor.continue();
+                };
+            } catch (e) {
+                resolve({ ok: false, reason: e?.message ? String(e.message) : String(e), packets: [] });
+            }
+        });
+    } catch (e) {
+        return { ok: false, reason: e?.message ? String(e.message) : String(e), packets: [] };
+    }
+}
+
+async function xcomBackupReplaceXtocPackets(packets) {
+    const list = Array.isArray(packets) ? packets : [];
+
+    // Basic validation to avoid exploding IndexedDB with garbage input.
+    const cleaned = list
+        .map((p) => (p && typeof p === 'object' ? p : null))
+        .filter((p) => typeof p?.key === 'string' && String(p.key || '').trim().length > 0);
+
+    try {
+        const db = await xcomOpenXtocPacketDb();
+        return await new Promise((resolve) => {
+            let put = 0;
+            let skipped = cleaned.length ? (list.length - cleaned.length) : list.length;
+
+            try {
+                const tx = db.transaction([XCOM_XTOC_STORE_PACKETS], 'readwrite');
+                const store = tx.objectStore(XCOM_XTOC_STORE_PACKETS);
+
+                const clearReq = store.clear();
+                clearReq.onerror = () => {
+                    // If we can't clear, still attempt to write; worst case it's a merge.
+                    for (const rec of cleaned) {
+                        try { store.put(rec); put++; } catch (_) { skipped++; }
+                    }
+                };
+                clearReq.onsuccess = () => {
+                    for (const rec of cleaned) {
+                        try { store.put(rec); put++; } catch (_) { skipped++; }
+                    }
+                };
+
+                tx.oncomplete = () => resolve({ ok: true, put, skipped });
+                tx.onerror = () => resolve({ ok: false, reason: tx.error?.message || 'Transaction failed', put, skipped });
+                tx.onabort = () => resolve({ ok: false, reason: tx.error?.message || 'Transaction aborted', put, skipped });
+            } catch (e) {
+                resolve({ ok: false, reason: e?.message ? String(e.message) : String(e), put, skipped });
+            }
+        });
+    } catch (e) {
+        return { ok: false, reason: e?.message ? String(e.message) : String(e), put: 0, skipped: list.length };
+    }
+}
+
+async function xcomExportBackupJson(opts = {}) {
+    const dump = await xcomBackupDumpXtocPackets({ maxPackets: opts.maxPackets });
+    const backup = {
+        v: XCOM_BACKUP_V1,
+        app: 'xcom',
+        exportedAt: Date.now(),
+        localStorage: xcomBackupSnapshotLocalStorage(),
+        xtocPackets: dump.ok ? dump.packets : [],
+        ...(dump.ok && dump.truncated ? { truncated: true, maxPackets: dump.maxPackets } : {}),
+    };
+    return JSON.stringify(backup, null, 2);
+}
+
+function xcomParseBackupJson(jsonText) {
+    const obj = JSON.parse(String(jsonText || ''));
+    if (!xcomIsRecord(obj)) throw new Error('Invalid backup file (not an object).');
+    if (obj.v !== XCOM_BACKUP_V1 || obj.app !== 'xcom') throw new Error('Invalid backup file version/app.');
+    if (!Number.isFinite(obj.exportedAt)) throw new Error('Invalid backup file (missing exportedAt).');
+    if (!xcomIsRecord(obj.localStorage)) throw new Error('Invalid backup file (missing localStorage).');
+    if (!Array.isArray(obj.xtocPackets)) throw new Error('Invalid backup file (missing xtocPackets array).');
+    return obj;
+}
+
+async function xcomImportBackupObject(backup, opts = {}) {
+    const replace = opts.replace !== false;
+
+    if (!backup) throw new Error('Missing backup object');
+    if (replace) xcomBackupClearLocalStorage();
+
+    // Restore localStorage (only allowed prefixes)
+    let lsSet = 0;
+    for (const [k, v] of Object.entries(backup.localStorage || {})) {
+        if (!XCOM_BACKUP_LS_PREFIXES.some((p) => String(k).startsWith(p))) continue;
+        if (XCOM_BACKUP_LS_EXCLUDE_PREFIXES.some((p) => String(k).startsWith(p))) continue;
+        try {
+            localStorage.setItem(String(k), String(v));
+            lsSet++;
+        } catch (_) {
+            // ignore
+        }
+    }
+
+    // Restore IndexedDB packet archive
+    const putRes = await xcomBackupReplaceXtocPackets(backup.xtocPackets || []);
+    if (!putRes.ok) {
+        return { ok: false, reason: putRes.reason || 'Packet restore failed', lsSet, packetsPut: putRes.put || 0 };
+    }
+
+    return { ok: true, lsSet, packetsPut: putRes.put || 0, packetsSkipped: putRes.skipped || 0 };
+}
+
+function xcomDownloadTextFile(filename, text, mime = 'application/json') {
+    const blob = new Blob([String(text ?? '')], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = String(filename || 'xcom-backup.json');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function xcomReadFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        try {
+            if (file && typeof file.text === 'function') {
+                file.text().then(resolve, reject);
+                return;
+            }
+        } catch (_) {
+            // ignore, fall back to FileReader
+        }
+
+        const r = new FileReader();
+        r.onerror = () => reject(r.error ?? new Error('Failed to read file'));
+        r.onload = () => resolve(String(r.result ?? ''));
+        r.readAsText(file);
+    });
+}
+
+// Expose globals so modules + the license gate can use backup/restore.
+try {
+    globalThis.xcomExportBackupJson = xcomExportBackupJson;
+    globalThis.xcomParseBackupJson = xcomParseBackupJson;
+    globalThis.xcomImportBackupObject = xcomImportBackupObject;
+    globalThis.xcomDownloadTextFile = xcomDownloadTextFile;
+    globalThis.xcomReadFileAsText = xcomReadFileAsText;
+} catch (_) { /* ignore */ }
+
+// Cache repair helper:
+// - Clears ONLY the XCOM app-shell caches (xcom.sw.*) and unregisters SW(s)
+// - Leaves localStorage + IndexedDB intact (your data)
+async function xcomRepairAppShell() {
+    try {
+        // Unregister SW(s) first so the next reload comes from the network.
+        if ('serviceWorker' in navigator) {
+            try {
+                const regs = (navigator.serviceWorker.getRegistrations ? await navigator.serviceWorker.getRegistrations() : []) || [];
+                await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
+            } catch (_) {
+                // Fallback: best-effort unregister current scope.
+                try { (await navigator.serviceWorker.getRegistration())?.unregister?.(); } catch (_) { /* ignore */ }
+            }
+        }
+
+        // Clear XCOM caches (do NOT touch xtoc.tiles.v1, which can be huge).
+        if ('caches' in window) {
+            try {
+                const keys = await caches.keys();
+                await Promise.all((keys || []).filter((k) => String(k || '').startsWith('xcom.sw.')).map((k) => caches.delete(k)));
+            } catch (_) {
+                // ignore
+            }
+        }
+    } finally {
+        // Reload no matter what; worst case behaves like a manual refresh.
+        window.location.reload();
+    }
+}
+
+try { globalThis.xcomRepairAppShell = xcomRepairAppShell; } catch (_) { /* ignore */ }
+
 function looksLikeHtmlMessage(value) {
     const s = String(value || '').trim();
     if (!s) return false;
@@ -393,6 +680,10 @@ function createLicenseGateElement() {
                 <button class="xBtn xBtnSecondary" id="xLicenseClearBtn" type="button" title="Clears the cached license key on this device">Clear Key</button>
             </div>
 
+            <div class="xLicenseRow" style="margin-top:10px;">
+                <button class="xBtn xBtnSecondary" id="xLicenseRestoreBtn" type="button" title="Restore XCOM data from a backup JSON file on this device (no server required)">Restore Backup</button>
+            </div>
+ 
             <p class="xLicenseCached" id="xLicenseCachedRow" style="display:none;">
                 Cached key on this device: <code id="xLicenseCachedKey"></code>
             </p>
@@ -426,6 +717,7 @@ function showLicenseGate(initialMessage = '') {
 
     const activateBtn = gate.querySelector('#xLicenseActivateBtn');
     const clearBtn = gate.querySelector('#xLicenseClearBtn');
+    const restoreBtn = gate.querySelector('#xLicenseRestoreBtn');
     const cachedRow = gate.querySelector('#xLicenseCachedRow');
     const cachedKeyEl = gate.querySelector('#xLicenseCachedKey');
     const msgEl = gate.querySelector('#xLicenseMessage');
@@ -481,6 +773,45 @@ function showLicenseGate(initialMessage = '') {
             clearStoredLicense();
             refreshCachedKey();
             setMessage('Cleared locally stored key. Click “Enter / Activate” to activate again.');
+        });
+    }
+
+    if (restoreBtn) {
+        restoreBtn.addEventListener('click', async () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json,application/json';
+
+            input.addEventListener('change', async () => {
+                const file = input.files && input.files[0];
+                if (!file) return;
+
+                try {
+                    restoreBtn.disabled = true;
+                    restoreBtn.textContent = 'Restoringâ€¦';
+                    setMessage('Restoring from backupâ€¦');
+
+                    const text = await xcomReadFileAsText(file);
+                    const backup = xcomParseBackupJson(text);
+                    const res = await xcomImportBackupObject(backup, { replace: true });
+                    if (!res || res.ok !== true) {
+                        throw new Error(res?.reason || 'Restore failed');
+                    }
+
+                    setMessage('Restore complete. Reloadingâ€¦');
+                    await new Promise((r) => setTimeout(r, 150));
+                    window.location.reload();
+                } catch (e) {
+                    const msg = e?.message ? String(e.message) : String(e);
+                    setMessage(`Restore failed: ${msg}`);
+                } finally {
+                    try { input.value = ''; } catch (_) { /* ignore */ }
+                    restoreBtn.disabled = false;
+                    restoreBtn.textContent = 'Restore Backup';
+                }
+            }, { once: true });
+
+            input.click();
         });
     }
 
@@ -574,6 +905,7 @@ class RadioApp {
             'ham-clock': {
                 name: 'Ham Clock',
                 description: 'World clock with day/night greyline and band predictions',
+                experimental: true,
                 scripts: [
                     'modules/shared/propagation-model.js',
                     'modules/shared/space-weather.js',
@@ -653,6 +985,13 @@ class RadioApp {
                 description: 'Application help and documentation',
                 scripts: ['modules/help/help.js'],
                 styles: ['styles/modules/help.css'],
+                dependencies: []
+            },
+            'backup': {
+                name: 'Backup',
+                description: 'Export/import local data (data safety)',
+                scripts: ['modules/backup/backup.js'],
+                styles: ['styles/modules/backup.css'],
                 dependencies: []
             },
             'map': {
@@ -763,7 +1102,8 @@ class RadioApp {
     init() {
         // Bind navigation events
         // Support both legacy header nav (#module-nav a) and the new XTOC-style sidebar (.xNav a).
-        const navLinks = Array.from(document.querySelectorAll('#module-nav a, .xNav a'));
+        // Only wire module nav items (so external links in the sidebar work normally).
+        const navLinks = Array.from(document.querySelectorAll('#module-nav a[data-module], .xNav a[data-module]'));
         navLinks.forEach(link => {
             link.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -855,6 +1195,8 @@ class RadioApp {
                 window.asciiArtModule = new AsciiArtModule();
             } else if (moduleId === 'help' && typeof HelpModule === 'function') {
                 window.helpModule = new HelpModule();
+            } else if (moduleId === 'backup' && typeof BackupModule === 'function') {
+                window.backupModule = new BackupModule();
             } else if (moduleId === 'map' && typeof MapModule === 'function') {
                 window.mapModule = new MapModule();
             } else if (moduleId === 'comms' && typeof CommsModule === 'function') {
@@ -1298,8 +1640,10 @@ class RadioApp {
     }
 
     setTopbarTitleForModule(moduleId) {
-        const name = this.modules[moduleId]?.name || XCOM_APP_NAME;
-        if (this.topbarTitle) this.topbarTitle.textContent = name;
+        const module = this.modules[moduleId] || null;
+        const name = module?.name || XCOM_APP_NAME;
+        const displayName = module?.experimental ? `${name} (Experimental)` : name;
+        if (this.topbarTitle) this.topbarTitle.textContent = displayName;
         try {
             document.title = name === XCOM_APP_NAME ? name : `${XCOM_APP_NAME} — ${name}`;
         } catch (_) {

@@ -47,6 +47,9 @@ class CommsModule {
     this._meshUnsub = null
     this._halowUnsub = null
 
+    // Voice (TTS) state
+    this._voiceSession = 0
+
     // Import preview state
     this._importMap = null
     this._importMapContainer = null
@@ -99,7 +102,7 @@ class CommsModule {
       <div class="xModuleIntro">
           <div class="xModuleIntroTitle">What you can do here</div>
           <div class="xModuleIntroText">
-          Create XTOC packets (CLEAR or SECURE), split them for different transport limits, and move them via copy/paste, QR, Meshtastic/MeshCore, or MANET (LAN).
+          Create XTOC packets (CLEAR or SECURE), split them for different transport limits, and move them via copy/paste, Voice (TTS), QR, Meshtastic/MeshCore, or MANET (LAN).
           </div>
       </div>
       <div class="commsShell">
@@ -136,6 +139,7 @@ class CommsModule {
               <option value="JS8Call">JS8Call (50 chars)</option>
               <option value="APRS">APRS (67 chars)</option>
               <option value="HamOther">Ham Other (80 chars)</option>
+              <option value="Voice">Voice (TTS)</option>
               <option value="Meshtastic">Meshtastic (180 chars)</option>
               <option value="MeshCore">MeshCore (160 bytes)</option>
               <option value="HaLow">MANET (LAN)</option>
@@ -156,6 +160,7 @@ class CommsModule {
 
           <div class="commsButtonRow">
             <button id="commsPickLocBtn" type="button">Pick Location</button>
+            <button id="commsUseGpsBtn" type="button" title="Fill Lat/Lon from your device location">Use GPS</button>
             <button id="commsPickZoneBtn" type="button">Draw Zone</button>
             <button id="commsGenerateBtn" type="button" class="primary">Generate</button>
           </div>
@@ -169,6 +174,10 @@ class CommsModule {
           </div>
           <div class="commsButtonRow commsOutputActions">
             <button id="commsCopyBtn" type="button">Copy</button>
+            <button id="commsOutputVoiceBtn" type="button" style="display:none" title="Text-to-speech spelling of the output. Click again while speaking to stop.">Output Voice</button>
+            <button id="commsVoiceUnitPriorityBtn" type="button" style="display:none" title="Canned voice relay intro">Unit / Priority</button>
+            <button id="commsVoiceRepeatBtn" type="button" style="display:none" title="Canned voice relay phrase">I repeat</button>
+            <button id="commsVoiceEndBtn" type="button" style="display:none" title="Canned voice relay outro">End of message</button>
             <button id="commsSendMeshBtn" type="button">Send via Mesh</button>
             <button id="commsSendHaLowBtn" type="button">Send via MANET</button>
             <button id="commsMakeQrBtn" type="button">Make QR</button>
@@ -315,12 +324,23 @@ class CommsModule {
     if (transportSel) transportSel.addEventListener('change', () => {
       this.updateMeshSendButtonState()
       this.updateHaLowSendButtonState()
+      this.updateVoiceButtonsState()
     })
 
     // No Team ID / KID inputs in XCOM Comms (keys are purely “active key” based).
 
     document.getElementById('commsGenerateBtn').addEventListener('click', () => this.generate())
     document.getElementById('commsCopyBtn').addEventListener('click', () => this.copyOutput())
+    document.getElementById('commsOutputVoiceBtn').addEventListener('click', () => void this.outputVoice())
+    document.getElementById('commsVoiceUnitPriorityBtn').addEventListener('click', () => {
+      const unitId = this.tryGetAnnounceUnitIdFromCurrentOutputText()
+      const phrase = unitId
+        ? `Unit ${unitId} priority message for X C O M command`
+        : 'Priority message for X C O M command'
+      void this.speakPlainText(phrase)
+    })
+    document.getElementById('commsVoiceRepeatBtn').addEventListener('click', () => void this.speakPlainText('I repeat'))
+    document.getElementById('commsVoiceEndBtn').addEventListener('click', () => void this.speakPlainText('End of message for X C O M command'))
     document.getElementById('commsSendMeshBtn').addEventListener('click', () => this.sendViaMesh())
     document.getElementById('commsSendHaLowBtn').addEventListener('click', () => this.sendViaHaLow())
     document.getElementById('commsMakeQrBtn').addEventListener('click', () => this.makeQr())
@@ -386,6 +406,9 @@ class CommsModule {
     document.getElementById('commsPickLocBtn').addEventListener('click', () => {
       this.openMapPicker('loc')
     })
+    document.getElementById('commsUseGpsBtn').addEventListener('click', () => {
+      void this.fillTemplateLocationFromGps()
+    })
     document.getElementById('commsPickZoneBtn').addEventListener('click', () => {
       this.openMapPicker('zone')
 
@@ -399,6 +422,7 @@ class CommsModule {
     // Sync the mesh send button with transport + mesh connection status.
     this.updateMeshSendButtonState()
     this.updateHaLowSendButtonState()
+    this.updateVoiceButtonsState()
     try {
       // Avoid accumulating subscriptions across module reloads.
       if (globalThis.__xcomCommsCleanup) {
@@ -450,13 +474,80 @@ class CommsModule {
     const templateId = Number(document.getElementById('commsTemplate')?.value)
     const isZone = templateId === 7
 
+    const pickLocBtn = document.getElementById('commsPickLocBtn')
+    const gpsBtn = document.getElementById('commsUseGpsBtn')
     const zoneBtn = document.getElementById('commsPickZoneBtn')
     const zonePts = document.getElementById('t_zone_points')
 
     // In XTOC, "Generate Shape" (zone drawing) is only active when sending a ZONE.
     // For XCOM, the equivalent is "Draw Zone" + the polygon textarea.
+    if (pickLocBtn) pickLocBtn.disabled = isZone
+    if (gpsBtn) gpsBtn.disabled = isZone
     if (zoneBtn) zoneBtn.disabled = !isZone
     if (zonePts) zonePts.disabled = !isZone
+  }
+
+  async fillTemplateLocationFromGps() {
+    const latEl = document.getElementById('t_lat')
+    const lonEl = document.getElementById('t_lon')
+    if (!latEl || !lonEl) {
+      alert('This template does not include Lat/Lon fields.')
+      return
+    }
+
+    const onError = (error) => {
+      console.error('Geolocation error:', error)
+      const code = Number(error?.code)
+      let message = 'Unable to get your location.'
+      if (code === 1) message = 'Unable to get your location: permission denied.'
+      else if (code === 2) message = 'Unable to get your location: position unavailable.'
+      else if (code === 3) message = 'Unable to get your location: timed out.'
+
+      try { window.radioApp.updateStatus(message) } catch (_) { /* ignore */ }
+      alert(message)
+    }
+
+    const setValues = (lat, lon) => {
+      const latNum = Number(lat)
+      const lonNum = Number(lon)
+      if (!Number.isFinite(latNum) || !Number.isFinite(lonNum)) {
+        onError({ code: 2 })
+        return
+      }
+
+      latEl.value = latNum.toFixed(5)
+      lonEl.value = lonNum.toFixed(5)
+
+      const labelEl = document.getElementById('t_location_label')
+      if (labelEl && !String(labelEl.value || '').trim()) labelEl.value = 'Current position'
+
+      try { window.radioApp.updateStatus('Set Lat/Lon from GPS') } catch (_) { /* ignore */ }
+    }
+
+    try { window.radioApp.updateStatus('Requesting GPS fix...') } catch (_) { /* ignore */ }
+
+    if (window.electronAPI && window.electronAPI.isElectron && typeof window.electronAPI.getCurrentPosition === 'function') {
+      try {
+        const pos = await window.electronAPI.getCurrentPosition()
+        setValues(pos?.coords?.latitude, pos?.coords?.longitude)
+      } catch (e) {
+        onError(e)
+      }
+      return
+    }
+
+    if (!navigator.geolocation) {
+      const message = 'Geolocation is not supported in this environment.'
+      try { window.radioApp.updateStatus(message) } catch (_) { /* ignore */ }
+      alert(message)
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setValues(pos.coords.latitude, pos.coords.longitude),
+      (err) => onError(err),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 },
+    )
   }
 
   openMapPicker(kind) {
@@ -1060,6 +1151,21 @@ class CommsModule {
     btn.title = ready ? 'Send packet text over MANET LAN link' : 'Connect, then send over MANET LAN link'
   }
 
+  updateVoiceButtonsState() {
+    const transport = String(document.getElementById('commsTransport')?.value || '').trim()
+    const shouldShow = transport === 'Voice'
+
+    const ids = ['commsOutputVoiceBtn', 'commsVoiceUnitPriorityBtn', 'commsVoiceRepeatBtn', 'commsVoiceEndBtn']
+    for (const id of ids) {
+      const el = document.getElementById(id)
+      if (!el) continue
+      el.style.display = shouldShow ? '' : 'none'
+    }
+
+    // If leaving Voice mode, stop any ongoing speech so it doesn't continue without a visible stop button.
+    if (!shouldShow) this.stopVoiceTts()
+  }
+
   importKey() {
     const text = document.getElementById('commsKeyBundle').value
     if (!window.importKeyBundle) {
@@ -1461,6 +1567,237 @@ class CommsModule {
       window.radioApp.updateStatus('Copied to clipboard')
     } catch {
       alert('Clipboard copy failed (browser permissions).')
+    }
+  }
+
+  stopVoiceTts() {
+    try {
+      const synth = window.speechSynthesis
+      if (!synth) return
+      if (!synth.speaking && !synth.pending) return
+      this._voiceSession++
+      synth.cancel()
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  getVoiceTokensForChar(ch) {
+    if (ch >= 'A' && ch <= 'Z') return [ch]
+    if (ch >= 'a' && ch <= 'z') return ['lowercase', ch.toUpperCase()]
+    if (ch >= '0' && ch <= '9') return [ch]
+
+    switch (ch) {
+      case '.':
+        return ['dot']
+      case '/':
+        return ['slash']
+      case '-':
+        return ['dash']
+      case '_':
+        return ['underscore']
+      case ':':
+        return ['colon']
+      case ';':
+        return ['semicolon']
+      case ',':
+        return ['comma']
+      case '=':
+        return ['equals']
+      case '+':
+        return ['plus']
+      case ' ':
+        return ['space']
+      case '\t':
+        return ['tab']
+      default:
+        return ['symbol', ch]
+    }
+  }
+
+  async pickEnglishVoice() {
+    const synth = window.speechSynthesis
+    if (!synth) return null
+
+    const lower = (s) => (s ?? '').toLowerCase()
+    const findBest = (voices) =>
+      voices.find((v) => lower(v.lang) === 'en-us') ?? voices.find((v) => lower(v.lang).startsWith('en')) ?? null
+
+    const initial = synth.getVoices()
+    if (initial?.length) return findBest(initial)
+
+    await new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(t)
+        resolve()
+      }
+      const t = setTimeout(done, 800)
+      try { synth.addEventListener('voiceschanged', done, { once: true }) } catch (_) { /* ignore */ }
+    })
+
+    const voices = synth.getVoices()
+    return voices?.length ? findBest(voices) : null
+  }
+
+  chunkVoiceTokens(tokens, maxTokensPerChunk = 70) {
+    if (tokens.length === 0) return []
+    const out = []
+    for (let i = 0; i < tokens.length; i += maxTokensPerChunk) out.push(tokens.slice(i, i + maxTokensPerChunk).join(' '))
+    return out
+  }
+
+  tryGetAnnounceUnitIdFromCurrentOutputText() {
+    const text = String(document.getElementById('commsOutput')?.value || '')
+    const lines = text
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+
+    if (lines.length === 0) return null
+
+    const parsePacket = globalThis.parsePacket
+    if (typeof parsePacket !== 'function') return null
+
+    const parsedList = lines.map(parsePacket).filter((p) => !!p)
+    if (parsedList.length === 0) return null
+
+    let p = parsedList[0]
+    if (parsedList.length > 1) {
+      const reassemblePackets = globalThis.reassemblePackets
+      if (typeof reassemblePackets !== 'function') return null
+      const res = reassemblePackets(parsedList)
+      if (!res.ok) return null
+      const p2 = parsePacket(res.packet)
+      if (!p2) return null
+      p = p2
+    } else {
+      if (p.total > 1) return null
+    }
+
+    if (p.mode !== 'C') return null
+
+    const asUnitId = (v) => {
+      const n = Math.floor(Number(v))
+      return Number.isFinite(n) && n > 0 ? n : null
+    }
+
+    try {
+      switch (p.templateId) {
+        case 1:
+          return asUnitId(globalThis.decodeSitrepClear(p.payload).src)
+        case 2:
+          return asUnitId(globalThis.decodeContactClear(p.payload).src)
+        case 3:
+          return asUnitId(globalThis.decodeTaskClear(p.payload).src)
+        case 4:
+          return asUnitId(globalThis.decodeCheckinLocClear(p.payload).unitId)
+        case 5:
+          return asUnitId(globalThis.decodeResourceClear(p.payload).src)
+        case 6:
+          return asUnitId(globalThis.decodeAssetClear(p.payload).src)
+        case 7:
+          return asUnitId(globalThis.decodeZoneClear(p.payload).src)
+        default:
+          return null
+      }
+    } catch {
+      return null
+    }
+  }
+
+  async speakPlainText(textToSpeak) {
+    const synth = window.speechSynthesis
+    if (!synth || typeof SpeechSynthesisUtterance === 'undefined') {
+      alert('Voice output requires Text-to-Speech (Speech Synthesis). Try Chrome/Edge.')
+      return
+    }
+
+    // Toggle behavior: click again while speaking to stop.
+    if (synth.speaking || synth.pending) {
+      this.stopVoiceTts()
+      return
+    }
+
+    try {
+      // Defensive: clear any queued utterances.
+      synth.cancel()
+    } catch {
+      // ignore
+    }
+
+    const session = ++this._voiceSession
+    const voice = await this.pickEnglishVoice()
+
+    await new Promise((resolve) => {
+      const u = new SpeechSynthesisUtterance(textToSpeak)
+      u.lang = 'en-US'
+      if (voice) u.voice = voice
+      // Normal speed for canned phrases.
+      u.rate = 1.0
+      u.onend = () => resolve()
+      u.onerror = () => resolve()
+      synth.speak(u)
+    })
+
+    // If user stopped mid-utterance, ensure we don't proceed (keeps behavior consistent with outputVoice).
+    if (this._voiceSession !== session) return
+  }
+
+  async outputVoice() {
+    const synth = window.speechSynthesis
+    if (!synth || typeof SpeechSynthesisUtterance === 'undefined') {
+      alert('Voice output requires Text-to-Speech (Speech Synthesis). Try Chrome/Edge.')
+      return
+    }
+
+    // Toggle behavior: click again while speaking to stop.
+    if (synth.speaking || synth.pending) {
+      this.stopVoiceTts()
+      return
+    }
+
+    const lines = String(document.getElementById('commsOutput')?.value || '')
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+
+    if (lines.length === 0) {
+      alert('Generate a packet first.')
+      return
+    }
+
+    try {
+      // Defensive: clear any queued utterances.
+      synth.cancel()
+    } catch {
+      // ignore
+    }
+
+    const session = ++this._voiceSession
+    const voice = await this.pickEnglishVoice()
+
+    const speak = (chunk) =>
+      new Promise((resolve) => {
+        const u = new SpeechSynthesisUtterance(chunk)
+        u.lang = 'en-US'
+        if (voice) u.voice = voice
+        // Extremely slow for copy-by-ear workflows.
+        u.rate = 0.1
+        u.onend = () => resolve()
+        u.onerror = () => resolve()
+        synth.speak(u)
+      })
+
+    const tokens = []
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      for (const ch of line) tokens.push(...this.getVoiceTokensForChar(ch))
+      if (i < lines.length - 1) tokens.push('new', 'line')
+    }
+
+    for (const chunk of this.chunkVoiceTokens(tokens, 70)) {
+      if (this._voiceSession !== session) break
+      await speak(chunk)
     }
   }
 

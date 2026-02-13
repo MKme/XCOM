@@ -94,6 +94,25 @@ select optgroup {
     background: rgba(46, 230, 166, 0.12) !important;
 }
 
+.maplibregl-ctrl-group button + button {
+    border-top-color: rgba(255,255,255,0.12) !important;
+}
+
+.maplibregl-ctrl button .maplibregl-ctrl-icon {
+    /* Icons are baked as dark SVG data-URIs; invert for dark UI */
+    filter: invert(1) brightness(1.8) !important;
+}
+
+.maplibregl-ctrl-attrib-button {
+    /* Attribution "i" icon is also a dark SVG */
+    filter: invert(1) brightness(1.8) !important;
+}
+
+.maplibregl-ctrl-logo {
+    /* MapLibre logo is also a dark SVG; invert for dark UI */
+    filter: invert(1) brightness(1.8) !important;
+}
+
 .maplibregl-ctrl-attrib {
     background: rgba(15, 22, 34, 0.92) !important;
     color: var(--text) !important;
@@ -101,6 +120,40 @@ select optgroup {
 
 .maplibregl-ctrl-attrib a {
     color: var(--accent) !important;
+}
+
+/* --------------------------------------------------------------------------
+   MapLibre popup dialogs (marker click popups) - force readable black text
+   -------------------------------------------------------------------------- */
+.maplibregl-popup-content {
+    color: #000 !important;
+    color-scheme: light;
+}
+
+.maplibregl-popup-content * {
+    color: #000 !important;
+}
+
+.maplibregl-popup-content a {
+    text-decoration: underline;
+}
+
+.maplibregl-popup-content button,
+.maplibregl-popup-content input,
+.maplibregl-popup-content select,
+.maplibregl-popup-content textarea {
+    color-scheme: light;
+}
+
+.maplibregl-popup-content select {
+    background: #fff;
+    border: 1px solid rgba(0,0,0,0.25);
+}
+
+.maplibregl-popup-content select option,
+.maplibregl-popup-content select optgroup {
+    background: #fff;
+    color: #000;
 }
 
 

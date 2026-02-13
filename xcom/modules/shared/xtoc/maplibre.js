@@ -87,7 +87,16 @@ function applyOfflineRasterDarkFilter(containerEl) {
 }
 
 // Very small helper to create a basic map with the shared settings.
-function createMapLibreMap({ container, centerLon, centerLat, zoom }) {
+function createMapLibreMap({
+  container,
+  centerLon,
+  centerLat,
+  zoom,
+  attributionControl = true,
+  navigationControl = true,
+  navigationControlOptions = undefined,
+  navigationControlPosition = 'top-right',
+} = {}) {
   if (!globalThis.maplibregl) throw new Error('MapLibre not loaded')
 
   // Normalize container arg. MapLibre itself accepts an HTMLElement or a string id,
@@ -103,9 +112,19 @@ function createMapLibreMap({ container, centerLon, centerLat, zoom }) {
     style: buildMapLibreStyle(),
     center: [centerLon, centerLat],
     zoom,
-    attributionControl: true,
+    attributionControl: !!attributionControl,
   })
-  map.addControl(new globalThis.maplibregl.NavigationControl(), 'top-right')
+
+  if (navigationControl) {
+    try {
+      map.addControl(
+        new globalThis.maplibregl.NavigationControl(navigationControlOptions || undefined),
+        navigationControlPosition
+      )
+    } catch (_) {
+      // ignore
+    }
+  }
   map.on('render', () => {
     // In case canvas is recreated after setStyle.
     applyOfflineRasterDarkFilter(containerEl)

@@ -986,6 +986,8 @@ class LogbookModule {
           centerLon: targetLocation.lng,
           centerLat: targetLocation.lat,
           zoom: 4,
+          attributionControl: false,
+          navigationControl: false,
         })
       : new globalThis.maplibregl.Map({
           container: mapEl,

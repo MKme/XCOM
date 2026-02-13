@@ -71,13 +71,14 @@ class HelpModule {
                     </p>
                     <ul>
                         <li><strong>First activation requires internet access.</strong></li>
-                        <li>If you clear browser/site data, you will need to activate again.</li>
+                        <li>If you clear browser/site data (or uninstall the PWA), you will need to activate again <strong>and</strong> you will lose local data unless you exported a backup first.</li>
                     </ul>
 
                     <h3>Updates</h3>
                     <ul>
                         <li>Use the <strong>Update</strong> button in the top bar to check for an update and reload.</li>
                         <li>Updates do <strong>not</strong> wipe your local data.</li>
+                        <li>If the app seems stuck on an old version, use <strong>Backup</strong> &rarr; <strong>Repair app cache</strong> (keeps data) instead of clearing site data.</li>
                         <li>If the license server is reachable, Update re-checks your cached key and only blocks if the key is <strong>invalid</strong>.</li>
                         <li>If the license server is unreachable, Update still reloads and continues using your cached activation on this device.</li>
                     </ul>
@@ -100,7 +101,7 @@ class HelpModule {
                             <p>Offline lookup for USA/Canada callsigns, plus path plotting, great-circle distance, and VOACAP-style propagation estimates (including forecasts and band/mode graphs).</p>
                         </div>
                         <div class="module-card">
-                            <h3>Ham Clock</h3>
+                            <h3>Ham Clock (Experimental)</h3>
                             <p>UTC-first ham clock with greyline/day-night map, DE/DX path, and a lightweight band prediction model. Space weather fetch is optional.</p>
                         </div>
                         <div class="module-card">
@@ -139,12 +140,16 @@ class HelpModule {
                             <h3>Help</h3>
                             <p>Access documentation and help for XCOM™. Learn how to use the various modules and features.</p>
                         </div>
+                        <div class="module-card">
+                            <h3>Backup</h3>
+                            <p>Export/import your local XCOM data so you can recover after clearing site data or reinstalling the PWA.</p>
+                        </div>
                         <!-- Additional modules will be added here -->
                     </div>
                 </div>
 
                 <div class="help-section">
-                    <h2>Ham Clock Module</h2>
+                    <h2>Ham Clock Module (Experimental)</h2>
                     <h3>Overview</h3>
                     <p>
                         Ham Clock is a UTC-first ham radio dashboard with a live greyline/day-night map and a lightweight propagation “at a glance” model.
@@ -194,7 +199,7 @@ class HelpModule {
                     <h2>XTOC Comm Module</h2>
                     <h3>Overview</h3>
                     <p>
-                        XTOC Comm is an XTOC-compatible packet workshop and import bridge: create standardized reports, chunk them for transport limits, and move them via copy/paste, QR, Mesh, or MANET (LAN).
+                        XTOC Comm is an XTOC-compatible packet workshop and import bridge: create standardized reports, chunk them for transport limits, and move them via copy/paste, Voice (TTS), QR, Mesh, or MANET (LAN).
                         It also supports importing XTOC exports so field devices have roster labels, SECURE keys (KID), and packet history for offline operations.
                     </p>
 
@@ -202,8 +207,8 @@ class HelpModule {
                     <ul>
                         <li><strong>Templates:</strong> T=1&ndash;8 (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION).</li>
                         <li><strong>Modes:</strong> <strong>CLEAR</strong> (human-readable fields) or <strong>SECURE</strong> (encrypted).</li>
-                        <li><strong>Transport profiles:</strong> choose Copy/Paste, JS8/APRS, Winlink, Meshtastic/MeshCore, MANET (LAN), or QR &mdash; then click <strong>Generate</strong>.</li>
-                        <li><strong>Location tools:</strong> <strong>Pick Location</strong> and <strong>Draw Zone</strong> open a mini-map so you can embed coordinates/areas into packets.</li>
+                        <li><strong>Transport profiles:</strong> choose Copy/Paste, Voice (TTS), JS8/APRS, Winlink, Meshtastic/MeshCore, MANET (LAN), or QR &mdash; then click <strong>Generate</strong>.</li>
+                        <li><strong>Location tools:</strong> <strong>Use GPS</strong> fills Lat/Lon from your device; <strong>Pick Location</strong> and <strong>Draw Zone</strong> open a mini-map so you can embed coordinates/areas into packets.</li>
                     </ul>
 
                     <h3>SECURE mode (keys)</h3>
@@ -215,6 +220,7 @@ class HelpModule {
                     <h3>Moving packets</h3>
                     <ul>
                         <li><strong>Copy</strong> puts the generated packet lines on your clipboard.</li>
+                        <li><strong>Output Voice</strong> spells out the packet text character-by-character for manual voice relays (Voice transport).</li>
                         <li><strong>Make QR</strong> renders a scannable QR for the first packet line (best for QR/Copy-Paste transports).</li>
                         <li><strong>Scan QR</strong> (Import/Reassemble) reads packet lines from camera and decodes them.</li>
                         <li><strong>Send via Mesh</strong> sends each generated packet line as a mesh text message (Meshtastic or MeshCore; requires Mesh connected).</li>
@@ -391,6 +397,8 @@ class HelpModule {
                     <h3>Notes</h3>
                     <ul>
                         <li>This is designed for trusted LANs only (the bridge has permissive CORS and no authentication by design).</li>
+                        <li><strong>Bridge helper:</strong> the bridge is a tiny Python program. Install Python 3 on the XTOC laptop and run the launcher scripts in <code>halow-bridge/</code>.</li>
+                        <li><strong>Release bundles:</strong> the downloadable web fileset ZIP includes <code>halow-bridge/</code> alongside the app files.</li>
                         <li>Bridge URL cannot be <code>0.0.0.0</code> (bind address). Use the XTOC laptop IP or <code>http://127.0.0.1:8095</code> on the laptop.</li>
                         <li>If <strong>Share Bridge QR</strong> / <strong>Scan Bridge QR</strong> says <em>Failed to fetch</em>, the bridge is usually not running yet, the Bridge URL is wrong, or the browser is blocking the request.</li>
                         <li>Troubleshooting: from any device browser, open <code>http://&lt;XTOC-IP&gt;:8095/health</code>. If it wonâ€™t load, check that both devices are on the same MANET/LAN and that Windows Firewall allows inbound port 8095.</li>
@@ -588,7 +596,7 @@ class HelpModule {
                 
                 <div class="help-section">
                     <h2>About</h2>
-                    <p>XCOM™ v1.0.31</p>
+                    <p>XCOM™ v1.0.36</p>
                     <p>&copy; 2025 - All rights reserved</p>
                     <p>This application is designed for amateur radio operators to assist with various radio-related tasks. It is continually being improved with new features and modules.</p>
 
