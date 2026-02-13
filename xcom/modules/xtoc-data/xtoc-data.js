@@ -65,6 +65,787 @@ class XtocDataModule {
     return s
   }
 
+  // -----------------------------
+  // XTOC -> XCOM import
+  // -----------------------------
+
+  setImportStatus(text) {
+    const el = document.getElementById('xtocDataImportStatus')
+    if (el) el.textContent = String(text || '').trim()
+  }
+
+  readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+      try {
+        if (file && typeof file.text === 'function') {
+          file.text().then(resolve, reject)
+          return
+        }
+      } catch (_) {
+        // ignore, fall back to FileReader
+      }
+
+      const r = new FileReader()
+      r.onerror = () => reject(r.error ?? new Error('Failed to read file'))
+      r.onload = () => resolve(String(r.result ?? ''))
+      r.readAsText(file)
+    })
+  }
+
+  parseXtocBackupJson(jsonText) {
+    const obj = JSON.parse(String(jsonText || '')) || null
+    if (!obj || typeof obj !== 'object') throw new Error('Invalid backup JSON (not an object).')
+    if (obj.v !== 1 || obj.app !== 'xtoc') throw new Error('Not an XTOC backup file (expected v=1 app=xtoc).')
+    if (!Array.isArray(obj.members) || !Array.isArray(obj.teamKeys) || !Array.isArray(obj.packets)) {
+      throw new Error('Invalid XTOC backup file (missing arrays).')
+    }
+    return obj
+  }
+
+  notifyXtocPacketsUpdated() {
+    try {
+      globalThis.dispatchEvent(new Event('xcomXtocPacketsUpdated'))
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  makeXtocPacketStoreKey(wrapper) {
+    const tpl = Number(wrapper?.templateId) || 0
+    const mode = wrapper?.mode === 'S' ? 'S' : 'C'
+    const id = String(wrapper?.id || '').trim()
+    const kid = mode === 'S' ? Number(wrapper?.kid) : undefined
+
+    if (mode === 'S' && Number.isFinite(kid)) return `X1:${tpl}:${mode}:${id}:${kid}`
+    return `X1:${tpl}:${mode}:${id}`
+  }
+
+  keyStatusForWrapper(wrapper) {
+    try {
+      const mode = wrapper?.mode === 'S' ? 'S' : 'C'
+      if (mode !== 'S') return {}
+
+      const packetKid = Number(wrapper?.kid)
+      if (!Number.isFinite(packetKid) || packetKid <= 0) return {}
+
+      const activeKey = globalThis.getCommsActiveKey ? globalThis.getCommsActiveKey() : null
+      const activeKid = activeKey ? Number(activeKey.kid) : NaN
+      if (!Number.isFinite(activeKid) || activeKid <= 0) return {}
+
+      if (packetKid === activeKid) return {}
+      return { nonActiveKey: true, activeKidAtStore: activeKid }
+    } catch (_) {
+      return {}
+    }
+  }
+
+  packetAtFromDecoded(wrapper, decodedObj) {
+    try {
+      const tpl = Number(wrapper?.templateId) || 0
+      if (!decodedObj || typeof decodedObj !== 'object') return null
+      const n = tpl === 8 ? Number(decodedObj?.updatedAt) : Number(decodedObj?.t)
+      return Number.isFinite(n) && n > 0 ? n : null
+    } catch (_) {
+      return null
+    }
+  }
+
+  circleToPolygon(centerLat, centerLon, radiusM, steps = 64) {
+    const lat = Number(centerLat)
+    const lon = Number(centerLon)
+    const r = Math.max(0, Number(radiusM) || 0)
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(r) || r <= 0) return null
+
+    // Lightweight approximation suitable for local map overlays.
+    const R = 6378137
+    const latRad = (lat * Math.PI) / 180
+    const angDist = r / R
+
+    const coords = []
+    const n = Math.max(12, Math.min(180, Math.floor(Number(steps) || 64)))
+    for (let i = 0; i < n; i++) {
+      const brng = (i / n) * 2 * Math.PI
+      const sinLat = Math.sin(latRad)
+      const cosLat = Math.cos(latRad)
+      const sinAd = Math.sin(angDist)
+      const cosAd = Math.cos(angDist)
+
+      const lat2 = Math.asin(sinLat * cosAd + cosLat * sinAd * Math.cos(brng))
+      const lon2 = ((lon * Math.PI) / 180) + Math.atan2(Math.sin(brng) * sinAd * cosLat, cosAd - sinLat * Math.sin(lat2))
+
+      coords.push([(lon2 * 180) / Math.PI, (lat2 * 180) / Math.PI])
+    }
+    if (coords.length) coords.push(coords[0])
+    return coords
+  }
+
+  buildImportedFeatures(args) {
+    const key = String(args?.key || '')
+    const wrapper = args?.wrapper
+    const decodedObj = args?.decodedObj
+    const summary = String(args?.summary || '').trim()
+    const receivedAtRaw = Number(args?.receivedAt || 0)
+    const receivedAt = (Number.isFinite(receivedAtRaw) && receivedAtRaw > 0) ? receivedAtRaw : Date.now()
+
+    const t = Number(wrapper?.templateId)
+    const mode = wrapper?.mode === 'S' ? 'S' : 'C'
+    const packetId = String(wrapper?.id || '').trim()
+    const kid = mode === 'S' ? Number(wrapper?.kid) : undefined
+    const raw = String(wrapper?.raw || '').trim()
+
+    const packetAt = this.packetAtFromDecoded(wrapper, decodedObj)
+
+    const baseProps = {
+      source: 'imported',
+      templateId: Number.isFinite(t) ? t : 0,
+      mode,
+      packetId,
+      kid: Number.isFinite(kid) ? kid : undefined,
+      summary,
+      note: raw,
+      receivedAt,
+      ...(packetAt != null ? { packetAt } : {}),
+      ...this.keyStatusForWrapper(wrapper),
+    }
+
+    const feats = []
+
+    if (t === 7 && decodedObj && typeof decodedObj === 'object') {
+      const z = decodedObj
+      const shape = z?.shape
+      const threat = Number(z?.threat)
+      const meaningCode = Number(z?.meaningCode)
+      const label = z?.label ? String(z.label).trim() : ''
+      const zNote = z?.note ? String(z.note).trim() : ''
+
+      const zoneProps = {
+        ...baseProps,
+        kind: 'zone',
+        threat: Number.isFinite(threat) ? threat : undefined,
+        meaningCode: Number.isFinite(meaningCode) ? meaningCode : undefined,
+        label: label || undefined,
+        note: zNote || baseProps.note,
+      }
+
+      if (shape && shape.kind === 'circle' && Number.isFinite(shape.centerLat) && Number.isFinite(shape.centerLon) && Number.isFinite(shape.radiusM)) {
+        const ring = this.circleToPolygon(shape.centerLat, shape.centerLon, shape.radiusM, 72)
+        if (Array.isArray(ring) && ring.length >= 4) {
+          feats.push({
+            type: 'Feature',
+            id: `imported:${key}:zone`,
+            geometry: { type: 'Polygon', coordinates: [ring] },
+            properties: zoneProps,
+          })
+        }
+        feats.push({
+          type: 'Feature',
+          id: `imported:${key}:zoneCenter`,
+          geometry: { type: 'Point', coordinates: [Number(shape.centerLon), Number(shape.centerLat)] },
+          properties: { ...zoneProps, kind: 'zoneCenter' },
+        })
+        return feats
+      }
+
+      if (shape && (shape.kind === 'poly' || shape.kind === 'polygon')) {
+        const pts = Array.isArray(shape.points) ? shape.points : []
+        const ring = pts
+          .filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
+          .map((p) => [Number(p.lon), Number(p.lat)])
+        if (ring.length >= 3) {
+          ring.push(ring[0])
+          feats.push({
+            type: 'Feature',
+            id: `imported:${key}:zone`,
+            geometry: { type: 'Polygon', coordinates: [ring] },
+            properties: zoneProps,
+          })
+
+          const avg = ring.slice(0, -1).reduce((acc, c) => {
+            acc.lon += Number(c[0])
+            acc.lat += Number(c[1])
+            acc.n += 1
+            return acc
+          }, { lon: 0, lat: 0, n: 0 })
+          if (avg.n > 0) {
+            feats.push({
+              type: 'Feature',
+              id: `imported:${key}:zoneCenter`,
+              geometry: { type: 'Point', coordinates: [avg.lon / avg.n, avg.lat / avg.n] },
+              properties: { ...zoneProps, kind: 'zoneCenter' },
+            })
+          }
+          return feats
+        }
+      }
+
+      return feats
+    }
+
+    if (decodedObj && typeof decodedObj === 'object' && Number.isFinite(decodedObj?.lat) && Number.isFinite(decodedObj?.lon)) {
+      feats.push({
+        type: 'Feature',
+        id: `imported:${key}:loc`,
+        geometry: { type: 'Point', coordinates: [Number(decodedObj.lon), Number(decodedObj.lat)] },
+        properties: { ...baseProps, kind: 'loc' },
+      })
+    }
+
+    return feats
+  }
+
+  decodeTemplate(templateId, payloadB64Url) {
+    switch (templateId) {
+      case 1:
+        return globalThis.decodeSitrepClear(payloadB64Url)
+      case 2:
+        return globalThis.decodeContactClear(payloadB64Url)
+      case 3:
+        return globalThis.decodeTaskClear(payloadB64Url)
+      case 4:
+        return globalThis.decodeCheckinLocClear(payloadB64Url)
+      case 5:
+        return globalThis.decodeResourceClear(payloadB64Url)
+      case 6:
+        return globalThis.decodeAssetClear(payloadB64Url)
+      case 7:
+        return globalThis.decodeZoneClear(payloadB64Url)
+      case 8:
+        return globalThis.decodeMissionClear(payloadB64Url)
+      default:
+        return { payloadB64Url }
+    }
+  }
+
+  decodeParsedWrapper(parsed) {
+    if (!parsed) throw new Error('No packet selected')
+
+    if (parsed.mode === 'C') {
+      return this.decodeTemplate(parsed.templateId, parsed.payload)
+    }
+
+    // SECURE: decrypt to get underlying template bytes, then decode.
+    let key = null
+
+    // 1) Prefer the ACTIVE key slot (XCOM Comms model)
+    if (globalThis.getCommsActiveKey) {
+      const activeKey = globalThis.getCommsActiveKey()
+      if (activeKey && activeKey.kid === parsed.kid) key = { keyB64Url: activeKey.keyB64Url }
+    }
+
+    // 2) Fallback: search all stored team keys by KID
+    if (!key && globalThis.getTeamKeysMap) {
+      const map = globalThis.getTeamKeysMap()
+      const kidStr = String(Number(parsed.kid))
+      for (const team of Object.keys(map || {})) {
+        const rec = map?.[team]?.[kidStr]
+        if (rec && rec.keyB64Url) {
+          key = { keyB64Url: rec.keyB64Url }
+          break
+        }
+      }
+    }
+
+    if (!key) throw new Error(`No key found for KID ${parsed.kid}. Import the matching key bundle or backup.`)
+    const aad = globalThis.makeSecureAad('X1', parsed.templateId, 'S', parsed.id, parsed.part, parsed.total, parsed.kid)
+    const plainBytes = globalThis.decodeSecurePayload(parsed.payload, key.keyB64Url, aad)
+
+    // Prefer XTOC canonical behavior if helper is present.
+    try {
+      if (typeof globalThis.decodeTemplatePlainBytes === 'function') {
+        return globalThis.decodeTemplatePlainBytes(parsed.templateId, plainBytes)
+      }
+      throw new Error('decodeTemplatePlainBytes not loaded')
+    } catch (_) {
+      // Legacy fallback: treat bytes as UTF-8 encoded base64url string.
+      const payloadB64Url = new TextDecoder().decode(plainBytes)
+      return this.decodeTemplate(parsed.templateId, payloadB64Url)
+    }
+  }
+
+  async importXtocBackupObject(backup) {
+    const members = Array.isArray(backup?.members) ? backup.members : []
+    const squads = Array.isArray(backup?.squads) ? backup.squads : []
+    const teamKeys = Array.isArray(backup?.teamKeys) ? backup.teamKeys : []
+    const packets = Array.isArray(backup?.packets) ? backup.packets : []
+
+    // 0) Squads (optional metadata)
+    try {
+      if (squads.length && typeof globalThis.xcomUpsertSquads === 'function') {
+        globalThis.xcomUpsertSquads(squads, { replace: false })
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    // 1) Roster (full member records)
+    let rosterTotal = 0
+    try {
+      if (typeof globalThis.xcomUpsertRosterMembers === 'function') {
+        const res = globalThis.xcomUpsertRosterMembers(members, { replace: false })
+        if (res?.ok) rosterTotal = Number(res.total || 0) || 0
+      }
+    } catch (_) {
+      rosterTotal = 0
+    }
+
+    // 2) Team keys
+    let keysImported = 0
+    let keysFailed = 0
+    if (typeof globalThis.putTeamKey === 'function') {
+      for (const k of teamKeys) {
+        try {
+          const teamId = String(k?.teamId || '').trim()
+          const kid = Number(k?.kid)
+          const keyB64Url = String(k?.keyB64Url || '').trim()
+          if (!teamId || !Number.isFinite(kid) || !keyB64Url) {
+            keysFailed++
+            continue
+          }
+          globalThis.putTeamKey(teamId, kid, keyB64Url)
+          keysImported++
+        } catch (_) {
+          keysFailed++
+        }
+      }
+    }
+
+    // If this device has no ACTIVE key yet, try to set one from the imported backup keys.
+    // Prefer the backup's ACTIVE KID/teamId when present; otherwise pick the highest KID.
+    try {
+      const hasActiveKey = (typeof globalThis.getCommsActiveKey === 'function') ? !!globalThis.getCommsActiveKey() : false
+      if (!hasActiveKey && keysImported > 0 && typeof globalThis.setCommsActiveKey === 'function') {
+        const ls = backup?.localStorage && typeof backup.localStorage === 'object' ? backup.localStorage : null
+        const preferredTeamId = ls && typeof ls['xtoc.teamId'] === 'string' ? String(ls['xtoc.teamId']).trim() : ''
+        const preferredKidRaw = ls ? Number(ls['xtoc.activeKid']) : NaN
+        const preferredKid = Number.isFinite(preferredKidRaw) && preferredKidRaw > 0 ? preferredKidRaw : NaN
+
+        const candidates = []
+        for (const k of teamKeys) {
+          const teamId = String(k?.teamId || '').trim()
+          const kid = Number(k?.kid)
+          const keyB64Url = String(k?.keyB64Url || '').trim()
+          const createdAt = Number(k?.createdAt || 0) || 0
+          if (!teamId || !Number.isFinite(kid) || kid <= 0 || !keyB64Url) continue
+          candidates.push({ teamId, kid, keyB64Url, createdAt })
+        }
+
+        let chosen = null
+        if (preferredTeamId && Number.isFinite(preferredKid)) {
+          chosen = candidates.find((c) => c.teamId === preferredTeamId && c.kid === preferredKid) || null
+        }
+        if (!chosen) {
+          const pool = preferredTeamId ? candidates.filter((c) => c.teamId === preferredTeamId) : candidates
+          pool.sort((a, b) => (b.kid - a.kid) || (b.createdAt - a.createdAt))
+          chosen = pool[0] || null
+        }
+
+        if (chosen) {
+          globalThis.setCommsActiveKey({ teamId: chosen.teamId, kid: chosen.kid, keyB64Url: chosen.keyB64Url })
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    // 3) Packets: store ALL packets in IndexedDB, and add geo packets to the Imported overlay
+    let packetsParsed = 0
+    let packetsStored = 0
+    let packetsStoreSkipped = 0
+    let packetsNoGeo = 0
+    let markersAdded = 0
+    let markersDup = 0
+    let zoneDecoded = 0
+    let zoneDecodeFailed = 0
+
+    const parse = globalThis.parsePacket
+    const canStore = typeof globalThis.xcomPutXtocPackets === 'function'
+    const canOverlay = typeof globalThis.addImportedPackets === 'function' || typeof globalThis.addImportedPacket === 'function'
+
+    const toStore = []
+    const toOverlay = []
+
+    for (const rec of packets) {
+      const raw = String(rec?.raw || '').trim()
+      if (!raw) continue
+      if (typeof parse !== 'function') continue
+      const wrapper = parse(raw)
+      if (!wrapper) continue
+      packetsParsed++
+
+      const key = this.makeXtocPacketStoreKey(wrapper)
+      const receivedAt = Number(rec?.createdAt || 0) || Number(backup?.exportedAt || 0) || Date.now()
+      const summaryFromBackup = String(rec?.summary || '').trim()
+      let summary = summaryFromBackup
+      if (!summary) {
+        const modeLabel = wrapper?.mode === 'S' ? 'SECURE' : 'CLEAR'
+        summary = `${this.templateName(wrapper?.templateId)} (${modeLabel}) ID ${String(wrapper?.id || '').trim()}`.trim()
+      }
+
+      let decodedObj = null
+      let decodeError = ''
+      let features = []
+      let hasGeo = false
+
+      // Zones require decode to get geometry.
+      if (Number(wrapper?.templateId) === 7) {
+        try {
+          decodedObj = this.decodeParsedWrapper(wrapper)
+          zoneDecoded++
+          features = this.buildImportedFeatures({ key, wrapper, decodedObj, summary, receivedAt })
+          hasGeo = Array.isArray(features) && features.length > 0
+
+          // Improve summary if backup didn't include one.
+          if (!summaryFromBackup) {
+            try {
+              const threat = Number(decodedObj?.threat)
+              const threatLabel = ['SAFE', 'DANGER', 'UNKNOWN'][Math.max(0, Math.min(2, Math.floor(threat || 0)))] || 'UNKNOWN'
+              const meaningCode = Number(decodedObj?.meaningCode)
+              const label = decodedObj?.label ? String(decodedObj.label).trim() : ''
+              const meaningText = Number.isFinite(meaningCode) ? ` meaning=${meaningCode}` : ''
+              summary = `${wrapper?.mode === 'S' ? 'SECURE ' : ''}${threatLabel} ZONE${meaningText}${label ? ` \"${label}\"` : ''}`.trim()
+            } catch (_) {
+              // ignore
+            }
+          }
+        } catch (e) {
+          zoneDecodeFailed++
+          decodeError = e?.message ? String(e.message) : String(e)
+          features = []
+          hasGeo = false
+        }
+      } else {
+        // Location-bearing templates: use the lat/lon that XTOC already normalized into the backup record.
+        const lat = Number(rec?.lat)
+        const lon = Number(rec?.lon)
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          hasGeo = true
+          const mode = wrapper?.mode === 'S' ? 'S' : 'C'
+          const kid = mode === 'S' ? Number(wrapper?.kid) : undefined
+          const baseProps = {
+            source: 'imported',
+            templateId: Number(wrapper?.templateId) || 0,
+            mode,
+            packetId: String(wrapper?.id || '').trim(),
+            kid: Number.isFinite(kid) ? kid : undefined,
+            summary,
+            note: raw,
+            receivedAt,
+            ...this.keyStatusForWrapper(wrapper),
+          }
+          features = [
+            {
+              type: 'Feature',
+              id: `imported:${key}:loc`,
+              geometry: { type: 'Point', coordinates: [lon, lat] },
+              properties: { ...baseProps, kind: 'loc' },
+            },
+          ]
+        }
+      }
+
+      if (!hasGeo) packetsNoGeo++
+
+      // Store packet (even without geo)
+      toStore.push({
+        key,
+        templateId: Number(wrapper?.templateId) || 0,
+        mode: wrapper?.mode === 'S' ? 'S' : 'C',
+        id: String(wrapper?.id || '').trim(),
+        ...(wrapper?.mode === 'S' && Number.isFinite(Number(wrapper?.kid)) ? { kid: Number(wrapper.kid) } : {}),
+        ...this.keyStatusForWrapper(wrapper),
+        part: Number(wrapper?.part) || 1,
+        total: Number(wrapper?.total) || 1,
+        raw,
+        storedAt: Date.now(),
+        receivedAt,
+        source: 'xtocBackup',
+        summary,
+        ...(decodedObj ? { decoded: decodedObj } : {}),
+        ...(decodeError ? { decodeError } : {}),
+        hasGeo,
+        features: Array.isArray(features) ? features : [],
+      })
+
+      // Map overlay (Imported) - batch to avoid N localStorage rewrites for large imports.
+      if (hasGeo && canOverlay) {
+        toOverlay.push({
+          key,
+          raw,
+          templateId: wrapper.templateId,
+          mode: wrapper.mode,
+          packetId: wrapper.id,
+          kid: wrapper.mode === 'S' ? wrapper.kid : undefined,
+          summary,
+          features,
+        })
+      }
+    }
+
+    if (canOverlay && toOverlay.length > 0) {
+      try {
+        if (typeof globalThis.addImportedPackets === 'function') {
+          const addRes = globalThis.addImportedPackets(toOverlay)
+          if (addRes?.ok) {
+            markersAdded = Number(addRes.added || 0) || 0
+            markersDup = Number(addRes.dup || 0) || 0
+          }
+        } else if (typeof globalThis.addImportedPacket === 'function') {
+          for (const e of toOverlay) {
+            try {
+              const addRes = globalThis.addImportedPacket(e)
+              if (addRes?.ok) {
+                if (addRes.added) markersAdded++
+                else markersDup++
+              }
+            } catch (_) {
+              // ignore
+            }
+          }
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    if (canStore && toStore.length > 0) {
+      const putRes = await globalThis.xcomPutXtocPackets(toStore, { mergeSources: true })
+      if (putRes?.ok) {
+        packetsStored = Number(putRes.put || 0) || 0
+        packetsStoreSkipped = Number(putRes.skipped || 0) || 0
+        this.notifyXtocPacketsUpdated()
+      } else {
+        packetsStored = 0
+        packetsStoreSkipped = toStore.length
+      }
+    }
+
+    return {
+      ok: true,
+      rosterTotal,
+      keysImported,
+      keysFailed,
+      packetsParsed,
+      packetsStored,
+      packetsStoreSkipped,
+      packetsNoGeo,
+      markersAdded,
+      markersDup,
+      zoneDecoded,
+      zoneDecodeFailed,
+    }
+  }
+
+  async importXtocBackup() {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json,application/json'
+
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0]
+      if (!file) return
+
+      try {
+        this.setImportStatus('Importing...')
+        const text = await this.readFileAsText(file)
+        const backup = this.parseXtocBackupJson(text)
+        const res = await this.importXtocBackupObject(backup)
+
+        try { this.updateRosterStatus() } catch (_) { /* ignore */ }
+        try { void this.refresh({ keepSelection: true }) } catch (_) { /* ignore */ }
+
+        const msg =
+          `Imported XTOC backup: ` +
+          `${res.rosterTotal ? `${res.rosterTotal} roster member(s), ` : ''}` +
+          `${res.keysImported} key(s), ` +
+          `${res.packetsStored || 0} packet(s), ` +
+          `${res.markersAdded} marker(s)` +
+          `${res.markersDup ? ` (${res.markersDup} already present)` : ''}.`
+
+        this.setImportStatus(msg)
+        alert(msg)
+      } catch (e) {
+        const msg = e?.message ? String(e.message) : String(e)
+        this.setImportStatus(`Import failed: ${msg}`)
+        alert(msg)
+      } finally {
+        try { input.value = '' } catch (_) { /* ignore */ }
+      }
+    }, { once: true })
+
+    input.click()
+  }
+
+  // -----------------------------
+  // Team roster import (XTOC-TEAM bundle)
+  // -----------------------------
+
+  parseTeamRosterBundle(text) {
+    const t = String(text || '').trim()
+    if (!t.startsWith('XTOC-TEAM.')) return null
+    try {
+      const json = atob(t.slice('XTOC-TEAM.'.length))
+      const obj = JSON.parse(json)
+      if (obj?.v !== 1) return null
+      if (!Array.isArray(obj?.members)) return null
+      return obj
+    } catch (_) {
+      return null
+    }
+  }
+
+  importTeamRoster(opts = {}) {
+    const quiet = !!opts.quiet
+    const input = document.getElementById('xtocDataTeamBundle')
+    const text = String(input?.value || '').trim()
+    if (!text) {
+      if (!quiet) alert('Paste an XTOC-TEAM bundle first.')
+      return
+    }
+
+    const b = this.parseTeamRosterBundle(text)
+    if (!b) {
+      if (!quiet) alert('Invalid roster bundle. Expected: XTOC-TEAM.<base64(json)>')
+      return
+    }
+
+    if (typeof globalThis.xcomUpsertRosterMembers !== 'function') {
+      if (!quiet) alert('Roster helpers not loaded')
+      return
+    }
+
+    const res = globalThis.xcomUpsertRosterMembers(b.members, { replace: false })
+    if (!res?.ok) {
+      if (!quiet) alert(res?.reason || 'Roster import failed')
+      return
+    }
+
+    // Optional: squad metadata (if provided by XTOC).
+    try {
+      if (Array.isArray(b?.squads) && typeof globalThis.xcomUpsertSquads === 'function') {
+        globalThis.xcomUpsertSquads(b.squads, { replace: false })
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    try { input.value = '' } catch (_) { /* ignore */ }
+    this.updateRosterStatus()
+    if (!quiet) alert(`Imported roster: ${res.total} member(s).`)
+  }
+
+  updateRosterStatus() {
+    const el = document.getElementById('xtocDataRosterStatus')
+    if (!el) return
+
+    if (typeof globalThis.xcomGetTeamRoster !== 'function') {
+      el.textContent = 'Roster: helpers not loaded'
+      return
+    }
+
+    let roster = null
+    try { roster = globalThis.xcomGetTeamRoster() } catch (_) { roster = null }
+    const members = Array.isArray(roster?.members) ? roster.members : []
+    const squads = Array.isArray(roster?.squads) ? roster.squads : []
+    const updatedAt = Number(roster?.updatedAt || 0) || 0
+
+    if (members.length === 0) {
+      el.textContent = 'Roster: none loaded'
+      return
+    }
+
+    let when = '—'
+    if (updatedAt > 0) {
+      try { when = new Date(updatedAt).toLocaleString() } catch (_) { when = '—' }
+    }
+
+    const squadText = squads.length ? `, ${squads.length} squad(s)` : ''
+    el.textContent = `Roster: ${members.length} member(s)${squadText} loaded (${when})`
+  }
+
+  clearRoster() {
+    const ok = confirm('Clear roster labels from this device?\n\nThis only removes friendly label mapping (no packets/keys).')
+    if (!ok) return
+
+    try {
+      if (typeof globalThis.xcomClearTeamRoster === 'function') globalThis.xcomClearTeamRoster()
+    } catch (_) {
+      // ignore
+    }
+    this.updateRosterStatus()
+  }
+
+  async scanTeamQr() {
+    if (!globalThis.QrScanner) {
+      alert('QrScanner not loaded')
+      return
+    }
+
+    const overlay = document.createElement('div')
+    overlay.className = 'xtocDataQrOverlay'
+    overlay.innerHTML = `
+      <div class="xtocDataQrModal">
+        <div class="xtocDataQrModalTitle">Scan Team QR</div>
+        <video id="xtocDataTeamQrVideo"></video>
+        <div class="xtocDataQrActions">
+          <button id="xtocDataTeamQrStopBtn" type="button" class="xtocBtn danger">Stop</button>
+        </div>
+      </div>
+    `
+    const host = document.getElementById('xtoc-data') || document.body
+    host.appendChild(overlay)
+    const video = overlay.querySelector('#xtocDataTeamQrVideo')
+    const stopBtn = overlay.querySelector('#xtocDataTeamQrStopBtn')
+
+    let scanner = null
+    const stop = () => {
+      try { scanner && scanner.stop() } catch (_) { /* ignore */ }
+      try { overlay.remove() } catch (_) { /* ignore */ }
+    }
+
+    try {
+      globalThis.QrScanner.WORKER_PATH = 'assets/vendor/qr-scanner-worker.min.js'
+      scanner = new globalThis.QrScanner(
+        video,
+        (result) => {
+          const text = (result && result.data) ? result.data : String(result)
+          const trimmed = String(text || '').trim()
+
+          if (trimmed.startsWith('XTOC-TEAM.')) {
+            document.getElementById('xtocDataTeamBundle').value = trimmed
+            try {
+              this.importTeamRoster()
+            } finally {
+              stop()
+            }
+            return
+          }
+
+          if (trimmed.startsWith('XTOC-KEY.')) {
+            alert('That looks like a key bundle. Import it under XTOC Comm -> Key Bundle Import.')
+            stop()
+            return
+          }
+
+          if (trimmed.startsWith('X1.')) {
+            alert('That looks like an XTOC packet wrapper. Import/decode it under XTOC Comm.')
+            stop()
+            return
+          }
+
+          alert('QR did not look like an XTOC-TEAM roster bundle.')
+          stop()
+        },
+        { returnDetailedScanResult: true },
+      )
+      await scanner.start()
+      stopBtn.addEventListener('click', stop)
+    } catch (e) {
+      console.error(e)
+      stop()
+      alert(`QR scan failed: ${e.message || e}`)
+    }
+  }
+
   render() {
     const root = document.getElementById('xtoc-data')
     root.innerHTML = `
@@ -73,6 +854,43 @@ class XtocDataModule {
         <div class="xModuleIntroText">
           Browse and search <strong>all</strong> stored XTOC packets on this device (including non-location packets).
           This is local-first: data is stored in your browser's IndexedDB.
+        </div>
+      </div>
+
+      <div class="xtocDataCard xtocDataCard--import">
+        <div class="xtocDataTitleRow">
+          <div class="xtocDataTitle">XTOC -&gt; XCOM Import</div>
+        </div>
+        <div class="xtocSmallMuted">
+          Merges the full roster (prefers <span class="mono">label</span>), SECURE keys (KID), and all XTOC packets into this device.
+          Does not wipe existing XCOM data.
+        </div>
+
+        <div class="xtocDataImportRow">
+          <div class="xtocDataImportRowTitle">
+            <div class="xtocDataImportLabel">XTOC Backup (.json)</div>
+            <div class="xtocDataActions">
+              <button id="xtocDataImportXtocBackupBtn" class="xtocBtn" type="button">Import Backup</button>
+            </div>
+          </div>
+          <div class="xtocSmallMuted">
+            Use XTOC Topbar Export (e.g. <span class="mono">xtoc-backup-*.json</span>). XCOM merges roster/keys/packets and ignores XTOC settings/missions/KML layers.
+          </div>
+          <div class="xtocSmallMuted" id="xtocDataImportStatus"></div>
+        </div>
+
+        <div class="xtocDataDivider"></div>
+
+        <div class="xtocDataImportRow">
+          <div class="xtocDataImportLabel">Team roster bundle</div>
+          <textarea id="xtocDataTeamBundle" class="xtocInput xtocTextarea mono" rows="2" spellcheck="false" placeholder="XTOC-TEAM.&lt;base64(json)&gt;"></textarea>
+          <div class="xtocDataActions">
+            <button id="xtocDataImportTeamBtn" class="xtocBtn" type="button">Import Team</button>
+            <button id="xtocDataScanTeamQrBtn" class="xtocBtn" type="button">Scan Team QR</button>
+            <button id="xtocDataClearTeamBtn" class="xtocBtn danger" type="button">Clear</button>
+            <button id="xtocDataClearRosterBtn" class="xtocBtn danger" type="button">Clear Roster</button>
+          </div>
+          <div class="xtocSmallMuted" id="xtocDataRosterStatus">Roster: none loaded</div>
         </div>
       </div>
 
@@ -156,6 +974,11 @@ class XtocDataModule {
     const copyRawBtn = document.getElementById('xtocDataCopyRawBtn')
     const copySummaryBtn = document.getElementById('xtocDataCopySummaryBtn')
     const importToMapBtn = document.getElementById('xtocDataImportToMapBtn')
+    const importBackupBtn = document.getElementById('xtocDataImportXtocBackupBtn')
+    const importTeamBtn = document.getElementById('xtocDataImportTeamBtn')
+    const scanTeamQrBtn = document.getElementById('xtocDataScanTeamQrBtn')
+    const clearTeamBtn = document.getElementById('xtocDataClearTeamBtn')
+    const clearRosterBtn = document.getElementById('xtocDataClearRosterBtn')
 
     const schedule = () => {
       if (this._refreshTimer) clearTimeout(this._refreshTimer)
@@ -188,6 +1011,15 @@ class XtocDataModule {
       void this.refresh()
       try { globalThis.dispatchEvent(new Event('xcomXtocPacketsUpdated')) } catch (_) { /* ignore */ }
     })
+
+    importBackupBtn?.addEventListener('click', () => void this.importXtocBackup())
+    importTeamBtn?.addEventListener('click', () => this.importTeamRoster())
+    scanTeamQrBtn?.addEventListener('click', () => void this.scanTeamQr())
+    clearTeamBtn?.addEventListener('click', () => {
+      const ta = document.getElementById('xtocDataTeamBundle')
+      if (ta) ta.value = ''
+    })
+    clearRosterBtn?.addEventListener('click', () => this.clearRoster())
 
     tbody?.addEventListener('click', (e) => {
       const tr = e?.target?.closest?.('tr[data-key]')
@@ -253,6 +1085,12 @@ class XtocDataModule {
         alert(e?.message || String(e))
       }
     })
+
+    try {
+      if (typeof this.updateRosterStatus === 'function') this.updateRosterStatus()
+    } catch (_) {
+      // ignore
+    }
 
     // Live update when new packets are stored.
     this._packetsUpdatedHandler = () => {

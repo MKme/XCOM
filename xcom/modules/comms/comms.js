@@ -90,7 +90,6 @@ class CommsModule {
     this.createModuleStructure()
     this.bindEvents()
     this.updateKeySummary()
-    try { this.updateRosterStatus() } catch (_) { /* ignore */ }
     this.updateTemplateFields()
     try { this.refreshImportedRawList() } catch (_) { /* ignore */ }
     window.radioApp.updateStatus('XTOC Comm module loaded')
@@ -265,34 +264,6 @@ class CommsModule {
           </div>
         </div>
 
-        <div class="commsCard commsCard--xtocImport">
-          <div class="commsCardTitle">XTOC -&gt; XCOM Import</div>
-          <div class="commsCardSub">Merges the full roster (including personal fields; prefers <code>label</code>), SECURE keys (KID), and ALL XTOC packets (location + non-location) into this device. Does not wipe existing XCOM data.</div>
-
-          <div class="commsRow" style="margin-top:10px">
-            <label>XTOC Backup (.json)</label>
-            <div class="commsButtonRow">
-              <button id="commsImportXtocBackupBtn" type="button" class="primary">Import Backup</button>
-            </div>
-            <div class="commsSmallMuted">Use XTOC Topbar Export (e.g. <code>xtoc-backup-*.json</code>). XCOM merges roster/keys/packets and ignores XTOC settings/missions/KML layers.</div>
-            <div class="commsSmallMuted" id="commsXtocImportStatus"></div>
-          </div>
-
-          <div class="commsDivider"></div>
-
-          <div class="commsRow">
-            <label for="commsTeamBundle">Team roster bundle</label>
-            <textarea id="commsTeamBundle" rows="2" placeholder="XTOC-TEAM.&lt;base64(json)&gt;"></textarea>
-            <div class="commsButtonRow">
-              <button id="commsImportTeamBtn" type="button">Import Team</button>
-              <button id="commsScanTeamQrBtn" type="button">Scan Team QR</button>
-              <button id="commsClearTeamBtn" type="button" class="danger">Clear</button>
-              <button id="commsClearRosterBtn" type="button" class="danger">Clear Roster</button>
-            </div>
-            <div class="commsSmallMuted" id="commsRosterStatus">Roster: none loaded</div>
-          </div>
-        </div>
-
         <div class="commsCard commsCard--keys">
           <div class="commsCardTitle">Key Bundle Import</div>
           <textarea id="commsKeyBundle" rows="3" placeholder="Paste XTOC-KEY... bundle here"></textarea>
@@ -396,12 +367,6 @@ class CommsModule {
 
     document.getElementById('commsCopyImportedBtn').addEventListener('click', () => this.copyImportedRaw())
     document.getElementById('commsClearImportedBtn').addEventListener('click', () => this.clearImported())
-
-    document.getElementById('commsImportXtocBackupBtn').addEventListener('click', () => void this.importXtocBackup())
-    document.getElementById('commsImportTeamBtn').addEventListener('click', () => this.importTeamRoster())
-    document.getElementById('commsScanTeamQrBtn').addEventListener('click', () => this.scanTeamQr())
-    document.getElementById('commsClearTeamBtn').addEventListener('click', () => (document.getElementById('commsTeamBundle').value = ''))
-    document.getElementById('commsClearRosterBtn').addEventListener('click', () => this.clearRoster())
 
     document.getElementById('commsPickLocBtn').addEventListener('click', () => {
       this.openMapPicker('loc')

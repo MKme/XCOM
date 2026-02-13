@@ -200,7 +200,7 @@ class HelpModule {
                     <h3>Overview</h3>
                     <p>
                         XTOC Comm is an XTOC-compatible packet workshop and import bridge: create standardized reports, chunk them for transport limits, and move them via copy/paste, Voice (TTS), QR, Mesh, or MANET (LAN).
-                        It also supports importing XTOC exports so field devices have roster labels, squad metadata, SECURE keys (KID), and packet history for offline operations.
+                        For full XTOC backups (roster/keys/history), use <strong>XTOC Data</strong> &rarr; <strong>XTOC &rarr; XCOM Import</strong>.
                     </p>
 
                     <h3>Creating packets</h3>
@@ -234,7 +234,7 @@ class HelpModule {
                     </p>
                     <ol>
                         <li>In XTOC: Topbar &rarr; <strong>Export</strong> to download <code>xtoc-backup-*.json</code>.</li>
-                        <li>In XCOM: <strong>XTOC Comm</strong> &rarr; <strong>XTOC &rarr; XCOM Import</strong> &rarr; <strong>Import Backup</strong>.</li>
+                        <li>In XCOM: <strong>XTOC Data</strong> &rarr; <strong>XTOC &rarr; XCOM Import</strong> &rarr; <strong>Import Backup</strong>.</li>
                     </ol>
                     <ul>
                         <li><strong>Roster:</strong> imports full member records (including squad assignment) and prefers <code>label</code> for friendly display.</li>
@@ -252,7 +252,7 @@ class HelpModule {
                     </p>
                     <ul>
                         <li>In XTOC: <strong>Team</strong> &rarr; <strong>Transfer</strong> &rarr; copy the <code>XTOC-TEAM.</code> bundle (or show the QR).</li>
-                        <li>In XCOM: <strong>XTOC Comm</strong> &rarr; paste into <strong>Team roster bundle</strong> and click <strong>Import Team</strong> (or <strong>Scan Team QR</strong>).</li>
+                        <li>In XCOM: <strong>XTOC Data</strong> &rarr; paste into <strong>Team roster bundle</strong> and click <strong>Import Team</strong> (or <strong>Scan Team QR</strong>).</li>
                     </ul>
                 </div>
 
@@ -315,7 +315,7 @@ class HelpModule {
                     <h3>Imported overlay (XTOC packets)</h3>
                     <ul>
                         <li><strong>What it is:</strong> Imported markers/zones are XTOC packet locations/zones that you imported into XCOM.</li>
-                        <li><strong>Where it comes from:</strong> <strong>XTOC Comm</strong> &rarr; <strong>Import</strong> (single packet) and <strong>XTOC Comm</strong> &rarr; <strong>XTOC &rarr; XCOM Import</strong> &rarr; <strong>Import Backup</strong> (roster + keys + packets).</li>
+                        <li><strong>Where it comes from:</strong> <strong>XTOC Comm</strong> &rarr; <strong>Import</strong> (single packet) and <strong>XTOC Data</strong> &rarr; <strong>XTOC &rarr; XCOM Import</strong> &rarr; <strong>Import Backup</strong> (roster + keys + packets).</li>
                         <li><strong>Controls:</strong> open <strong>Map</strong> &rarr; <strong>Overlays</strong> and toggle <strong>Imported</strong>, <strong>Last 7 days only</strong>, and the per-type filters (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION).</li>
                         <li><strong>7-day filter:</strong> this is render-only (older packets remain stored locally). It uses packet timestamp when available, otherwise received/import time.</li>
                         <li><strong>Friendly labels:</strong> popups use team roster labels when available (import via <strong>Import Team</strong> or <strong>Scan Team QR</strong>).</li>
@@ -600,7 +600,7 @@ class HelpModule {
                 
                 <div class="help-section">
                     <h2>About</h2>
-                    <p>XCOM™ v1.0.37</p>
+                    <p>XCOM™ v1.0.38</p>
                     <p>&copy; 2025 - All rights reserved</p>
                     <p>This application is designed for amateur radio operators to assist with various radio-related tasks. It is continually being improved with new features and modules.</p>
 

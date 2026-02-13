@@ -1055,6 +1055,11 @@ class RadioApp {
                 description: 'Stored XTOC packets (list + search)',
                 scripts: [
                     'modules/shared/xtoc/settings.js',
+                    'modules/shared/xtoc/base64url.js',
+                    'modules/shared/xtoc/packet.js',
+                    'modules/shared/xtoc/secure.js',
+                    'modules/shared/xtoc/secureTemplates.js',
+                    'modules/shared/xtoc/storage.js',
                     'modules/shared/xtoc/packetStore.js',
                     'modules/shared/xtoc/teamRoster.js',
                     'modules/shared/xtoc/importedPackets.js',

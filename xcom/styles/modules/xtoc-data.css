@@ -13,6 +13,42 @@
   min-width: 0;
 }
 
+#xtoc-data .xtocDataCard--import {
+  margin-bottom: 14px;
+}
+
+#xtoc-data .xtocDataImportRow {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+#xtoc-data .xtocDataImportRowTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+#xtoc-data .xtocDataImportLabel {
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(159, 178, 198, 0.95);
+}
+
+#xtoc-data .xtocDataDivider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 12px 0;
+}
+
+#xtoc-data .xtocTextarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+}
+
 #xtoc-data .xtocDataTitleRow {
   display: flex;
   align-items: center;
@@ -210,6 +246,45 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 12px;
+}
+
+/* QR scanner modal */
+#xtoc-data .xtocDataQrOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+#xtoc-data .xtocDataQrModal {
+  width: min(680px, 95vw);
+  background: #0f1622;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+#xtoc-data .xtocDataQrModalTitle {
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+
+#xtoc-data .xtocDataQrModal video {
+  width: 100%;
+  max-height: 60vh;
+  border-radius: 12px;
+  background: #000;
+}
+
+#xtoc-data .xtocDataQrActions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 900px) {

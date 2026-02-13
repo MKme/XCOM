@@ -10,7 +10,6 @@
     "keys output"
     "keys import"
     "keys imported"
-    "keys xtocImport"
     "keys map";
 }
 
@@ -18,7 +17,6 @@
 #comms .commsCard--output { grid-area: output; }
 #comms .commsCard--import { grid-area: import; }
 #comms .commsCard--imported { grid-area: imported; }
-#comms .commsCard--xtocImport { grid-area: xtocImport; }
 #comms .commsCard--keys { grid-area: keys; }
 #comms .commsCard--mapInfo { grid-area: map; }
 
@@ -345,7 +343,6 @@
       "output"
       "import"
       "imported"
-      "xtocImport"
       "keys"
       "map";
   }
