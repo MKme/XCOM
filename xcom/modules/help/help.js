@@ -596,7 +596,7 @@ class HelpModule {
                 
                 <div class="help-section">
                     <h2>About</h2>
-                    <p>XCOM™ v1.0.35</p>
+                    <p>XCOM™ v1.0.36</p>
                     <p>&copy; 2025 - All rights reserved</p>
                     <p>This application is designed for amateur radio operators to assist with various radio-related tasks. It is continually being improved with new features and modules.</p>
 
