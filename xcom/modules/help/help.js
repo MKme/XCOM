@@ -208,7 +208,7 @@ class HelpModule {
                         <li><strong>Templates:</strong> T=1&ndash;8 (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION).</li>
                         <li><strong>Modes:</strong> <strong>CLEAR</strong> (human-readable fields) or <strong>SECURE</strong> (encrypted).</li>
                         <li><strong>Transport profiles:</strong> choose Copy/Paste, Voice (TTS), JS8/APRS, Winlink, Meshtastic/MeshCore, MANET (LAN), or QR &mdash; then click <strong>Generate</strong>.</li>
-                        <li><strong>Location tools:</strong> <strong>Pick Location</strong> and <strong>Draw Zone</strong> open a mini-map so you can embed coordinates/areas into packets.</li>
+                        <li><strong>Location tools:</strong> <strong>Use GPS</strong> fills Lat/Lon from your device; <strong>Pick Location</strong> and <strong>Draw Zone</strong> open a mini-map so you can embed coordinates/areas into packets.</li>
                     </ul>
 
                     <h3>SECURE mode (keys)</h3>

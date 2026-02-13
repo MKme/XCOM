@@ -160,6 +160,7 @@ class CommsModule {
 
           <div class="commsButtonRow">
             <button id="commsPickLocBtn" type="button">Pick Location</button>
+            <button id="commsUseGpsBtn" type="button" title="Fill Lat/Lon from your device location">Use GPS</button>
             <button id="commsPickZoneBtn" type="button">Draw Zone</button>
             <button id="commsGenerateBtn" type="button" class="primary">Generate</button>
           </div>
@@ -405,6 +406,9 @@ class CommsModule {
     document.getElementById('commsPickLocBtn').addEventListener('click', () => {
       this.openMapPicker('loc')
     })
+    document.getElementById('commsUseGpsBtn').addEventListener('click', () => {
+      void this.fillTemplateLocationFromGps()
+    })
     document.getElementById('commsPickZoneBtn').addEventListener('click', () => {
       this.openMapPicker('zone')
 
@@ -470,13 +474,80 @@ class CommsModule {
     const templateId = Number(document.getElementById('commsTemplate')?.value)
     const isZone = templateId === 7
 
+    const pickLocBtn = document.getElementById('commsPickLocBtn')
+    const gpsBtn = document.getElementById('commsUseGpsBtn')
     const zoneBtn = document.getElementById('commsPickZoneBtn')
     const zonePts = document.getElementById('t_zone_points')
 
     // In XTOC, "Generate Shape" (zone drawing) is only active when sending a ZONE.
     // For XCOM, the equivalent is "Draw Zone" + the polygon textarea.
+    if (pickLocBtn) pickLocBtn.disabled = isZone
+    if (gpsBtn) gpsBtn.disabled = isZone
     if (zoneBtn) zoneBtn.disabled = !isZone
     if (zonePts) zonePts.disabled = !isZone
+  }
+
+  async fillTemplateLocationFromGps() {
+    const latEl = document.getElementById('t_lat')
+    const lonEl = document.getElementById('t_lon')
+    if (!latEl || !lonEl) {
+      alert('This template does not include Lat/Lon fields.')
+      return
+    }
+
+    const onError = (error) => {
+      console.error('Geolocation error:', error)
+      const code = Number(error?.code)
+      let message = 'Unable to get your location.'
+      if (code === 1) message = 'Unable to get your location: permission denied.'
+      else if (code === 2) message = 'Unable to get your location: position unavailable.'
+      else if (code === 3) message = 'Unable to get your location: timed out.'
+
+      try { window.radioApp.updateStatus(message) } catch (_) { /* ignore */ }
+      alert(message)
+    }
+
+    const setValues = (lat, lon) => {
+      const latNum = Number(lat)
+      const lonNum = Number(lon)
+      if (!Number.isFinite(latNum) || !Number.isFinite(lonNum)) {
+        onError({ code: 2 })
+        return
+      }
+
+      latEl.value = latNum.toFixed(5)
+      lonEl.value = lonNum.toFixed(5)
+
+      const labelEl = document.getElementById('t_location_label')
+      if (labelEl && !String(labelEl.value || '').trim()) labelEl.value = 'Current position'
+
+      try { window.radioApp.updateStatus('Set Lat/Lon from GPS') } catch (_) { /* ignore */ }
+    }
+
+    try { window.radioApp.updateStatus('Requesting GPS fix...') } catch (_) { /* ignore */ }
+
+    if (window.electronAPI && window.electronAPI.isElectron && typeof window.electronAPI.getCurrentPosition === 'function') {
+      try {
+        const pos = await window.electronAPI.getCurrentPosition()
+        setValues(pos?.coords?.latitude, pos?.coords?.longitude)
+      } catch (e) {
+        onError(e)
+      }
+      return
+    }
+
+    if (!navigator.geolocation) {
+      const message = 'Geolocation is not supported in this environment.'
+      try { window.radioApp.updateStatus(message) } catch (_) { /* ignore */ }
+      alert(message)
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setValues(pos.coords.latitude, pos.coords.longitude),
+      (err) => onError(err),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 },
+    )
   }
 
   openMapPicker(kind) {
