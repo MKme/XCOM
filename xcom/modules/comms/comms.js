@@ -2582,6 +2582,7 @@ class CommsModule {
             summary,
             note: raw,
             receivedAt,
+            ...this.keyStatusForWrapper(wrapper),
           }
           features = [
             {
@@ -2603,6 +2604,7 @@ class CommsModule {
         mode: wrapper?.mode === 'S' ? 'S' : 'C',
         id: String(wrapper?.id || '').trim(),
         ...(wrapper?.mode === 'S' && Number.isFinite(Number(wrapper?.kid)) ? { kid: Number(wrapper.kid) } : {}),
+        ...this.keyStatusForWrapper(wrapper),
         part: Number(wrapper?.part) || 1,
         total: Number(wrapper?.total) || 1,
         raw,
@@ -2771,6 +2773,25 @@ class CommsModule {
     return `X1:${tpl}:${mode}:${id}`
   }
 
+  keyStatusForWrapper(wrapper) {
+    try {
+      const mode = wrapper?.mode === 'S' ? 'S' : 'C'
+      if (mode !== 'S') return {}
+
+      const packetKid = Number(wrapper?.kid)
+      if (!Number.isFinite(packetKid) || packetKid <= 0) return {}
+
+      const activeKey = window.getCommsActiveKey ? window.getCommsActiveKey() : null
+      const activeKid = activeKey ? Number(activeKey.kid) : NaN
+      if (!Number.isFinite(activeKid) || activeKid <= 0) return {}
+
+      if (packetKid === activeKid) return {}
+      return { nonActiveKey: true, activeKidAtStore: activeKid }
+    } catch (_) {
+      return {}
+    }
+  }
+
   packetAtFromDecoded(wrapper, decodedObj) {
     try {
       const tpl = Number(wrapper?.templateId) || 0
@@ -2809,6 +2830,7 @@ class CommsModule {
       mode,
       id: packetId,
       ...(mode === 'S' && Number.isFinite(kid) ? { kid } : {}),
+      ...this.keyStatusForWrapper(wrapper),
       part: Number(wrapper?.part) || 1,
       total: Number(wrapper?.total) || 1,
       raw,
@@ -3016,6 +3038,7 @@ class CommsModule {
       note: raw,
       receivedAt,
       ...(packetAt != null ? { packetAt } : {}),
+      ...this.keyStatusForWrapper(wrapper),
     }
 
     const feats = []

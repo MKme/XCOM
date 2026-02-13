@@ -73,6 +73,10 @@ function xcomNormalizePacketRecord(rec) {
   const decoded = rec?.decoded != null ? rec.decoded : undefined
   const decodeError = xcomAsNonEmptyString(rec?.decodeError)
 
+  // Key status hint (best-effort). Present when the packet was received/stored while a different ACTIVE KID existed.
+  const nonActiveKey = rec?.nonActiveKey === true
+  const activeKidAtStore = xcomAsFiniteNumber(rec?.activeKidAtStore)
+
   const sources = Array.isArray(rec?.sources)
     ? rec.sources.map((s) => xcomAsNonEmptyString(s)).filter(Boolean)
     : []
@@ -96,6 +100,8 @@ function xcomNormalizePacketRecord(rec) {
     ...(decodeError ? { decodeError } : {}),
     hasGeo,
     ...(features.length ? { features } : { features: [] }),
+    ...(nonActiveKey ? { nonActiveKey: true } : {}),
+    ...(activeKidAtStore != null ? { activeKidAtStore } : {}),
   }
 }
 
@@ -318,4 +324,3 @@ try {
 } catch (_) {
   // ignore
 }
-

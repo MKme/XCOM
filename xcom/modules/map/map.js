@@ -48,6 +48,7 @@ class MapModule {
     this._importedPointLayerId = 'xcom-imported-pt'
     this._importedLineLayerId = 'xcom-imported-ln'
     this._importedFillLayerId = 'xcom-imported-fl'
+    this._importedKeyWarnLineLayerId = 'xcom-imported-ln-keywarn'
     this._importedPopup = null
     this._importedHandlersBound = false
     this._importedTplEnabled = new Map([[1, true], [2, true], [3, true], [4, true], [5, true], [6, true], [7, true], [8, true]])
@@ -957,7 +958,7 @@ class MapModule {
                 : 'file'
   }
 
-  setImportedMarkerClasses(el, templateId, isStale) {
+  setImportedMarkerClasses(el, templateId, isStale, nonActiveKey) {
     if (!el || !el.classList) return
     try { el.classList.add('xcomMapMarker') } catch (_) { /* ignore */ }
 
@@ -979,6 +980,11 @@ class MapModule {
     if (isStale) {
       try { el.classList.add('xcomMapMarker--stale') } catch (_) { /* ignore */ }
     }
+
+    try { el.classList.remove('xcomMapMarker--nonActiveKey') } catch (_) { /* ignore */ }
+    if (nonActiveKey) {
+      try { el.classList.add('xcomMapMarker--nonActiveKey') } catch (_) { /* ignore */ }
+    }
   }
 
   importedPopupHtmlForFeature(f, markerId) {
@@ -988,6 +994,13 @@ class MapModule {
     const mode = String(p?.mode || '').toUpperCase()
     const id = String(p?.packetId || '').trim()
     const kid = (mode === 'S' && p?.kid != null) ? ` KID ${String(p.kid)}` : ''
+    const nonActiveKey = p?.nonActiveKey === true
+    const activeKidAtStore = Number(p?.activeKidAtStore)
+    const keyWarn = nonActiveKey
+      ? `<div style="margin-top:8px; padding:6px 8px; border-radius:10px; border:1px solid rgba(246, 201, 69, 0.55); background:rgba(246, 201, 69, 0.12); color:rgba(125, 80, 0, 0.95); font-size:12px; font-weight:800;">
+          Non-active key${Number.isFinite(activeKidAtStore) && activeKidAtStore > 0 ? ` (ACTIVE KID ${this.escapeHtml(String(activeKidAtStore))})` : ''}
+        </div>`
+      : ''
     const whenTs = this.importedTimestampMs(p)
     const when = (Number.isFinite(whenTs) && whenTs > 0) ? new Date(whenTs).toLocaleString() : '-'
 
@@ -1029,6 +1042,7 @@ class MapModule {
         ${tpl ? `T=${this.escapeHtml(String(tpl))} ` : ''}${mode ? `${this.escapeHtml(mode)} ` : ''}${id ? `ID ${this.escapeHtml(id)}` : ''}${kid ? this.escapeHtml(kid) : ''}
       </div>
       <div style="font-size:12px; color:#444;">${this.escapeHtml(when)}</div>
+      ${keyWarn}
       ${actionBtn}
     `
   }
@@ -1111,6 +1125,7 @@ class MapModule {
       const { feature: f, lon, lat, templateId } = item
       const ts = this.importedTimestampMs(f?.properties)
       const isStale = (ts > 0 && ts < staleCutoff)
+      const nonActiveKey = f?.properties?.nonActiveKey === true
       const iconKind = this.importedMarkerIconKind(templateId)
 
       let marker = this._importedMarkerById.get(id) || null
@@ -1118,7 +1133,7 @@ class MapModule {
         const el = document.createElement('div')
         el.dataset.xcomImportedId = id
         el.dataset.xcomImportedIconKind = iconKind
-        this.setImportedMarkerClasses(el, templateId, isStale)
+        this.setImportedMarkerClasses(el, templateId, isStale, nonActiveKey)
         el.appendChild(this.createMarkerIconSvg(iconKind))
 
         // Helpful hover text.
@@ -1154,7 +1169,7 @@ class MapModule {
         try { marker.setLngLat([lon, lat]) } catch (_) { /* ignore */ }
         const el = marker.getElement ? marker.getElement() : null
         if (el) {
-          this.setImportedMarkerClasses(el, templateId, isStale)
+          this.setImportedMarkerClasses(el, templateId, isStale, nonActiveKey)
 
           const prevKind = String(el.dataset?.xcomImportedIconKind || '')
           if (prevKind !== iconKind) {
@@ -1294,12 +1309,36 @@ class MapModule {
       // ignore
     }
 
+    // Extra key warning outline (non-active key packets)
+    try {
+      if (!map.getLayer(this._importedKeyWarnLineLayerId)) {
+        map.addLayer({
+          id: this._importedKeyWarnLineLayerId,
+          type: 'line',
+          source: this._importedSourceId,
+          filter: [
+            'all',
+            ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'LineString']],
+            ['==', ['get', 'nonActiveKey'], true],
+          ],
+          paint: {
+            'line-color': '#f6c945',
+            'line-width': 4,
+            'line-dasharray': [2, 2],
+          },
+        })
+      }
+    } catch (_) {
+      // ignore
+    }
+
     // Remove legacy dot layer if present (points are DOM icon markers now).
     try { if (map.getLayer(this._importedPointLayerId)) map.removeLayer(this._importedPointLayerId) } catch (_) { /* ignore */ }
 
     // Click handlers (bind once; layer ids remain stable across re-adds)
     try { map.off('click', this._importedFillLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.off('click', this._importedLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
+    try { map.off('click', this._importedKeyWarnLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.off('click', this._importedPointLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
 
     this._onImportedClick = (ev) => {
@@ -1311,6 +1350,13 @@ class MapModule {
         const mode = String(p?.mode || '').toUpperCase()
         const id = String(p?.packetId || '').trim()
         const kid = (mode === 'S' && p?.kid != null) ? ` KID ${String(p.kid)}` : ''
+        const nonActiveKey = p?.nonActiveKey === true
+        const activeKidAtStore = Number(p?.activeKidAtStore)
+        const keyWarn = nonActiveKey
+          ? `<div style="margin-top:8px; padding:6px 8px; border-radius:10px; border:1px solid rgba(246, 201, 69, 0.55); background:rgba(246, 201, 69, 0.12); color:rgba(125, 80, 0, 0.95); font-size:12px; font-weight:800;">
+              Non-active key${Number.isFinite(activeKidAtStore) && activeKidAtStore > 0 ? ` (ACTIVE KID ${this.escapeHtml(String(activeKidAtStore))})` : ''}
+            </div>`
+          : ''
         const whenTs = Number(p?.packetAt ?? p?.receivedAt ?? p?.importedAt ?? 0)
         const when = (Number.isFinite(whenTs) && whenTs > 0) ? new Date(whenTs).toLocaleString() : '—'
 
@@ -1321,6 +1367,7 @@ class MapModule {
             ${tpl ? `T=${this.escapeHtml(String(tpl))} ` : ''}${mode ? `${this.escapeHtml(mode)} ` : ''}${id ? `ID ${this.escapeHtml(id)}` : ''}${kid ? this.escapeHtml(kid) : ''}
           </div>
           <div style="font-size:12px; color:#444;">${this.escapeHtml(when)}</div>
+          ${keyWarn}
         `
 
         if (!this._importedPopup && globalThis.maplibregl?.Popup) {
@@ -1336,6 +1383,7 @@ class MapModule {
 
     try { map.on('click', this._importedFillLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.on('click', this._importedLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
+    try { map.on('click', this._importedKeyWarnLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
   }
 
   setImportedLayerVisibility(visible) {
@@ -1345,6 +1393,7 @@ class MapModule {
     // Legacy dot layer should never be visible.
     try { if (map.getLayer(this._importedPointLayerId)) map.setLayoutProperty(this._importedPointLayerId, 'visibility', 'none') } catch (_) {}
     try { if (map.getLayer(this._importedLineLayerId)) map.setLayoutProperty(this._importedLineLayerId, 'visibility', v) } catch (_) {}
+    try { if (map.getLayer(this._importedKeyWarnLineLayerId)) map.setLayoutProperty(this._importedKeyWarnLineLayerId, 'visibility', v) } catch (_) {}
     try { if (map.getLayer(this._importedFillLayerId)) map.setLayoutProperty(this._importedFillLayerId, 'visibility', v) } catch (_) {}
   }
 
@@ -2132,6 +2181,7 @@ class MapModule {
       const { feature: f, lon, lat, templateId } = item
       const ts = this.importedTimestampMs(f?.properties)
       const isStale = (ts > 0 && ts < staleCutoff)
+      const nonActiveKey = f?.properties?.nonActiveKey === true
       const iconKind = this.importedMarkerIconKind(templateId)
 
       let marker = this._hiddenImportedMarkerById.get(id) || null
@@ -2139,7 +2189,7 @@ class MapModule {
         const el = document.createElement('div')
         el.dataset.xcomImportedId = id
         el.dataset.xcomImportedIconKind = iconKind
-        this.setImportedMarkerClasses(el, templateId, isStale)
+        this.setImportedMarkerClasses(el, templateId, isStale, nonActiveKey)
         try { el.classList.add('xcomMapMarker--hidden') } catch (_) { /* ignore */ }
         el.appendChild(this.createMarkerIconSvg(iconKind))
 
@@ -2176,7 +2226,7 @@ class MapModule {
         try { marker.setLngLat([lon, lat]) } catch (_) { /* ignore */ }
         const el = marker.getElement ? marker.getElement() : null
         if (el) {
-          this.setImportedMarkerClasses(el, templateId, isStale)
+          this.setImportedMarkerClasses(el, templateId, isStale, nonActiveKey)
           try { el.classList.add('xcomMapMarker--hidden') } catch (_) { /* ignore */ }
 
           const prevKind = String(el.dataset?.xcomImportedIconKind || '')

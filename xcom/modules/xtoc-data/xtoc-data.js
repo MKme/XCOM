@@ -317,10 +317,11 @@ class XtocDataModule {
       const sum = this.withRosterLabels(String(p?.summary || '').trim())
       const kid = (mode === 'S' && Number.isFinite(Number(p?.kid))) ? ` KID ${String(p.kid)}` : ''
       const geo = p?.hasGeo ? `<span class="xtocTag">GEO</span>` : ''
+      const keyWarn = p?.nonActiveKey === true ? `<span class="xtocTag xtocTag--warn" title="Received/stored with non-active key">KEY</span>` : ''
       return `
         <tr data-key="${this.escapeHtml(String(p?.key || ''))}" class="${untrusted ? 'xtocDataRow--untrusted' : ''}">
           <td class="mono">${this.escapeHtml(when)}</td>
-          <td>${geo} ${this.escapeHtml(tpl)}</td>
+          <td>${geo}${keyWarn}${this.escapeHtml(tpl)}</td>
           <td class="mono">${this.escapeHtml(mode)}</td>
           <td class="mono">${this.escapeHtml(id)}${this.escapeHtml(kid)}</td>
           <td class="mono">${this.escapeHtml(src)}</td>
@@ -374,6 +375,12 @@ class XtocDataModule {
 
     const errHtml = decodeError ? `<div class="xtocWarn">Decode error: ${this.escapeHtml(decodeError)}</div>` : ''
 
+    const nonActiveKey = packet?.nonActiveKey === true
+    const activeKidAtStore = Number(packet?.activeKidAtStore)
+    const keyWarnHtml = (mode === 'S' && nonActiveKey)
+      ? `<div class="xtocWarn">Non-active key: packet KID ${this.escapeHtml(String(packet?.kid ?? ''))}${(Number.isFinite(activeKidAtStore) && activeKidAtStore > 0) ? ` while ACTIVE KID was ${this.escapeHtml(String(activeKidAtStore))}` : ''}. Team may need a key update.</div>`
+      : ''
+
     el.innerHTML = `
       <div class="xtocKv">
         <div><span class="muted">When:</span> ${this.escapeHtml(when)}</div>
@@ -385,6 +392,7 @@ class XtocDataModule {
       </div>
 
       ${summary ? `<div class="xtocSummary">${this.escapeHtml(summary)}</div>` : ''}
+      ${keyWarnHtml}
       ${errHtml}
 
       <details class="xtocDetails" open>

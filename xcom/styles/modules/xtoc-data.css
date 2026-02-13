@@ -161,6 +161,12 @@
   margin-right: 6px;
 }
 
+#xtoc-data .xtocTag.xtocTag--warn {
+  border-color: rgba(246, 201, 69, 0.45);
+  background: rgba(246, 201, 69, 0.12);
+  color: rgba(246, 201, 69, 0.95);
+}
+
 #xtoc-data .xtocWarn {
   padding: 8px 10px;
   border-radius: 10px;

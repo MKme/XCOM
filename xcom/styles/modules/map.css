@@ -184,6 +184,7 @@
   display: grid;
   place-items: center;
   cursor: pointer;
+  position: relative;
   border-radius: 10px;
   border: 2px solid rgba(0, 0, 0, 0.55);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
@@ -243,6 +244,25 @@
 .xcomMapMarker--stale {
   opacity: 0.35;
   filter: grayscale(1) saturate(0.35);
+}
+
+.xcomMapMarker--nonActiveKey::after {
+  content: "!";
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  border: 2px solid rgba(0, 0, 0, 0.55);
+  background: #f6c945;
+  color: rgba(0, 0, 0, 0.85);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
 }
 
 @media (max-width: 900px) {
