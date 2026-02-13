@@ -42,8 +42,9 @@ return [
   'consumerKey' => 'ck_REPLACE_ME',
   'consumerSecret' => 'cs_REPLACE_ME',
   'apiBase' => 'https://store.mkme.org/wp-json/lmfwc/v2',
-  // Required: WooCommerce product id for XCOM (prevents other product keys from unlocking XCOM)
-  'productId' => 12345,
+  // Required: WooCommerce product id(s) for XCOM (prevents other product keys from unlocking XCOM)
+  // If your store issues keys under variation IDs, include the old product id AND the variation ids.
+  'productId' => '12345,67890,99999',
 ];
 ```
 

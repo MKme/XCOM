@@ -10,7 +10,7 @@
 // - XCOM_WOO_CONSUMER_KEY
 // - XCOM_WOO_CONSUMER_SECRET
 // - XCOM_STORE_LM_API_BASE (optional; default: https://store.mkme.org/wp-json/lmfwc/v2)
-// - XCOM_STORE_LM_PRODUCT_ID (required; WooCommerce product id for XCOM)
+// - XCOM_STORE_LM_PRODUCT_ID (required; WooCommerce product id(s) for XCOM; comma-separated allowed)
 //
 // Request:
 //   POST JSON: { "license_key": "XXXX" }
@@ -49,6 +49,14 @@ $expectedProductId = trim(env_or_empty('XCOM_STORE_LM_PRODUCT_ID'));
 
 function split_csv_ids($s) {
   $out = [];
+  if (is_array($s)) {
+    foreach ($s as $v) {
+      foreach (split_csv_ids($v) as $id) {
+        $out[] = $id;
+      }
+    }
+    return $out;
+  }
   foreach (explode(',', strval($s)) as $p) {
     $t = trim($p);
     if ($t !== '') $out[] = $t;
@@ -327,8 +335,8 @@ if (($consumerKey === '' || $consumerSecret === '' || $apiBase === '' || $expect
     if ($consumerKey === '' && isset($secrets['consumerKey'])) $consumerKey = trim(strval($secrets['consumerKey']));
     if ($consumerSecret === '' && isset($secrets['consumerSecret'])) $consumerSecret = trim(strval($secrets['consumerSecret']));
     if ($apiBase === '' && isset($secrets['apiBase'])) $apiBase = trim(strval($secrets['apiBase']));
-    if ($expectedProductId === '' && isset($secrets['productId'])) $expectedProductId = trim(strval($secrets['productId']));
-    if ($expectedProductId === '' && isset($secrets['product_id'])) $expectedProductId = trim(strval($secrets['product_id']));
+    if ($expectedProductId === '' && array_key_exists('productId', $secrets)) $expectedProductId = $secrets['productId'];
+    if ($expectedProductId === '' && array_key_exists('product_id', $secrets)) $expectedProductId = $secrets['product_id'];
   }
 }
 
