@@ -24,6 +24,9 @@ param(
   # Useful if a previous build already created releases/xcom-<version>/ and you only want to re-package.
   [switch]$SkipBuild,
 
+  # If set, skip running unit tests (faster packaging, not recommended for release builds).
+  [switch]$SkipTests,
+
   # If set, include the pre-generated offline basemap tile pack under assets/tiles/.
   # Note: this can be thousands+ of PNGs and can slow down zipping significantly.
   [switch]$IncludeOfflineTiles,
@@ -105,6 +108,10 @@ try {
   if (-not $SkipBuild) {
     if (-not $SkipInstall) {
       Invoke-ExternalOk -Command { npm install } -ErrorMessage 'npm install failed'
+    }
+
+    if (-not $SkipTests) {
+      Invoke-ExternalOk -Command { npm run test-trusted-mode } -ErrorMessage 'npm run test-trusted-mode failed'
     }
 
     # XCOM's `npm run build` creates releases/xcom-<version>/ and bumps the patch version.

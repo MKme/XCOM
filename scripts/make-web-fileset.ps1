@@ -6,6 +6,7 @@ param(
   [string]$LicenseProxyUrl = '',
   [switch]$SkipInstall,
   [switch]$SkipBuild,
+  [switch]$SkipTests,
   [switch]$IncludeOfflineTiles,
   [switch]$IncludeJsPayloads,
   [switch]$IncludeHelpers,

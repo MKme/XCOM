@@ -200,7 +200,7 @@ class HelpModule {
                     <h3>Overview</h3>
                     <p>
                         XTOC Comm is an XTOC-compatible packet workshop and import bridge: create standardized reports, chunk them for transport limits, and move them via copy/paste, Voice (TTS), QR, Mesh, or MANET (LAN).
-                        It also supports importing XTOC exports so field devices have roster labels, SECURE keys (KID), and packet history for offline operations.
+                        It also supports importing XTOC exports so field devices have roster labels, squad metadata, SECURE keys (KID), and packet history for offline operations.
                     </p>
 
                     <h3>Creating packets</h3>
@@ -229,7 +229,7 @@ class HelpModule {
 
                     <h3>XTOC &rarr; XCOM import (field handoff)</h3>
                     <p>
-                        Use this when you want to hand field devices everything they need from an XTOC export: team roster labels, SECURE keys (KID), and packet history.
+                        Use this when you want to hand field devices everything they need from an XTOC export: team roster labels, squads, SECURE keys (KID), and packet history.
                         Imports <strong>merge</strong> into existing local data (no wipes).
                     </p>
                     <ol>
@@ -237,7 +237,8 @@ class HelpModule {
                         <li>In XCOM: <strong>XTOC Comm</strong> &rarr; <strong>XTOC &rarr; XCOM Import</strong> &rarr; <strong>Import Backup</strong>.</li>
                     </ol>
                     <ul>
-                        <li><strong>Roster:</strong> imports full member records and prefers <code>label</code> for friendly display.</li>
+                        <li><strong>Roster:</strong> imports full member records (including squad assignment) and prefers <code>label</code> for friendly display.</li>
+                        <li><strong>Squads (optional):</strong> imports squad metadata so unit pickers can be grouped by squad.</li>
                         <li><strong>Keys:</strong> imports team keys by <code>KID</code> so SECURE packets can be decrypted/decoded.</li>
                         <li><strong>Packets:</strong> stores all packets (including non-location) in <strong>XTOC Data</strong>; geo packets are also added to the Map <strong>Imported</strong> overlay.</li>
                     </ul>
@@ -247,7 +248,7 @@ class HelpModule {
 
                     <h3>Team roster bundle (labels only)</h3>
                     <p>
-                        If you only need friendly labels (no packets/keys), import the roster bundle from XTOC:
+                        If you only need friendly labels (no packets/keys), import the roster bundle from XTOC (includes squad metadata when present):
                     </p>
                     <ul>
                         <li>In XTOC: <strong>Team</strong> &rarr; <strong>Transfer</strong> &rarr; copy the <code>XTOC-TEAM.</code> bundle (or show the QR).</li>
