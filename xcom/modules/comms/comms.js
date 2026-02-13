@@ -4000,11 +4000,9 @@ class CommsModule {
     const arr = Array.isArray(traffic) ? traffic : []
     const cursorTs = this._meshTrafficCursorTs
 
-    // First call: don't import history; set cursor to end.
-    if (cursorTs == null) {
-      this._meshSetTrafficCursorToEnd(arr)
-      return arr.length
-    }
+    // First call: import history (traffic logs are capped and this prevents missing packets
+    // when Comms wasn't open at the time they were received).
+    if (cursorTs == null) return 0
 
     const cursorCount = Number(this._meshTrafficCursorCountAtTs || 0)
     let seenAtTs = 0
@@ -4048,11 +4046,9 @@ class CommsModule {
     const arr = Array.isArray(traffic) ? traffic : []
     const cursorTs = this._halowTrafficCursorTs
 
-    // First call: don't import history; set cursor to end.
-    if (cursorTs == null) {
-      this._halowSetTrafficCursorToEnd(arr)
-      return arr.length
-    }
+    // First call: import history (traffic logs are capped and this prevents missing packets
+    // when Comms wasn't open at the time they were received).
+    if (cursorTs == null) return 0
 
     const cursorCount = Number(this._halowTrafficCursorCountAtTs || 0)
     let seenAtTs = 0

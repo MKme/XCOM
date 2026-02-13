@@ -1033,6 +1033,8 @@ class RadioApp {
                     'modules/shared/xtoc/packetStore.js',
                     'modules/shared/xtoc/teamRoster.js',
                     'modules/shared/xtoc/importedPackets.js',
+                    // Auto-ingest incoming Mesh/MANET packets into DB + Map overlay
+                    'modules/shared/xtoc/autoIngest.js',
                     'modules/shared/xtoc/keyBundle.js',
                     'modules/shared/xtoc/keyImport.js',
                     // Shared mesh transport (so Comms can Connect + Send without opening Mesh module)
@@ -1070,6 +1072,16 @@ class RadioApp {
                     'modules/shared/xtoc/offlineTiles.js',
                     'modules/shared/xtoc/ao.js',
                     'modules/shared/xtoc/maplibre.js',
+                    // XTOC packet helpers + secure decode (so Mesh RX can auto-map packets)
+                    'modules/shared/xtoc/base64url.js',
+                    'modules/shared/xtoc/packet.js',
+                    'modules/shared/xtoc/chunking.js',
+                    'modules/shared/xtoc/secure.js',
+                    'modules/shared/xtoc/secureTemplates.js',
+                    'modules/shared/xtoc/storage.js',
+                    'modules/shared/xtoc/packetStore.js',
+                    'modules/shared/xtoc/importedPackets.js',
+                    'modules/shared/xtoc/autoIngest.js',
                     // Shared mesh transport
                     'modules/shared/mesh/meshTransport.js',
                     // Module
@@ -1085,6 +1097,17 @@ class RadioApp {
                 name: 'MANET',
                 description: 'MANET LAN bridge (HaLow/Open MANET) for XTOC master <-> XCOM clients with topology + traffic',
                 scripts: [
+                    // Shared XTOC helpers (so incoming packets can be auto-mapped even if Comms/Map aren't open)
+                    'modules/shared/xtoc/settings.js',
+                    'modules/shared/xtoc/base64url.js',
+                    'modules/shared/xtoc/packet.js',
+                    'modules/shared/xtoc/chunking.js',
+                    'modules/shared/xtoc/secure.js',
+                    'modules/shared/xtoc/secureTemplates.js',
+                    'modules/shared/xtoc/storage.js',
+                    'modules/shared/xtoc/packetStore.js',
+                    'modules/shared/xtoc/importedPackets.js',
+                    'modules/shared/xtoc/autoIngest.js',
                     // Shared HaLow transport
                     'modules/shared/halow/halowTransport.js',
                     // Module

@@ -1987,6 +1987,23 @@ class XcomMeshTransport {
 
   _appendLog(entry) {
     meshAppendTraffic(entry)
+
+    // Auto-ingest incoming XTOC packet text so packets appear on the Map immediately
+    // (even if Comms is not open).
+    try {
+      if (entry && entry.dir === 'in' && String(entry.kind || '') === 'message') {
+        const text = typeof entry.text === 'string' ? entry.text : ''
+        if (text && text.trim()) {
+          const fn = globalThis.xcomAutoIngestXtocPacketText
+          if (typeof fn === 'function') {
+            void fn({ text, source: 'mesh', receivedAt: Number(entry.ts) || Date.now(), from: entry.from ?? null })
+          }
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+
     this._notify()
   }
 

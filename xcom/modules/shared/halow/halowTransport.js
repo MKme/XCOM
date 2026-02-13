@@ -297,6 +297,23 @@ class XcomHaLowTransport {
 
   appendTraffic(e) {
     halowAppendTraffic(e)
+
+    // Auto-ingest incoming XTOC packet text so packets appear on the Map immediately
+    // (even if Comms is not open).
+    try {
+      if (e && e.dir === 'in' && String(e.kind || '') === 'packet') {
+        const text = typeof e.text === 'string' ? e.text : ''
+        if (text && text.trim()) {
+          const fn = globalThis.xcomAutoIngestXtocPacketText
+          if (typeof fn === 'function') {
+            void fn({ text, source: 'manet', receivedAt: Number(e.ts) || Date.now(), from: e.from || null })
+          }
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+
     this._notify()
   }
 
