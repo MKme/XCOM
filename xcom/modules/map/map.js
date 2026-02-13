@@ -1983,7 +1983,11 @@ class MapModule {
     for (const [key, item] of want.entries()) {
       const n = item.node
       const assigned = assignedByKey.get(key) || ''
-      const titleBase = String(n?.shortName || n?.longName || '').trim() || key
+      const driver = String(n?.driver || (key.split(':')[0] || '')).trim()
+      const shortName = String(n?.shortName || '').trim()
+      const longName = String(n?.longName || '').trim()
+      const name = driver === 'openmanet' ? (shortName || longName) : (longName || shortName)
+      const titleBase = name || key
       const title = assigned ? `${titleBase}\n${assigned}` : titleBase
       const html = this.meshNodePopupHtml(n, assigned, key)
 
@@ -2265,7 +2269,11 @@ class MapModule {
     for (const [key, item] of want.entries()) {
       const n = item.node
       const assigned = assignedByKey.get(key) || ''
-      const titleBase = String(n?.shortName || n?.longName || '').trim() || key
+      const driver = String(n?.driver || (key.split(':')[0] || '')).trim()
+      const shortName = String(n?.shortName || '').trim()
+      const longName = String(n?.longName || '').trim()
+      const name = driver === 'openmanet' ? (shortName || longName) : (longName || shortName)
+      const titleBase = name || key
       const title = assigned ? `${titleBase}\n${assigned}` : titleBase
       const html = this.meshNodePopupHtml(n, assigned, key)
 
