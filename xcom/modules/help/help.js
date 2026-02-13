@@ -71,13 +71,14 @@ class HelpModule {
                     </p>
                     <ul>
                         <li><strong>First activation requires internet access.</strong></li>
-                        <li>If you clear browser/site data, you will need to activate again.</li>
+                        <li>If you clear browser/site data (or uninstall the PWA), you will need to activate again <strong>and</strong> you will lose local data unless you exported a backup first.</li>
                     </ul>
 
                     <h3>Updates</h3>
                     <ul>
                         <li>Use the <strong>Update</strong> button in the top bar to check for an update and reload.</li>
                         <li>Updates do <strong>not</strong> wipe your local data.</li>
+                        <li>If the app seems stuck on an old version, use <strong>Backup</strong> &rarr; <strong>Repair app cache</strong> (keeps data) instead of clearing site data.</li>
                         <li>If the license server is reachable, Update re-checks your cached key and only blocks if the key is <strong>invalid</strong>.</li>
                         <li>If the license server is unreachable, Update still reloads and continues using your cached activation on this device.</li>
                     </ul>
@@ -100,7 +101,7 @@ class HelpModule {
                             <p>Offline lookup for USA/Canada callsigns, plus path plotting, great-circle distance, and VOACAP-style propagation estimates (including forecasts and band/mode graphs).</p>
                         </div>
                         <div class="module-card">
-                            <h3>Ham Clock</h3>
+                            <h3>Ham Clock (Experimental)</h3>
                             <p>UTC-first ham clock with greyline/day-night map, DE/DX path, and a lightweight band prediction model. Space weather fetch is optional.</p>
                         </div>
                         <div class="module-card">
@@ -139,12 +140,16 @@ class HelpModule {
                             <h3>Help</h3>
                             <p>Access documentation and help for XCOM™. Learn how to use the various modules and features.</p>
                         </div>
+                        <div class="module-card">
+                            <h3>Backup</h3>
+                            <p>Export/import your local XCOM data so you can recover after clearing site data or reinstalling the PWA.</p>
+                        </div>
                         <!-- Additional modules will be added here -->
                     </div>
                 </div>
 
                 <div class="help-section">
-                    <h2>Ham Clock Module</h2>
+                    <h2>Ham Clock Module (Experimental)</h2>
                     <h3>Overview</h3>
                     <p>
                         Ham Clock is a UTC-first ham radio dashboard with a live greyline/day-night map and a lightweight propagation “at a glance” model.
@@ -588,7 +593,7 @@ class HelpModule {
                 
                 <div class="help-section">
                     <h2>About</h2>
-                    <p>XCOM™ v1.0.31</p>
+                    <p>XCOM™ v1.0.35</p>
                     <p>&copy; 2025 - All rights reserved</p>
                     <p>This application is designed for amateur radio operators to assist with various radio-related tasks. It is continually being improved with new features and modules.</p>
 

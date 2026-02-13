@@ -321,12 +321,15 @@ class HamClockModule {
         const c = globalThis.getMapDefaultCoords ? globalThis.getMapDefaultCoords() : { lat: 20, lon: 0 };
         const z = globalThis.getMapDefaultZoom ? globalThis.getMapDefaultZoom() : 2;
 
-        this.map = globalThis.createMapLibreMap
+        const useHelper = typeof globalThis.createMapLibreMap === 'function';
+
+        this.map = useHelper
             ? globalThis.createMapLibreMap({
                 container: this.mapEl,
                 centerLon: c.lon,
                 centerLat: c.lat,
                 zoom: z,
+                attributionControl: false,
             })
             : new globalThis.maplibregl.Map({
                 container: this.mapEl,
@@ -336,10 +339,12 @@ class HamClockModule {
                 attributionControl: false,
             });
 
-        try {
-            this.map.addControl(new globalThis.maplibregl.NavigationControl(), 'top-right');
-        } catch (_) {
-            // ignore
+        if (!useHelper) {
+            try {
+                this.map.addControl(new globalThis.maplibregl.NavigationControl(), 'top-right');
+            } catch (_) {
+                // ignore
+            }
         }
 
         // Persist view

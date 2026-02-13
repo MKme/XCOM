@@ -66,6 +66,14 @@ function normalizeRosterMember(m) {
   out.color = maybeString(m?.color)
   out.meshNodeId = maybeString(m?.meshNodeId)
 
+  out.reportedSeenAt = maybeNumber(m?.reportedSeenAt)
+  out.reportedLat = maybeNumber(m?.reportedLat)
+  out.reportedLon = maybeNumber(m?.reportedLon)
+
+  out.meshSeenAt = maybeNumber(m?.meshSeenAt)
+  out.meshLat = maybeNumber(m?.meshLat)
+  out.meshLon = maybeNumber(m?.meshLon)
+
   out.lastSeenAt = maybeNumber(m?.lastSeenAt)
   out.lastLat = maybeNumber(m?.lastLat)
   out.lastLon = maybeNumber(m?.lastLon)

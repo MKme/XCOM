@@ -132,7 +132,9 @@ class RepeaterMap {
         const c = globalThis.getMapDefaultCoords ? globalThis.getMapDefaultCoords() : { lat: 39.8283, lon: -98.5795 };
         const z = globalThis.getMapDefaultZoom ? globalThis.getMapDefaultZoom() : 3;
 
-        this.map = globalThis.createMapLibreMap
+        const useHelper = typeof globalThis.createMapLibreMap === 'function';
+
+        this.map = useHelper
             ? globalThis.createMapLibreMap({
                 container: 'map',
                 centerLon: c.lon,
@@ -146,9 +148,11 @@ class RepeaterMap {
                 zoom: z,
             });
 
-        try {
-            this.map.addControl(new globalThis.maplibregl.NavigationControl(), 'top-right');
-        } catch (_) { /* ignore */ }
+        if (!useHelper) {
+            try {
+                this.map.addControl(new globalThis.maplibregl.NavigationControl(), 'top-right');
+            } catch (_) { /* ignore */ }
+        }
 
         // Persist view.
         const saveView = () => {

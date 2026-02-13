@@ -1,0 +1,59 @@
+.backup-container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.backup-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.backup-card {
+  background: rgba(15, 22, 34, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 14px;
+  padding: 14px 14px;
+}
+
+.backup-card h2 {
+  margin: 0 0 10px 0;
+}
+
+.backup-card h3 {
+  margin: 0 0 10px 0;
+}
+
+.backup-muted {
+  opacity: 0.85;
+  line-height: 1.4;
+}
+
+.backup-warn {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(246, 201, 69, 0.35);
+  background: rgba(246, 201, 69, 0.08);
+}
+
+.backup-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.backup-status {
+  min-height: 22px;
+  opacity: 0.9;
+}
+
+@media (max-width: 900px) {
+  .backup-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
