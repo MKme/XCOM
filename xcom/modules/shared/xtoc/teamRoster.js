@@ -9,6 +9,7 @@
 
 const LS_ROSTER = 'xcom.xtoc.teamRoster.v1'
 const MAX_ROSTER_MEMBERS = 500
+const MAX_ROSTER_SQUADS = 200
 
 function rosterReadJson(key, fallback) {
   try {
@@ -57,6 +58,7 @@ function normalizeRosterMember(m) {
   // Normalize known optional fields (keep undefined for empties).
   out.hamCallsign = maybeString(m?.hamCallsign)
   out.role = maybeString(m?.role)
+  out.squadId = maybeString(m?.squadId)
   out.email = maybeString(m?.email)
   out.phone = maybeString(m?.phone)
   out.bloodType = maybeString(m?.bloodType)
@@ -87,15 +89,47 @@ function normalizeRosterMember(m) {
   return out
 }
 
+function normalizeSquad(s) {
+  if (!s || typeof s !== 'object') return null
+  const id = String(s?.id ?? '').trim()
+  const name = String(s?.name ?? '').trim()
+  if (!id || !name) return null
+
+  const maybeString = (v) => {
+    const str = String(v ?? '').trim()
+    return str ? str : undefined
+  }
+  const maybeNumber = (v) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : undefined
+  }
+
+  const out = { ...s }
+  out.id = id
+  out.name = name
+  out.callsign = maybeString(s?.callsign)
+  out.color = maybeString(s?.color)
+  out.leaderUnitId = maybeNumber(s?.leaderUnitId)
+  out.primaryRadio = maybeString(s?.primaryRadio)
+  out.alternateRadio = maybeString(s?.alternateRadio)
+  out.notes = maybeString(s?.notes)
+  out.createdAt = maybeNumber(s?.createdAt)
+  out.updatedAt = maybeNumber(s?.updatedAt)
+  return out
+}
+
 function getTeamRosterStore() {
   const obj = rosterReadJson(LS_ROSTER, null)
   const updatedAt = Number(obj?.updatedAt || obj?.exportedAt || 0)
   const members = Array.isArray(obj?.members) ? obj.members : []
   const normalized = members.map(normalizeRosterMember).filter(Boolean).slice(0, MAX_ROSTER_MEMBERS)
+  const squads = Array.isArray(obj?.squads) ? obj.squads : []
+  const normalizedSquads = squads.map(normalizeSquad).filter(Boolean).slice(0, MAX_ROSTER_SQUADS)
   return {
     v: 1,
     updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
     members: normalized,
+    squads: normalizedSquads,
   }
 }
 
@@ -108,10 +142,16 @@ function listRosterMembers() {
   return getTeamRosterStore().members || []
 }
 
+function listSquads() {
+  return getTeamRosterStore().squads || []
+}
+
 function upsertRosterMembers(members, opts = {}) {
   try {
     const replace = !!opts.replace
-    const existing = replace ? [] : listRosterMembers()
+    const store = getTeamRosterStore()
+    const existing = replace ? [] : (Array.isArray(store?.members) ? store.members : [])
+    const squads = Array.isArray(store?.squads) ? store.squads : []
 
     const byUnit = new Map()
     for (const m of existing) {
@@ -143,7 +183,48 @@ function upsertRosterMembers(members, opts = {}) {
       .sort((a, b) => a.unitId - b.unitId)
       .slice(0, MAX_ROSTER_MEMBERS)
 
-    setTeamRosterStore({ v: 1, updatedAt: Date.now(), members: out })
+    setTeamRosterStore({ v: 1, updatedAt: Date.now(), members: out, squads })
+    return { ok: true, added, updated, total: out.length }
+  } catch (e) {
+    return { ok: false, reason: e?.message ? String(e.message) : String(e) }
+  }
+}
+
+function upsertSquads(squads, opts = {}) {
+  try {
+    const replace = !!opts.replace
+    const store = getTeamRosterStore()
+    const existing = replace ? [] : (Array.isArray(store?.squads) ? store.squads : [])
+    const members = Array.isArray(store?.members) ? store.members : []
+
+    const byId = new Map()
+    for (const s of existing) {
+      const ns = normalizeSquad(s)
+      if (ns) byId.set(ns.id, ns)
+    }
+
+    let added = 0
+    let updated = 0
+
+    for (const s of Array.isArray(squads) ? squads : []) {
+      const ns = normalizeSquad(s)
+      if (!ns) continue
+      const prev = byId.get(ns.id)
+      if (!prev) {
+        byId.set(ns.id, ns)
+        added++
+        continue
+      }
+      const next = { ...prev, ...ns }
+      byId.set(ns.id, next)
+      if (JSON.stringify(prev) !== JSON.stringify(next)) updated++
+    }
+
+    const out = Array.from(byId.values())
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }))
+      .slice(0, MAX_ROSTER_SQUADS)
+
+    setTeamRosterStore({ v: 1, updatedAt: Date.now(), members, squads: out })
     return { ok: true, added, updated, total: out.length }
   } catch (e) {
     return { ok: false, reason: e?.message ? String(e.message) : String(e) }
@@ -253,6 +334,7 @@ function setMeshNodeAssignment(nodeKey, unitId) {
 
     const store = getTeamRosterStore()
     const members = Array.isArray(store?.members) ? store.members : []
+    const squads = Array.isArray(store?.squads) ? store.squads : []
     let changed = false
 
     const nextMembers = members
@@ -283,7 +365,7 @@ function setMeshNodeAssignment(nodeKey, unitId) {
       .slice(0, MAX_ROSTER_MEMBERS)
 
     if (changed) {
-      setTeamRosterStore({ v: 1, updatedAt: Date.now(), members: nextMembers })
+      setTeamRosterStore({ v: 1, updatedAt: Date.now(), members: nextMembers, squads })
     } else {
       // Still notify so UI can refresh popups/titles if needed.
       notifyRosterUpdated()
@@ -299,7 +381,9 @@ function setMeshNodeAssignment(nodeKey, unitId) {
 try {
   globalThis.xcomGetTeamRoster = getTeamRosterStore
   globalThis.xcomListRosterMembers = listRosterMembers
+  globalThis.xcomListSquads = listSquads
   globalThis.xcomUpsertRosterMembers = upsertRosterMembers
+  globalThis.xcomUpsertSquads = upsertSquads
   globalThis.xcomClearTeamRoster = clearTeamRoster
   globalThis.xcomFormatUnitWithLabel = formatUnitWithLabel
   globalThis.xcomWithRosterLabels = withRosterLabels

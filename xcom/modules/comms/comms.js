@@ -830,19 +830,34 @@ class CommsModule {
     const wrap = document.getElementById('commsTemplateFields')
     const now = Date.now()
 
-    let rosterMembers = []
+    let roster = null
     try {
-      const roster = (typeof globalThis.xcomGetTeamRoster === 'function') ? globalThis.xcomGetTeamRoster() : null
-      rosterMembers = Array.isArray(roster?.members) ? roster.members : []
+      roster = (typeof globalThis.xcomGetTeamRoster === 'function') ? globalThis.xcomGetTeamRoster() : null
     } catch (_) {
-      rosterMembers = []
+      roster = null
+    }
+
+    const rosterMembers = Array.isArray(roster?.members) ? roster.members : []
+    const rosterSquads = Array.isArray(roster?.squads) ? roster.squads : []
+
+    const squadLabelById = new Map()
+    for (const s of rosterSquads) {
+      const id = String(s?.id ?? '').trim()
+      if (!id) continue
+      const callsign = String(s?.callsign ?? '').trim()
+      const name = String(s?.name ?? '').trim()
+      const label = callsign || name
+      if (label) squadLabelById.set(id, label)
     }
 
     const rosterNormalized = rosterMembers
-      .map((m) => ({
-        unitId: Math.floor(Number(m?.unitId)),
-        label: String(m?.label || '').trim(),
-      }))
+      .map((m) => {
+        const unitId = Math.floor(Number(m?.unitId))
+        const label = String(m?.label || '').trim()
+        const squadId = String(m?.squadId ?? '').trim() || undefined
+        const squadLabel = squadId ? String(squadLabelById.get(squadId) || '').trim() : ''
+        return { unitId, label, squadId, squadLabel }
+      })
       .filter((m) => Number.isFinite(m.unitId) && m.unitId > 0 && m.unitId <= 65535)
       .sort((a, b) => a.unitId - b.unitId)
 
@@ -853,11 +868,40 @@ class CommsModule {
       }
 
       const size = Math.min(sizeMax, Math.max(3, rosterNormalized.length))
-      const opts = rosterNormalized
-        .map((m, idx) => {
-          const label = m.label || `U${m.unitId}`
-          const selected = idx === 0 ? ' selected' : ''
-          return `<option value="${m.unitId}"${selected}>U${m.unitId} — ${this.escapeHtml(label)}</option>`
+      let selectedAny = false
+
+      const groupsById = new Map()
+      for (const m of rosterNormalized) {
+        const sid = String(m.squadId || '').trim()
+        const existing = groupsById.get(sid)
+        if (existing) {
+          existing.members.push(m)
+          continue
+        }
+        const shortId = sid ? sid.slice(0, 8) : ''
+        const squadLabel = sid ? (m.squadLabel || `Squad ${shortId}`) : 'Unassigned'
+        groupsById.set(sid, { sid, label: squadLabel, members: [m] })
+      }
+
+      const groups = Array.from(groupsById.values())
+        .sort((a, b) => {
+          if (!a.sid && b.sid) return 1
+          if (a.sid && !b.sid) return -1
+          return String(a.label || '').localeCompare(String(b.label || ''), undefined, { sensitivity: 'base' })
+        })
+        .map((g) => ({ ...g, members: g.members.slice().sort((a, b) => a.unitId - b.unitId) }))
+
+      const renderOpt = (m) => {
+        const label = m.label || `U${m.unitId}`
+        const selected = selectedAny ? '' : ((selectedAny = true), ' selected')
+        return `<option value="${m.unitId}"${selected}>U${m.unitId} — ${this.escapeHtml(label)}</option>`
+      }
+
+      const opts = groups
+        .map((g) => {
+          const gl = g.label || (g.sid ? `Squad ${String(g.sid).slice(0, 8)}` : 'Unassigned')
+          const inner = g.members.map(renderOpt).join('')
+          return `<optgroup label="${this.escapeHtml(gl)}">${inner}</optgroup>`
         })
         .join('')
       const titleAttr = title ? ` title="${this.escapeHtml(String(title))}"` : ''
@@ -901,41 +945,13 @@ class CommsModule {
     `
 
     if (t === 4) {
-      let rosterMembers = []
-      try {
-        const roster = (typeof globalThis.xcomGetTeamRoster === 'function') ? globalThis.xcomGetTeamRoster() : null
-        rosterMembers = Array.isArray(roster?.members) ? roster.members : []
-      } catch (_) {
-        rosterMembers = []
-      }
-
-      const normalized = rosterMembers
-        .map((m) => ({
-          unitId: Math.floor(Number(m?.unitId)),
-          label: String(m?.label || '').trim(),
-        }))
-        .filter((m) => Number.isFinite(m.unitId) && m.unitId > 0 && m.unitId <= 65535)
-        .sort((a, b) => a.unitId - b.unitId)
-
-      const unitPicker =
-        normalized.length
-          ? (() => {
-              const size = Math.min(8, Math.max(3, normalized.length))
-              const opts = normalized
-                .map((m, idx) => {
-                  const label = m.label || `U${m.unitId}`
-                  const selected = idx === 0 ? ' selected' : ''
-                  return `<option value="${m.unitId}"${selected}>U${m.unitId} — ${this.escapeHtml(label)}</option>`
-                })
-                .join('')
-              return `
-                <select id="t_units" multiple size="${size}" title="Select one or more units for a squad check-in.">
-                  ${opts}
-                </select>
-                <div class="commsSmallMuted">Tip: select multiple for squad/group check-ins.</div>
-              `
-            })()
-          : `<input id="t_units_text" type="text" placeholder="e.g. 12,14,27" />`
+      const unitPicker = buildUnitMultiSelect({
+        selectId: 't_units',
+        textId: 't_units_text',
+        placeholder: 'e.g. 12,14,27',
+        title: 'Select one or more units for a squad check-in.',
+        tip: 'Tip: select multiple for squad/group check-ins.',
+      })
 
       wrap.innerHTML = `
         <div class="commsRow"><label>Units</label>${unitPicker}</div>
@@ -2317,6 +2333,15 @@ class CommsModule {
       return
     }
 
+    // Optional: squad metadata (if provided by XTOC).
+    try {
+      if (Array.isArray(b?.squads) && typeof globalThis.xcomUpsertSquads === 'function') {
+        globalThis.xcomUpsertSquads(b.squads, { replace: false })
+      }
+    } catch (_) {
+      // ignore
+    }
+
     try { input.value = '' } catch (_) { /* ignore */ }
     this.updateRosterStatus()
     if (!quiet) alert(`Imported roster: ${res.total} member(s).`)
@@ -2334,6 +2359,7 @@ class CommsModule {
     let roster = null
     try { roster = globalThis.xcomGetTeamRoster() } catch (_) { roster = null }
     const members = Array.isArray(roster?.members) ? roster.members : []
+    const squads = Array.isArray(roster?.squads) ? roster.squads : []
     const updatedAt = Number(roster?.updatedAt || 0) || 0
 
     if (members.length === 0) {
@@ -2346,7 +2372,8 @@ class CommsModule {
       try { when = new Date(updatedAt).toLocaleString() } catch (_) { when = '—' }
     }
 
-    el.textContent = `Roster: ${members.length} member(s) loaded (${when})`
+    const squadText = squads.length ? `, ${squads.length} squad(s)` : ''
+    el.textContent = `Roster: ${members.length} member(s)${squadText} loaded (${when})`
   }
 
   clearRoster() {
@@ -2477,8 +2504,18 @@ class CommsModule {
 
   async importXtocBackupObject(backup) {
     const members = Array.isArray(backup?.members) ? backup.members : []
+    const squads = Array.isArray(backup?.squads) ? backup.squads : []
     const teamKeys = Array.isArray(backup?.teamKeys) ? backup.teamKeys : []
     const packets = Array.isArray(backup?.packets) ? backup.packets : []
+
+    // 0) Squads (optional metadata)
+    try {
+      if (squads.length && typeof globalThis.xcomUpsertSquads === 'function') {
+        globalThis.xcomUpsertSquads(squads, { replace: false })
+      }
+    } catch (_) {
+      // ignore
+    }
 
     // 1) Roster (full member records)
     let rosterTotal = 0
