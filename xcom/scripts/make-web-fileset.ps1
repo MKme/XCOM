@@ -32,7 +32,9 @@ param(
   # For hosted/PWA use, JSON/GeoJSON is preferred and smaller/faster to package.
   [switch]$IncludeJsPayloads,
 
-  # If set, include server-side helper files (license.php/.htaccess/README) alongside the web build.
+  # If set, include helper files alongside the web build:
+  # - server-side license proxy files (license.php/.htaccess/README)
+  # - standalone MANET bridge helper (halow-bridge/) if available
   [switch]$IncludeHelpers,
 
   # If set, also create a .zip file in releases/ containing the entire fileset folder contents.
@@ -284,6 +286,37 @@ $buildInfo = @(
 
 $buildInfoPath = Join-Path $filesetDir 'BUILD_INFO.txt'
 Set-Content -Path $buildInfoPath -Value $buildInfo -Encoding UTF8
+
+function Remove-PythonJunk([string]$dir) {
+  if (-not $dir) { return }
+  try { Remove-Item -Path (Join-Path $dir '__pycache__') -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+  try { Remove-Item -Path (Join-Path $dir '.venv') -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+  try { Remove-Item -Path (Join-Path $dir '.pytest_cache') -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+  try { Remove-Item -Path (Join-Path $dir '.mypy_cache') -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+  try { Remove-Item -Path (Join-Path $dir '.ruff_cache') -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+}
+
+# Optional: include standalone helper tool folders (ship these in downloadable release zips).
+if ($IncludeHelpers) {
+  $repoParent = $null
+  try { $repoParent = Resolve-Path (Join-Path $repoRoot '..') } catch { $repoParent = $null }
+
+  $halowCandidates = @(
+    (Join-Path $repoRoot 'halow-bridge'),
+    (Join-Path $repoRoot 'helpers\\halow-bridge'),
+    ($(if ($repoParent) { Join-Path $repoParent 'XTOC\\halow-bridge' } else { '' }))
+  ) | Where-Object { $_ -and (Test-Path $_) }
+
+  $halowBridgeSrc = $halowCandidates | Select-Object -First 1
+  if ($halowBridgeSrc) {
+    Write-Host "Including halow-bridge -> $filesetDir" -ForegroundColor Cyan
+    Copy-Item -Path $halowBridgeSrc -Destination (Join-Path $filesetDir 'halow-bridge') -Recurse -Force
+    Remove-PythonJunk (Join-Path $filesetDir 'halow-bridge')
+  } else {
+    $msg = "IncludeHelpers set, but halow-bridge was not found. Expected one of: XCOM\\halow-bridge, XCOM\\helpers\\halow-bridge, or a sibling repo at ..\\XTOC\\halow-bridge."
+    if ($Zip) { throw $msg } else { Write-Warning $msg }
+  }
+}
 
 function Remove-IfExists([string]$p) {
   if (-not $p) { return }

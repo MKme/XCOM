@@ -92,6 +92,7 @@ Notes:
 - For faster packaging, the fileset script excludes the pre-generated offline basemap tile pack (`assets/tiles/`) by default. If you want to ship it, pass `-IncludeOfflineTiles` (expect zips to be slower/larger).
 - The fileset script also excludes redundant JS payload wrappers (`assets/data/callsigns.js`, `assets/data/world-cities.js`) by default. Hosted/PWA use prefers `callsigns.json` + `world-cities.geojson`.
 - If zipping is still slow, try `-CompressionLevel Fastest` (or `NoCompression`).
+- `-IncludeHelpers` also bundles the standalone MANET bridge helper (`halow-bridge/`) alongside the fileset/zip (look in `XCOM/halow-bridge/` or a sibling `../XTOC/halow-bridge/` checkout).
 
 ---
 

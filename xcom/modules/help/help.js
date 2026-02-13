@@ -396,6 +396,8 @@ class HelpModule {
                     <h3>Notes</h3>
                     <ul>
                         <li>This is designed for trusted LANs only (the bridge has permissive CORS and no authentication by design).</li>
+                        <li><strong>Bridge helper:</strong> the bridge is a tiny Python program. Install Python 3 on the XTOC laptop and run the launcher scripts in <code>halow-bridge/</code>.</li>
+                        <li><strong>Release bundles:</strong> the downloadable web fileset ZIP includes <code>halow-bridge/</code> alongside the app files.</li>
                         <li>Bridge URL cannot be <code>0.0.0.0</code> (bind address). Use the XTOC laptop IP or <code>http://127.0.0.1:8095</code> on the laptop.</li>
                         <li>If <strong>Share Bridge QR</strong> / <strong>Scan Bridge QR</strong> says <em>Failed to fetch</em>, the bridge is usually not running yet, the Bridge URL is wrong, or the browser is blocking the request.</li>
                         <li>Troubleshooting: from any device browser, open <code>http://&lt;XTOC-IP&gt;:8095/health</code>. If it wonâ€™t load, check that both devices are on the same MANET/LAN and that Windows Firewall allows inbound port 8095.</li>
