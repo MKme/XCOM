@@ -835,7 +835,10 @@ class MapModule {
   importedTimestampMs(props) {
     try {
       const p = (props && typeof props === 'object') ? props : {}
-      const ts = Number(p.packetAt ?? p.receivedAt ?? p.importedAt ?? 0)
+      // Prefer local receipt/import time over the sender's packet timestamp.
+      // Field reality: sender clocks can be wrong/offline; we still want markers visible
+      // (and filtered by "last 7 days") based on when *this* device received/imported them.
+      const ts = Number(p.receivedAt ?? p.importedAt ?? p.packetAt ?? 0)
       return (Number.isFinite(ts) && ts > 0) ? ts : 0
     } catch (_) {
       return 0

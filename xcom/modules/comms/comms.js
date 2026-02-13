@@ -2549,6 +2549,44 @@ class CommsModule {
       }
     }
 
+    // If this device has no ACTIVE key yet, try to set one from the imported backup keys.
+    // Prefer the backup's ACTIVE KID/teamId when present; otherwise pick the highest KID.
+    try {
+      const hasActiveKey = (typeof globalThis.getCommsActiveKey === 'function') ? !!globalThis.getCommsActiveKey() : false
+      if (!hasActiveKey && keysImported > 0 && typeof globalThis.setCommsActiveKey === 'function') {
+        const ls = backup?.localStorage && typeof backup.localStorage === 'object' ? backup.localStorage : null
+        const preferredTeamId = ls && typeof ls['xtoc.teamId'] === 'string' ? String(ls['xtoc.teamId']).trim() : ''
+        const preferredKidRaw = ls ? Number(ls['xtoc.activeKid']) : NaN
+        const preferredKid = Number.isFinite(preferredKidRaw) && preferredKidRaw > 0 ? preferredKidRaw : NaN
+
+        const candidates = []
+        for (const k of teamKeys) {
+          const teamId = String(k?.teamId || '').trim()
+          const kid = Number(k?.kid)
+          const keyB64Url = String(k?.keyB64Url || '').trim()
+          const createdAt = Number(k?.createdAt || 0) || 0
+          if (!teamId || !Number.isFinite(kid) || kid <= 0 || !keyB64Url) continue
+          candidates.push({ teamId, kid, keyB64Url, createdAt })
+        }
+
+        let chosen = null
+        if (preferredTeamId && Number.isFinite(preferredKid)) {
+          chosen = candidates.find((c) => c.teamId === preferredTeamId && c.kid === preferredKid) || null
+        }
+        if (!chosen) {
+          const pool = preferredTeamId ? candidates.filter((c) => c.teamId === preferredTeamId) : candidates
+          pool.sort((a, b) => (b.kid - a.kid) || (b.createdAt - a.createdAt))
+          chosen = pool[0] || null
+        }
+
+        if (chosen) {
+          globalThis.setCommsActiveKey({ teamId: chosen.teamId, kid: chosen.kid, keyB64Url: chosen.keyB64Url })
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+
     // 3) Packets: store ALL packets in IndexedDB, and add geo packets to the Imported overlay
     let packetsParsed = 0
     let packetsStored = 0

@@ -9,24 +9,11 @@
 (() => {
   if (typeof globalThis.xcomAutoIngestXtocPacketText === 'function') return
 
-  const LS_AUTO_MESH_RX = 'xcom.comms.autoMeshRx.v1'
-  const LS_AUTO_MANET_RX = 'xcom.comms.autoHaLowRx.v1'
-
   const BUFFER_TTL_MS = 15 * 60 * 1000
   const buffers = new Map()
 
   function nowMs() {
     return Date.now()
-  }
-
-  function readAutoRxEnabled(source) {
-    try {
-      if (source === 'manet') return localStorage.getItem(LS_AUTO_MANET_RX) !== '0'
-      if (source === 'mesh') return localStorage.getItem(LS_AUTO_MESH_RX) !== '0'
-    } catch (_) {
-      return true
-    }
-    return true
   }
 
   function templateName(templateId) {
@@ -694,8 +681,6 @@
     const text = String(args?.text || '')
     const source = String(args?.source || 'unknown')
     const receivedAt = Number(args?.receivedAt || 0) || nowMs()
-
-    if (!readAutoRxEnabled(source)) return { ok: true, ingested: 0, imported: 0, skipped: 0 }
 
     const parsePacket = globalThis.parsePacket
     if (typeof parsePacket !== 'function') return { ok: false, reason: 'parsePacket not loaded' }
