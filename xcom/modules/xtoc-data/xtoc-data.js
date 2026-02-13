@@ -286,9 +286,28 @@ class XtocDataModule {
   renderCounts(total, shown) {
     const el = document.getElementById('xtocDataCounts')
     if (!el) return
-    const t = Number(total || 0) || 0
     const s = Number(shown || 0) || 0
+    if (total == null) {
+      el.textContent = `Showing ${s} stored packet(s).`
+      return
+    }
+    const t = Number(total || 0) || 0
     el.textContent = `Showing ${s} of ${t} stored packet(s).`
+  }
+
+  async ensurePacketStoreLoaded() {
+    if (typeof globalThis.xcomListXtocPackets === 'function') return true
+
+    // Best-effort: attempt to load the packet store script if the module loader is available.
+    try {
+      if (globalThis.radioApp && typeof globalThis.radioApp.loadScript === 'function') {
+        await globalThis.radioApp.loadScript('modules/shared/xtoc/packetStore.js')
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    return typeof globalThis.xcomListXtocPackets === 'function'
   }
 
   renderTable(packets) {
@@ -410,12 +429,46 @@ class XtocDataModule {
     const countsEl = document.getElementById('xtocDataCounts')
     if (countsEl) countsEl.textContent = 'Loading…'
 
-    if (typeof globalThis.xcomListXtocPackets !== 'function' || typeof globalThis.xcomCountXtocPackets !== 'function') {
+    const hasStore = await this.ensurePacketStoreLoaded()
+
+    if (!hasStore) {
       this._packets = []
       this.renderTable([])
-      this.renderCounts(0, 0)
+      this.renderCounts(null, 0)
       const details = document.getElementById('xtocDataDetails')
-      if (details) details.innerHTML = `<div class="xtocWarn">Packet store helpers not loaded. Ensure <code>modules/shared/xtoc/packetStore.js</code> is loaded for this module.</div>`
+      if (details) {
+        details.innerHTML = `
+          <div class="xtocWarn">
+            Packet store helpers not loaded for this module.
+            <div class="xtocSmallMuted" style="margin-top:8px">
+              This can happen after an update if the app cache is out of sync.
+              Try <strong>Update</strong> (top bar) or <strong>Backup &rarr; Repair app cache</strong>.
+            </div>
+            <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap">
+              <button id="xtocDataRetryBtn" class="xtocBtn" type="button">Retry</button>
+              <button id="xtocDataRepairBtn" class="xtocBtn danger" type="button">Repair app cache</button>
+            </div>
+          </div>
+        `
+
+        const retryBtn = document.getElementById('xtocDataRetryBtn')
+        if (retryBtn) retryBtn.addEventListener('click', () => void this.refresh({ keepSelection: true }), { once: true })
+
+        const repairBtn = document.getElementById('xtocDataRepairBtn')
+        if (repairBtn) {
+          repairBtn.addEventListener(
+            'click',
+            () => {
+              if (typeof globalThis.xcomRepairAppShell === 'function') {
+                globalThis.xcomRepairAppShell()
+              } else {
+                alert('Repair function not available in this build')
+              }
+            },
+            { once: true },
+          )
+        }
+      }
       return
     }
 
@@ -425,17 +478,37 @@ class XtocDataModule {
     const source = String(document.getElementById('xtocDataSource')?.value || '').trim()
 
     const sinceMs = last7 ? (Date.now() - (7 * 24 * 60 * 60 * 1000)) : null
-    const listRes = await globalThis.xcomListXtocPackets({
-      limit: 2000,
-      ...(sinceMs ? { sinceMs } : {}),
-      ...(query ? { query } : {}),
-      ...(source ? { source } : {}),
-      ...(geoOnly ? { hasGeo: true } : {}),
-    })
-    const countRes = await globalThis.xcomCountXtocPackets()
+
+    let listRes = null
+    try {
+      listRes = await globalThis.xcomListXtocPackets({
+        limit: 2000,
+        ...(sinceMs ? { sinceMs } : {}),
+        ...(query ? { query } : {}),
+        ...(source ? { source } : {}),
+        ...(geoOnly ? { hasGeo: true } : {}),
+      })
+    } catch (e) {
+      const msg = e?.message ? String(e.message) : String(e)
+      const details = document.getElementById('xtocDataDetails')
+      if (details) details.innerHTML = `<div class="xtocWarn">Failed to read packet store: ${this.escapeHtml(msg)}</div>`
+      this._packets = []
+      this.renderTable([])
+      this.renderCounts(null, 0)
+      return
+    }
+
+    let countRes = null
+    try {
+      if (typeof globalThis.xcomCountXtocPackets === 'function') {
+        countRes = await globalThis.xcomCountXtocPackets()
+      }
+    } catch (_) {
+      countRes = null
+    }
 
     const packets = (listRes && listRes.ok && Array.isArray(listRes.packets)) ? listRes.packets : []
-    const total = (countRes && countRes.ok) ? Number(countRes.count || 0) || 0 : 0
+    const total = (countRes && countRes.ok) ? Number(countRes.count || 0) || 0 : null
 
     this._packets = packets
     this.renderTable(packets)
