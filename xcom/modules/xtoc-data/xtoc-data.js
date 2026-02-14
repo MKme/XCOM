@@ -917,6 +917,18 @@ class XtocDataModule {
               <input type="checkbox" id="xtocDataGeoOnly">
               Geo only
             </label>
+            <select id="xtocDataTemplate" class="xtocInput" aria-label="Template filter">
+              <option value="">All templates</option>
+              <option value="1">SITREP</option>
+              <option value="2">CONTACT</option>
+              <option value="3">TASK</option>
+              <option value="4">CHECKIN/LOC</option>
+              <option value="5">RESOURCE</option>
+              <option value="6">ASSET</option>
+              <option value="7">ZONE</option>
+              <option value="8">MISSION</option>
+              <option value="9">EVENT</option>
+            </select>
             <select id="xtocDataSource" class="xtocInput" aria-label="Source filter">
               <option value="">All sources</option>
               <option value="xtocBackup">XTOC Backup</option>
@@ -970,6 +982,7 @@ class XtocDataModule {
     const queryEl = document.getElementById('xtocDataQuery')
     const last7El = document.getElementById('xtocDataLast7')
     const geoOnlyEl = document.getElementById('xtocDataGeoOnly')
+    const templateEl = document.getElementById('xtocDataTemplate')
     const sourceEl = document.getElementById('xtocDataSource')
     const refreshBtn = document.getElementById('xtocDataRefreshBtn')
     const clearBtn = document.getElementById('xtocDataClearBtn')
@@ -994,6 +1007,7 @@ class XtocDataModule {
     queryEl?.addEventListener('input', schedule)
     last7El?.addEventListener('change', () => void this.refresh())
     geoOnlyEl?.addEventListener('change', () => void this.refresh())
+    templateEl?.addEventListener('change', () => void this.refresh())
     sourceEl?.addEventListener('change', () => void this.refresh())
     refreshBtn?.addEventListener('click', () => void this.refresh())
 
@@ -1264,6 +1278,18 @@ class XtocDataModule {
     `
   }
 
+  setTemplateFilter(templateId) {
+    const el = document.getElementById('xtocDataTemplate')
+    if (!el) return
+
+    const n = Number(templateId)
+    const next = (Number.isFinite(n) && n > 0) ? String(Math.floor(n)) : ''
+    if (String(el.value || '') === next) return
+
+    el.value = next
+    void this.refresh()
+  }
+
   async refresh(opts = {}) {
     const keepSelection = opts.keepSelection === true
 
@@ -1316,9 +1342,11 @@ class XtocDataModule {
     const query = String(document.getElementById('xtocDataQuery')?.value || '').trim()
     const last7 = !!document.getElementById('xtocDataLast7')?.checked
     const geoOnly = !!document.getElementById('xtocDataGeoOnly')?.checked
+    const templateRaw = String(document.getElementById('xtocDataTemplate')?.value || '').trim()
     const source = String(document.getElementById('xtocDataSource')?.value || '').trim()
 
     const sinceMs = last7 ? (Date.now() - (7 * 24 * 60 * 60 * 1000)) : null
+    const templateId = templateRaw ? Number(templateRaw) : null
 
     let listRes = null
     try {
@@ -1326,6 +1354,7 @@ class XtocDataModule {
         limit: 2000,
         ...(sinceMs ? { sinceMs } : {}),
         ...(query ? { query } : {}),
+        ...(Number.isFinite(templateId) && templateId > 0 ? { templateId } : {}),
         ...(source ? { source } : {}),
         ...(geoOnly ? { hasGeo: true } : {}),
       })

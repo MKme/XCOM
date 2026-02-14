@@ -278,12 +278,45 @@ body.xSidebarResizing * {
     color: rgba(159, 178, 198, 0.95);
 }
 
-.xNavItem > span:not(.xNavIcon) {
+.xNavItem > span:not(.xNavIcon):not(.xNavBadge) {
     flex: 1;
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.xNavSub {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-left: 16px;
+    padding-left: 10px;
+    border-left: 1px solid rgba(255,255,255,0.08);
+}
+
+.xNavItemSub {
+    padding: 8px 10px;
+}
+
+.xNavItemSub .xNavIcon {
+    opacity: 0.85;
+}
+
+.xNavBadge {
+    margin-left: auto;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid rgba(246, 201, 69, 0.35);
+    background: rgba(246, 201, 69, 0.12);
+    color: var(--warning);
 }
 
 .xNavItem:hover .xNavIcon { color: rgba(214, 227, 240, 0.95); }

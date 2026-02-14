@@ -1165,25 +1165,295 @@ class RadioApp {
         // Support both legacy header nav (#module-nav a) and the new XTOC-style sidebar (.xNav a).
         // Only wire module nav items (so external links in the sidebar work normally).
         const navLinks = Array.from(document.querySelectorAll('#module-nav a[data-module], .xNav a[data-module]'));
+        const getNavHash = (link) => {
+            const href = String(link?.getAttribute?.('href') || '').trim();
+            if (href.startsWith('#') && href.length > 1) return href.slice(1).trim();
+            return String(link?.getAttribute?.('data-module') || '').trim();
+        };
+        const parseNavHash = (navHash) => {
+            const raw = String(navHash || '').trim();
+            if (!raw) return { moduleId: '', params: new URLSearchParams() };
+            const i = raw.indexOf('?');
+            if (i < 0) return { moduleId: raw, params: new URLSearchParams() };
+            const moduleId = raw.slice(0, i).trim();
+            const qs = raw.slice(i + 1);
+            return { moduleId, params: new URLSearchParams(qs) };
+        };
+        const setActiveNav = (navHash) => {
+            const h = String(navHash || '').trim();
+            navLinks.forEach(navLink => {
+                navLink.classList.remove('active');
+            });
+            const active = navLinks.find((l) => getNavHash(l) === h) || null;
+            if (active) active.classList.add('active');
+
+            const parentHash = String(active?.getAttribute?.('data-nav-parent') || '').trim();
+            if (parentHash) {
+                const parent = navLinks.find((l) => getNavHash(l) === parentHash) || null;
+                if (parent) parent.classList.add('active');
+            }
+        };
+        const applyNavParams = (moduleId, params) => {
+            try {
+                if (moduleId === 'xtoc-data') {
+                    const tpl = Number(params?.get?.('tpl'));
+                    if (Number.isFinite(tpl) && tpl > 0) {
+                        try { window.xtocDataModule?.setTemplateFilter?.(tpl); } catch (_) { /* ignore */ }
+                    } else {
+                        try { window.xtocDataModule?.setTemplateFilter?.(null); } catch (_) { /* ignore */ }
+                    }
+                }
+            } catch (_) {
+                // ignore
+            }
+        };
+
+        // ---------------------------------------------------------------------
+        // Packet unread badges (template modules under Communication)
+        // ---------------------------------------------------------------------
+
+        const XCOM_PACKET_UNREAD_LS_PREFIX = 'xcom.packets.unread.v1.';
+        const XCOM_PACKET_UNREAD_DWELL_MS = 1100;
+        const XCOM_TEMPLATE_ID_TO_UNREAD_KEY = {
+            1: 'sitrep',
+            2: 'contacts',
+            3: 'tasks',
+            4: 'checkins',
+            5: 'resources',
+            6: 'assets',
+            7: 'zones',
+            8: 'missions',
+            9: 'events',
+        };
+        const XCOM_PACKET_UNREAD_KEYS = Object.values(XCOM_TEMPLATE_ID_TO_UNREAD_KEY);
+
+        const xcomUnreadLsKey = (key) => `${XCOM_PACKET_UNREAD_LS_PREFIX}seenAt.${key}`;
+        const xcomUnreadReadTs = (storageKey) => {
+            try {
+                const raw = localStorage.getItem(storageKey);
+                if (!raw) return null;
+                const n = Number(raw);
+                return Number.isFinite(n) && n > 0 ? n : null;
+            } catch (_) {
+                return null;
+            }
+        };
+        const xcomUnreadWriteTs = (storageKey, ts) => {
+            try { localStorage.setItem(storageKey, String(Math.floor(Number(ts) || Date.now()))); } catch (_) { /* ignore */ }
+        };
+        const xcomUnreadLoadSeenAt = (nowTs) => {
+            const now = Number.isFinite(Number(nowTs)) && Number(nowTs) > 0 ? Math.floor(Number(nowTs)) : Date.now();
+            const out = {};
+            for (const key of XCOM_PACKET_UNREAD_KEYS) {
+                const k = String(key || '').trim();
+                if (!k) continue;
+                const sk = xcomUnreadLsKey(k);
+                const v = xcomUnreadReadTs(sk);
+                if (v == null) {
+                    xcomUnreadWriteTs(sk, now);
+                    out[k] = now;
+                } else {
+                    out[k] = v;
+                }
+            }
+            return out;
+        };
+        const xcomUnreadDefaultCounts = () => {
+            const out = {};
+            for (const key of XCOM_PACKET_UNREAD_KEYS) out[key] = 0;
+            return out;
+        };
+
+        let xcomUnreadSeenAt = xcomUnreadLoadSeenAt(Date.now());
+        let xcomUnreadDbPromise = null;
+        const xcomUnreadOpenDb = () => {
+            if (!xcomUnreadDbPromise) xcomUnreadDbPromise = xcomOpenXtocPacketDb();
+            return xcomUnreadDbPromise;
+        };
+
+        const xcomUnreadComputeUnseenCounts = async () => {
+            const counts = xcomUnreadDefaultCounts();
+
+            let minSeenAt = Infinity;
+            for (const key of XCOM_PACKET_UNREAD_KEYS) {
+                minSeenAt = Math.min(minSeenAt, Number(xcomUnreadSeenAt[key]) || 0);
+            }
+            if (!Number.isFinite(minSeenAt) || minSeenAt <= 0) minSeenAt = 0;
+
+            try {
+                const db = await xcomUnreadOpenDb();
+                return await new Promise((resolve) => {
+                    try {
+                        const tx = db.transaction([XCOM_XTOC_STORE_PACKETS], 'readonly');
+                        const store = tx.objectStore(XCOM_XTOC_STORE_PACKETS);
+                        const idx = store.index('receivedAt');
+                        const req = idx.openCursor(null, 'prev');
+
+                        req.onerror = () => resolve(counts);
+                        req.onsuccess = () => {
+                            const cursor = req.result;
+                            if (!cursor) {
+                                resolve(counts);
+                                return;
+                            }
+
+                            const rec = cursor.value || null;
+                            const receivedAt = Number(rec?.receivedAt || rec?.storedAt || 0) || 0;
+                            if (receivedAt <= minSeenAt) {
+                                resolve(counts);
+                                return;
+                            }
+
+                            const tpl = Number(rec?.templateId || 0) || 0;
+                            const key = XCOM_TEMPLATE_ID_TO_UNREAD_KEY[tpl] || null;
+                            if (key) {
+                                const seenAt = Number(xcomUnreadSeenAt[key]) || 0;
+                                if (receivedAt > seenAt) counts[key] += 1;
+                            }
+
+                            cursor.continue();
+                        };
+                    } catch (_) {
+                        resolve(counts);
+                    }
+                });
+            } catch (_) {
+                return counts;
+            }
+        };
+
+        const xcomFormatBadgeText = (n) => (n > 99 ? '99+' : String(n));
+        const xcomSetBadgeEl = (el, count, ariaLabel) => {
+            try {
+                if (!el) return;
+                const n = Number(count) || 0;
+                if (n <= 0) {
+                    el.textContent = '';
+                    el.style.display = 'none';
+                    el.setAttribute('aria-hidden', 'true');
+                    el.removeAttribute('aria-label');
+                    return;
+                }
+                el.textContent = xcomFormatBadgeText(n);
+                el.style.display = 'inline-flex';
+                el.removeAttribute('aria-hidden');
+                if (ariaLabel) el.setAttribute('aria-label', ariaLabel);
+                else el.setAttribute('aria-label', `${n} new packets`);
+            } catch (_) {
+                // ignore
+            }
+        };
+        const xcomUnreadSumCounts = (counts) => {
+            let sum = 0;
+            for (const key of XCOM_PACKET_UNREAD_KEYS) sum += (Number(counts?.[key]) || 0);
+            return sum;
+        };
+
+        let xcomUnreadRefreshSeq = 0;
+        const xcomRefreshUnreadBadges = async () => {
+            const seq = ++xcomUnreadRefreshSeq;
+            const counts = await xcomUnreadComputeUnseenCounts();
+            if (seq !== xcomUnreadRefreshSeq) return;
+
+            const sum = xcomUnreadSumCounts(counts);
+
+            try {
+                document.querySelectorAll('[data-unread-key]').forEach((el) => {
+                    const key = String(el?.getAttribute?.('data-unread-key') || '').trim();
+                    if (!key) return;
+                    xcomSetBadgeEl(el, counts[key] || 0, `${Number(counts[key] || 0) || 0} new packets`);
+                });
+            } catch (_) {
+                // ignore
+            }
+
+            try {
+                document.querySelectorAll('[data-unread-sum]').forEach((el) => {
+                    const scope = String(el?.getAttribute?.('data-unread-sum') || '').trim();
+                    if (!scope) return;
+                    if (scope === 'comms') xcomSetBadgeEl(el, sum, `${sum} new packets`);
+                });
+            } catch (_) {
+                // ignore
+            }
+        };
+
+        const xcomUnreadMarkSeen = (key, ts) => {
+            const k = String(key || '').trim();
+            if (!k) return;
+            const t = Math.floor(Number.isFinite(Number(ts)) && Number(ts) > 0 ? Number(ts) : Date.now());
+            xcomUnreadWriteTs(xcomUnreadLsKey(k), t);
+            xcomUnreadSeenAt[k] = t;
+            void xcomRefreshUnreadBadges();
+        };
+
+        let xcomUnreadActiveTemplateKey = null;
+        let xcomUnreadDwellDone = false;
+        let xcomUnreadDwellTimer = null;
+        const xcomSetActiveTemplateView = (navHash) => {
+            try { if (xcomUnreadDwellTimer) clearTimeout(xcomUnreadDwellTimer); } catch (_) { /* ignore */ }
+            xcomUnreadDwellTimer = null;
+            xcomUnreadActiveTemplateKey = null;
+            xcomUnreadDwellDone = false;
+
+            const { moduleId, params } = parseNavHash(navHash);
+            if (moduleId !== 'xtoc-data') return;
+
+            const tpl = Number(params?.get?.('tpl'));
+            const key = XCOM_TEMPLATE_ID_TO_UNREAD_KEY[tpl] || null;
+            if (!key) return;
+
+            xcomUnreadActiveTemplateKey = key;
+            xcomUnreadDwellTimer = setTimeout(() => {
+                xcomUnreadDwellTimer = null;
+                xcomUnreadDwellDone = true;
+                xcomUnreadMarkSeen(key);
+            }, XCOM_PACKET_UNREAD_DWELL_MS);
+        };
+
+        // Refresh badges on packet changes. If the user is already viewing a template
+        // module after the dwell time, auto-clear (markSeen) like XTOC.
+        const xcomOnPacketsUpdated = () => {
+            if (xcomUnreadActiveTemplateKey && xcomUnreadDwellDone) {
+                xcomUnreadMarkSeen(xcomUnreadActiveTemplateKey);
+                return;
+            }
+            void xcomRefreshUnreadBadges();
+        };
+        try { globalThis.addEventListener('xcomXtocPacketsUpdated', xcomOnPacketsUpdated); } catch (_) { /* ignore */ }
+        try {
+            window.addEventListener('storage', (e) => {
+                const k = String(e?.key || '');
+                if (!k || !k.startsWith(XCOM_PACKET_UNREAD_LS_PREFIX)) return;
+                xcomUnreadSeenAt = xcomUnreadLoadSeenAt(Date.now());
+                void xcomRefreshUnreadBadges();
+            });
+        } catch (_) {
+            // ignore
+        }
+
+        // Initial badge paint
+        void xcomRefreshUnreadBadges();
         navLinks.forEach(link => {
-            link.addEventListener('click', (e) => {
+            link.addEventListener('click', async (e) => {
                 e.preventDefault();
-                const moduleId = link.getAttribute('data-module');
+                const navHash = getNavHash(link);
+                const { moduleId, params } = parseNavHash(navHash);
 
                 // Keep the URL hash in sync so users can deep-link / bookmark modules.
                 // This also makes it easier to restore the last-viewed module on reload.
                 try {
-                    if (moduleId) window.location.hash = moduleId;
+                    if (navHash) window.location.hash = navHash;
                 } catch (_) {
                     // ignore
                 }
-                this.loadModule(moduleId);
+
+                await this.loadModule(moduleId);
+                applyNavParams(moduleId, params);
+                xcomSetActiveTemplateView(navHash);
                 
                 // Update active navigation
-                navLinks.forEach(navLink => {
-                    navLink.classList.remove('active');
-                });
-                link.classList.add('active');
+                setActiveNav(navHash);
                 this.closeMobileNav();
             });
         });
@@ -1196,18 +1466,20 @@ class RadioApp {
         const hash = (window.location.hash || '').replace('#', '').trim();
         const savedModule = this.getSavedModule();
         const firstNav = navLinks[0] || null;
-        const defaultModule = firstNav ? firstNav.getAttribute('data-module') : null;
-        const mobileDefaultModule = (this.isMobileView() && this.modules['comms']) ? 'comms' : defaultModule;
-        const initialModule =
-            (hash && this.modules[hash]) ? hash :
+        const defaultNavHash = firstNav ? getNavHash(firstNav) : null;
+        const mobileDefaultNavHash = (this.isMobileView() && this.modules['comms']) ? 'comms' : defaultNavHash;
+        const { moduleId: hashModuleId } = parseNavHash(hash);
+        const initialNavHash =
+            (hash && hashModuleId && this.modules[hashModuleId]) ? hash :
             (savedModule && this.modules[savedModule]) ? savedModule :
-            mobileDefaultModule;
-        if (initialModule) {
-            // Sync active nav state on initial load
-            navLinks.forEach(navLink => {
-                navLink.classList.toggle('active', navLink.getAttribute('data-module') === initialModule);
+            mobileDefaultNavHash;
+        if (initialNavHash) {
+            setActiveNav(initialNavHash);
+            const { moduleId, params } = parseNavHash(initialNavHash);
+            void this.loadModule(moduleId).then(() => {
+                applyNavParams(moduleId, params);
+                xcomSetActiveTemplateView(initialNavHash);
             });
-            this.loadModule(initialModule);
         }
     }
     
