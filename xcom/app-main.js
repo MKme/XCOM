@@ -1221,10 +1221,11 @@ class RadioApp {
             4: 'checkins',
             5: 'resources',
             6: 'assets',
-            7: 'zones',
-            8: 'missions',
-            9: 'events',
-        };
+             7: 'zones',
+             8: 'missions',
+             9: 'events',
+             10: 'phaselines',
+         };
         const XCOM_PACKET_UNREAD_KEYS = Object.values(XCOM_TEMPLATE_ID_TO_UNREAD_KEY);
 
         const xcomUnreadLsKey = (key) => `${XCOM_PACKET_UNREAD_LS_PREFIX}seenAt.${key}`;

@@ -48,11 +48,15 @@ class MapModule {
     this._importedPointLayerId = 'xcom-imported-pt'
     this._importedOutlineLayerId = 'xcom-imported-ol'
     this._importedLineLayerId = 'xcom-imported-ln'
+    this._importedDashedLineLayerId = 'xcom-imported-ln-dashed'
+    this._importedDoubleLineLayerAId = 'xcom-imported-ln-double-a'
+    this._importedDoubleLineLayerBId = 'xcom-imported-ln-double-b'
     this._importedFillLayerId = 'xcom-imported-fl'
     this._importedKeyWarnLineLayerId = 'xcom-imported-ln-keywarn'
     this._importedPopup = null
     this._importedHandlersBound = false
-    this._importedTplEnabled = new Map([[1, true], [2, true], [3, true], [4, true], [5, true], [6, true], [7, true], [8, true]])
+    this._importedTimeWindowTimer = null
+    this._importedTplEnabled = new Map([[1, true], [2, true], [3, true], [4, true], [5, true], [6, true], [7, true], [8, true], [9, true], [10, true]])
     this._importedTplEls = []
     this._importedMarkerById = new Map()
     this._importedMarkerFeatureById = new Map()
@@ -199,6 +203,7 @@ class MapModule {
                 <label class="mapInline"><input id="mapImportedT7" type="checkbox" /> ZONE</label>
                 <label class="mapInline"><input id="mapImportedT8" type="checkbox" /> MISSION</label>
                 <label class="mapInline"><input id="mapImportedT9" type="checkbox" /> EVENT</label>
+                <label class="mapInline"><input id="mapImportedT10" type="checkbox" /> PHASE LINE</label>
               </div>
               <div class="mapSmallMuted" id="mapImportedLegend"></div>
               <div class="mapSmallMuted">Imported markers come from XTOC Comm “Import” and XTOC Backup imports.</div>
@@ -437,7 +442,7 @@ class MapModule {
 
     // Seed Imported type toggles
     this._importedTplEls = []
-    const tplIds = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    const tplIds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     for (const t of tplIds) {
       const el = document.getElementById(`mapImportedT${String(t)}`)
       if (!el) continue
@@ -510,6 +515,7 @@ class MapModule {
       try {
         globalThis.setTacticalMapHiddenOverlayEnabled && globalThis.setTacticalMapHiddenOverlayEnabled(v)
       } catch (_) {}
+      try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
       try { this.syncHiddenOverlay() } catch (_) { /* ignore */ }
     })
 
@@ -995,6 +1001,33 @@ class MapModule {
     }
   }
 
+  importedHideIdForFeature(f) {
+    try {
+      const p = f?.properties || {}
+      const templateId = Number(p?.templateId || 0)
+      const mode = String(p?.mode || '').trim().toUpperCase()
+      const packetId = String(p?.packetId || '').trim()
+      const kid = (mode === 'S' && p?.kid != null) ? Math.floor(Number(p.kid)) : null
+
+      // Phase lines: hide by payload ID (so updates stay hidden).
+      if (templateId === 10) {
+        const phaseLineId = String(p?.phaseLineId || '').trim()
+        if (phaseLineId) return `T10:${phaseLineId}`
+      }
+
+      // Zones: hide by wrapper identity (polygon + center share the same wrapper).
+      if (templateId === 7 && mode && packetId) {
+        return `T7:${mode}:${packetId}${(mode === 'S' && Number.isFinite(kid) && kid > 0) ? `:${String(kid)}` : ''}`
+      }
+
+      // Fallback: stable feature id when available.
+      if (f?.id != null) return String(f.id).trim()
+    } catch (_) {
+      // ignore
+    }
+    return ''
+  }
+
   importedPopupHtmlForFeature(f, markerId) {
     const p = f?.properties || {}
     const summary = this.withRosterLabels(String(p?.summary || '').trim())
@@ -1012,7 +1045,7 @@ class MapModule {
     const whenTs = this.importedTimestampMs(p)
     const when = (Number.isFinite(whenTs) && whenTs > 0) ? new Date(whenTs).toLocaleString() : '-'
 
-    const hideId = String(markerId || '').trim()
+    const hideId = String(markerId || '').trim() || this.importedHideIdForFeature(f)
     const hideLabel = summary || (tpl ? `Imported T=${String(tpl)}` : 'Imported')
     const isHidden = (() => {
       if (!hideId) return false
@@ -1283,7 +1316,18 @@ class MapModule {
       globalThis.__xcomMapCleanup = () => {
         try { globalThis.removeEventListener('xcomImportedPacketsUpdated', onImportedUpdated) } catch (_) { /* ignore */ }
         try { globalThis.removeEventListener('xcomTeamRosterUpdated', onRosterUpdated) } catch (_) { /* ignore */ }
+        try { if (this._importedTimeWindowTimer) clearInterval(this._importedTimeWindowTimer) } catch (_) { /* ignore */ }
+        this._importedTimeWindowTimer = null
       }
+
+      // Time-window auto-hide refresh (phase lines)
+      try { if (this._importedTimeWindowTimer) clearInterval(this._importedTimeWindowTimer) } catch (_) { /* ignore */ }
+      const tickPhaseLines = () => {
+        if (!this._importedEnabled) return
+        if (!this.importedTemplateEnabled(10)) return
+        try { this.syncImportedOverlay() } catch (_) { /* ignore */ }
+      }
+      this._importedTimeWindowTimer = setInterval(tickPhaseLines, 30_000)
     }
 
     // Source
@@ -1340,10 +1384,71 @@ class MapModule {
           id: this._importedLineLayerId,
           type: 'line',
           source: this._importedSourceId,
-          filter: ['==', ['geometry-type'], 'LineString'],
+          filter: [
+            'all',
+            ['==', ['geometry-type'], 'LineString'],
+            ['!=', ['get', 'lineStyle'], 'dashed'],
+            ['!=', ['get', 'lineStyle'], 'double'],
+          ],
           paint: {
             'line-color': lineStrokeColorExpr,
             'line-width': ['coalesce', ['get', 'strokeWidth'], 3],
+          },
+        })
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    // Dashed lines (phase lines, etc.)
+    try {
+      if (!map.getLayer(this._importedDashedLineLayerId)) {
+        map.addLayer({
+          id: this._importedDashedLineLayerId,
+          type: 'line',
+          source: this._importedSourceId,
+          filter: ['all', ['==', ['geometry-type'], 'LineString'], ['==', ['get', 'lineStyle'], 'dashed']],
+          paint: {
+            'line-color': lineStrokeColorExpr,
+            'line-width': ['coalesce', ['get', 'strokeWidth'], 3],
+            'line-dasharray': [2, 2],
+          },
+        })
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    // Double lines (rendered as 2 offset lines)
+    const doubleFilter = ['all', ['==', ['geometry-type'], 'LineString'], ['==', ['get', 'lineStyle'], 'double']]
+    try {
+      if (!map.getLayer(this._importedDoubleLineLayerAId)) {
+        map.addLayer({
+          id: this._importedDoubleLineLayerAId,
+          type: 'line',
+          source: this._importedSourceId,
+          filter: doubleFilter,
+          paint: {
+            'line-color': lineStrokeColorExpr,
+            'line-width': ['coalesce', ['get', 'strokeWidth'], 3],
+            'line-offset': 2,
+          },
+        })
+      }
+    } catch (_) {
+      // ignore
+    }
+    try {
+      if (!map.getLayer(this._importedDoubleLineLayerBId)) {
+        map.addLayer({
+          id: this._importedDoubleLineLayerBId,
+          type: 'line',
+          source: this._importedSourceId,
+          filter: doubleFilter,
+          paint: {
+            'line-color': lineStrokeColorExpr,
+            'line-width': ['coalesce', ['get', 'strokeWidth'], 3],
+            'line-offset': -2,
           },
         })
       }
@@ -1402,44 +1507,17 @@ class MapModule {
     try { map.off('click', this._importedFillLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.off('click', this._importedOutlineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.off('click', this._importedLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
+    try { map.off('click', this._importedDashedLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
+    try { map.off('click', this._importedDoubleLineLayerAId, this._onImportedClick) } catch (_) { /* ignore */ }
+    try { map.off('click', this._importedDoubleLineLayerBId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.off('click', this._importedKeyWarnLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.off('click', this._importedPointLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
 
     this._onImportedClick = (ev) => {
       try {
         const f = ev?.features?.[0] || null
-        const p = f?.properties || {}
-        const summary = this.withRosterLabels(String(p?.summary || '').trim())
-        const tpl = Number(p?.templateId) || ''
-        const mode = String(p?.mode || '').toUpperCase()
-        const id = String(p?.packetId || '').trim()
-        const kid = (mode === 'S' && p?.kid != null) ? ` KID ${String(p.kid)}` : ''
-        const nonActiveKey = p?.nonActiveKey === true
-        const activeKidAtStore = Number(p?.activeKidAtStore)
-        const keyWarn = nonActiveKey
-          ? `<div style="margin-top:8px; padding:6px 8px; border-radius:10px; border:1px solid rgba(246, 201, 69, 0.55); background:rgba(246, 201, 69, 0.12); color:rgba(125, 80, 0, 0.95); font-size:12px; font-weight:800;">
-              Non-active key${Number.isFinite(activeKidAtStore) && activeKidAtStore > 0 ? ` (ACTIVE KID ${this.escapeHtml(String(activeKidAtStore))})` : ''}
-            </div>`
-          : ''
-        const whenTs = Number(p?.packetAt ?? p?.receivedAt ?? p?.importedAt ?? 0)
-        const when = (Number.isFinite(whenTs) && whenTs > 0) ? new Date(whenTs).toLocaleString() : '—'
-
-        const html = `
-          <div style="font-weight:700; margin-bottom:6px;">Imported</div>
-          ${summary ? `<div style="margin-bottom:6px;">${this.escapeHtml(summary)}</div>` : ''}
-          <div style="font-size:12px; color:#444;">
-            ${tpl ? `T=${this.escapeHtml(String(tpl))} ` : ''}${mode ? `${this.escapeHtml(mode)} ` : ''}${id ? `ID ${this.escapeHtml(id)}` : ''}${kid ? this.escapeHtml(kid) : ''}
-          </div>
-          <div style="font-size:12px; color:#444;">${this.escapeHtml(when)}</div>
-          ${keyWarn}
-        `
-
-        if (!this._importedPopup && globalThis.maplibregl?.Popup) {
-          this._importedPopup = new globalThis.maplibregl.Popup({ closeButton: true, closeOnClick: true })
-        }
-        if (this._importedPopup) {
-          this._importedPopup.setLngLat(ev.lngLat).setHTML(html).addTo(map)
-        }
+        if (!f) return
+        this.openImportedPopup(ev?.lngLat, f, null)
       } catch (_) {
         // ignore
       }
@@ -1448,6 +1526,9 @@ class MapModule {
     try { map.on('click', this._importedFillLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.on('click', this._importedOutlineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.on('click', this._importedLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
+    try { map.on('click', this._importedDashedLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
+    try { map.on('click', this._importedDoubleLineLayerAId, this._onImportedClick) } catch (_) { /* ignore */ }
+    try { map.on('click', this._importedDoubleLineLayerBId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.on('click', this._importedKeyWarnLineLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
     try { map.on('click', this._importedPointLayerId, this._onImportedClick) } catch (_) { /* ignore */ }
   }
@@ -1459,6 +1540,9 @@ class MapModule {
     try { if (map.getLayer(this._importedPointLayerId)) map.setLayoutProperty(this._importedPointLayerId, 'visibility', v) } catch (_) {}
     try { if (map.getLayer(this._importedOutlineLayerId)) map.setLayoutProperty(this._importedOutlineLayerId, 'visibility', v) } catch (_) {}
     try { if (map.getLayer(this._importedLineLayerId)) map.setLayoutProperty(this._importedLineLayerId, 'visibility', v) } catch (_) {}
+    try { if (map.getLayer(this._importedDashedLineLayerId)) map.setLayoutProperty(this._importedDashedLineLayerId, 'visibility', v) } catch (_) {}
+    try { if (map.getLayer(this._importedDoubleLineLayerAId)) map.setLayoutProperty(this._importedDoubleLineLayerAId, 'visibility', v) } catch (_) {}
+    try { if (map.getLayer(this._importedDoubleLineLayerBId)) map.setLayoutProperty(this._importedDoubleLineLayerBId, 'visibility', v) } catch (_) {}
     try { if (map.getLayer(this._importedKeyWarnLineLayerId)) map.setLayoutProperty(this._importedKeyWarnLineLayerId, 'visibility', v) } catch (_) {}
     try { if (map.getLayer(this._importedFillLayerId)) map.setLayoutProperty(this._importedFillLayerId, 'visibility', v) } catch (_) {}
   }
@@ -1467,7 +1551,43 @@ class MapModule {
     if (!this.map) return
     const map = this.map
 
-    let allFeatures = this.getImportedOverlayFeatures()
+    const rawAllFeatures = this.getImportedOverlayFeatures()
+
+    const showHidden = !!this._showHiddenEnabled
+    const hiddenIds = new Set()
+    try {
+      for (const it of this.getHiddenItems()) {
+        const kind = String(it?.kind ?? '').trim()
+        if (kind !== 'imported') continue
+        const id = String(it?.id ?? '').trim()
+        if (id) hiddenIds.add(id)
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    const isZoneCenter = (f) => {
+      try {
+        return f?.geometry?.type === 'Point' && String(f?.properties?.kind ?? '').trim() === 'zoneCenter'
+      } catch (_) {
+        return false
+      }
+    }
+
+    const styleHidden = (f) => {
+      try {
+        const g = f?.geometry || null
+        const p = (f?.properties && typeof f.properties === 'object') ? f.properties : {}
+        const nextProps = { ...p, stroke: 'rgba(160,160,160,0.85)' }
+        if (String(g?.type || '') === 'Polygon') nextProps.fill = 'rgba(160,160,160,0.18)'
+        return { ...f, properties: nextProps }
+      } catch (_) {
+        return f
+      }
+    }
+
+    // Normal imported overlay features (respect filters/toggles).
+    let allFeatures = rawAllFeatures
     allFeatures = allFeatures.filter((f) => {
       try { return this.importedTemplateEnabled(f?.properties?.templateId) } catch (_) { return true }
     })
@@ -1484,35 +1604,156 @@ class MapModule {
       })
     }
 
+    // Phase lines: client-side auto-hide rules (match XTOC Tactical Map).
+    // - CLOSED hides
+    // - start/end window hides outside the window
+    try {
+      const now = Date.now()
+      allFeatures = allFeatures.filter((f) => {
+        try {
+          const p = (f?.properties && typeof f.properties === 'object') ? f.properties : {}
+          const tpl = Number(p?.templateId) || 0
+          if (tpl !== 10) return true
+
+          const status = Number(p?.status)
+          if (Number.isFinite(status) && Math.floor(status) === 3) return false
+
+          const startAt = Number(p?.startAt)
+          if (Number.isFinite(startAt) && startAt > 0 && now < startAt) return false
+
+          const endAt = Number(p?.endAt)
+          if (Number.isFinite(endAt) && endAt > 0 && now > endAt) return false
+
+          return true
+        } catch (_) {
+          return true
+        }
+      })
+    } catch (_) {
+      // ignore
+    }
+
+    // Phase lines: dedup by payload ID (keep newest updatedAt/packetAt).
+    try {
+      const bestById = new Map()
+
+      for (const f of allFeatures) {
+        try {
+          const p = (f?.properties && typeof f.properties === 'object') ? f.properties : {}
+          const tpl = Number(p?.templateId) || 0
+          if (tpl !== 10) continue
+
+          const phaseLineId = String(p?.phaseLineId || '').trim()
+          if (!phaseLineId) continue
+          if (String(f?.geometry?.type || '') !== 'LineString') continue
+
+          const tsRaw = this.importedTimestampMs(p)
+          const ts = (Number.isFinite(tsRaw) && tsRaw > 0) ? tsRaw : 0
+
+          const prev = bestById.get(phaseLineId)
+          if (!prev || ts > prev.ts) bestById.set(phaseLineId, { f, ts })
+        } catch (_) {
+          // ignore
+        }
+      }
+
+      if (bestById.size) {
+        allFeatures = allFeatures.filter((f) => {
+          try {
+            const p = (f?.properties && typeof f.properties === 'object') ? f.properties : {}
+            const tpl = Number(p?.templateId) || 0
+            if (tpl !== 10) return true
+
+            const phaseLineId = String(p?.phaseLineId || '').trim()
+            if (!phaseLineId) return true
+            if (String(f?.geometry?.type || '') !== 'LineString') return true
+
+            const best = bestById.get(phaseLineId)
+            return best ? best.f === f : true
+          } catch (_) {
+            return true
+          }
+        })
+      }
+    } catch (_) {
+      // ignore
+    }
+
     if (!this._importedEnabled) {
       try { this.clearImportedMarkers() } catch (_) { /* ignore */ }
-      try {
-        const src = map.getSource(this._importedSourceId)
-        if (src && typeof src.setData === 'function') {
-          src.setData({ type: 'FeatureCollection', features: [] })
-        }
-      } catch (_) {
-        // ignore
-      }
-      this.setImportedLayerVisibility(false)
-      try { this.updateImportedLegend() } catch (_) { /* ignore */ }
-      return
+      allFeatures = []
     }
 
-    const isZoneCenter = (f) => {
-      try {
-        return f?.geometry?.type === 'Point' && String(f?.properties?.kind ?? '').trim() === 'zoneCenter'
-      } catch (_) {
-        return false
-      }
-    }
-
-    const srcFeatures = allFeatures.filter((f) => {
+    // Normal, non-hidden geometries.
+    const normalSrcFeatures = allFeatures.filter((f) => {
       try { return f?.geometry?.type !== 'Point' || isZoneCenter(f) } catch (_) { return true }
+    }).filter((f) => {
+      const hideId = this.importedHideIdForFeature(f)
+      return !(hideId && hiddenIds.has(hideId))
     })
     const pointFeatures = allFeatures.filter((f) => {
       try { return f?.geometry?.type === 'Point' && !isZoneCenter(f) } catch (_) { return false }
     })
+
+    // Hidden geometries (lines/polygons/zoneCenter) when "Show hidden" is enabled.
+    let hiddenSrcFeatures = []
+    if (showHidden && hiddenIds.size) {
+      hiddenSrcFeatures = rawAllFeatures.filter((f) => {
+        try {
+          const isGeom = f?.geometry?.type !== 'Point' || isZoneCenter(f)
+          if (!isGeom) return false
+          const hideId = this.importedHideIdForFeature(f)
+          return hideId && hiddenIds.has(hideId)
+        } catch (_) {
+          return false
+        }
+      })
+
+      // Dedup hidden phase lines by payload ID (keep newest).
+      try {
+        const bestById = new Map()
+        for (const f of hiddenSrcFeatures) {
+          try {
+            const p = (f?.properties && typeof f.properties === 'object') ? f.properties : {}
+            const tpl = Number(p?.templateId) || 0
+            if (tpl !== 10) continue
+            const phaseLineId = String(p?.phaseLineId || '').trim()
+            if (!phaseLineId) continue
+            if (String(f?.geometry?.type || '') !== 'LineString') continue
+
+            const tsRaw = this.importedTimestampMs(p)
+            const ts = (Number.isFinite(tsRaw) && tsRaw > 0) ? tsRaw : 0
+            const prev = bestById.get(phaseLineId)
+            if (!prev || ts > prev.ts) bestById.set(phaseLineId, { f, ts })
+          } catch (_) {
+            // ignore
+          }
+        }
+
+        if (bestById.size) {
+          hiddenSrcFeatures = hiddenSrcFeatures.filter((f) => {
+            try {
+              const p = (f?.properties && typeof f.properties === 'object') ? f.properties : {}
+              const tpl = Number(p?.templateId) || 0
+              if (tpl !== 10) return true
+              const phaseLineId = String(p?.phaseLineId || '').trim()
+              if (!phaseLineId) return true
+              if (String(f?.geometry?.type || '') !== 'LineString') return true
+              const best = bestById.get(phaseLineId)
+              return best ? best.f === f : true
+            } catch (_) {
+              return true
+            }
+          })
+        }
+      } catch (_) {
+        // ignore
+      }
+
+      hiddenSrcFeatures = hiddenSrcFeatures.map(styleHidden)
+    }
+
+    const srcFeatures = [...normalSrcFeatures, ...hiddenSrcFeatures]
 
     try {
       const src = map.getSource(this._importedSourceId)
@@ -1523,9 +1764,11 @@ class MapModule {
       // ignore
     }
 
-    try { this.syncImportedMarkers(pointFeatures) } catch (_) { /* ignore */ }
+    if (this._importedEnabled) {
+      try { this.syncImportedMarkers(pointFeatures) } catch (_) { /* ignore */ }
+    }
 
-    const visible = allFeatures.length > 0
+    const visible = srcFeatures.length > 0
     this.setImportedLayerVisibility(visible)
 
     try { this.updateImportedLegend() } catch (_) { /* ignore */ }

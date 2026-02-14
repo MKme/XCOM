@@ -38,9 +38,10 @@ class CommsModule {
     this.mapContainer = null
     this.mapOverlayEl = null
     this.mapIsOpen = false
-    this.pickMode = null // 'loc' | 'zone'
+    this.pickMode = null // 'loc' | 'zone' | 'phaseline'
     this.tempZonePoints = []
     this.tempZonePolyline = null
+    this.tempPhaseLinePoints = []
     this._boundMapKeydown = null
 
     this.qrScanner = null
@@ -120,6 +121,7 @@ class CommsModule {
               <option value="6">T=6 ASSET</option>
               <option value="7">T=7 ZONE</option>
               <option value="8">T=8 MISSION</option>
+              <option value="10">T=10 PHASE LINE</option>
             </select>
           </div>
 
@@ -158,13 +160,14 @@ class CommsModule {
 
           <div id="commsTemplateFields"></div>
 
-          <div class="commsButtonRow">
-            <button id="commsPickLocBtn" type="button">Pick Location</button>
-            <button id="commsUseGpsBtn" type="button" title="Fill Lat/Lon from your device location">Use GPS</button>
-            <button id="commsPickZoneBtn" type="button">Draw Zone</button>
-            <button id="commsGenerateBtn" type="button" class="primary">Generate</button>
-          </div>
-        </div>
+           <div class="commsButtonRow">
+             <button id="commsPickLocBtn" type="button">Pick Location</button>
+             <button id="commsUseGpsBtn" type="button" title="Fill Lat/Lon from your device location">Use GPS</button>
+             <button id="commsPickZoneBtn" type="button">Draw Zone</button>
+             <button id="commsPickPhaseLineBtn" type="button">Draw Phase Line</button>
+             <button id="commsGenerateBtn" type="button" class="primary">Generate</button>
+           </div>
+         </div>
 
         <div class="commsCard commsCard--output">
           <div class="commsCardTitle">Output</div>
@@ -379,6 +382,9 @@ class CommsModule {
       this.openMapPicker('zone')
 
     })
+    document.getElementById('commsPickPhaseLineBtn').addEventListener('click', () => {
+      this.openMapPicker('phaseline')
+    })
 
     document.getElementById('commsScanQrBtn').addEventListener('click', () => this.scanQr())
 
@@ -439,18 +445,23 @@ class CommsModule {
   updateZoneUiState() {
     const templateId = Number(document.getElementById('commsTemplate')?.value)
     const isZone = templateId === 7
+    const isPhaseLine = templateId === 10
 
     const pickLocBtn = document.getElementById('commsPickLocBtn')
     const gpsBtn = document.getElementById('commsUseGpsBtn')
     const zoneBtn = document.getElementById('commsPickZoneBtn')
     const zonePts = document.getElementById('t_zone_points')
+    const phaseLineBtn = document.getElementById('commsPickPhaseLineBtn')
+    const phaseLinePts = document.getElementById('t_phaseline_points')
 
     // In XTOC, "Generate Shape" (zone drawing) is only active when sending a ZONE.
     // For XCOM, the equivalent is "Draw Zone" + the polygon textarea.
-    if (pickLocBtn) pickLocBtn.disabled = isZone
-    if (gpsBtn) gpsBtn.disabled = isZone
+    if (pickLocBtn) pickLocBtn.disabled = isZone || isPhaseLine
+    if (gpsBtn) gpsBtn.disabled = isZone || isPhaseLine
     if (zoneBtn) zoneBtn.disabled = !isZone
     if (zonePts) zonePts.disabled = !isZone
+    if (phaseLineBtn) phaseLineBtn.disabled = !isPhaseLine
+    if (phaseLinePts) phaseLinePts.disabled = !isPhaseLine
   }
 
   async fillTemplateLocationFromGps() {
@@ -517,15 +528,22 @@ class CommsModule {
   }
 
   openMapPicker(kind) {
-    if (kind !== 'loc' && kind !== 'zone') return
+    if (kind !== 'loc' && kind !== 'zone' && kind !== 'phaseline') return
     this.pickMode = kind
 
     // reset zone drawing state each time we open
     this.tempZonePoints = []
     this.tempZonePolyline = null
+    // reset phase line drawing state each time we open
+    this.tempPhaseLinePoints = []
     // If the map already exists, clear any rendered zone overlay.
     try {
       this.updateZoneOverlay()
+    } catch (_) {
+      // ignore
+    }
+    try {
+      this.updatePhaseLineOverlay()
     } catch (_) {
       // ignore
     }
@@ -535,7 +553,9 @@ class CommsModule {
     this.setMapOverlayHint(
       kind === 'loc'
         ? 'Click the map to set LAT/LON'
-        : 'Click map to add polygon points. Double-click to finish (min 3).'
+        : (kind === 'zone'
+          ? 'Click map to add polygon points. Double-click to finish (min 3).'
+          : 'Click map to add line points. Double-click to finish (min 2).')
     )
     this.setMapOverlayCursor(true)
 
@@ -619,6 +639,10 @@ class CommsModule {
     this._zoneLineLayerId = `comms-zone-line-${Date.now()}`
     this._zoneFillLayerId = `comms-zone-fill-${Date.now()}`
 
+    // Phase line drawing layers
+    this._phaseLineSourceId = `comms-phaseline-src-${Date.now()}`
+    this._phaseLineLineLayerId = `comms-phaseline-line-${Date.now()}`
+
     const ensureZoneLayers = () => {
       if (!this.map) return
       if (this.map.getSource(this._zoneSourceId)) return
@@ -651,8 +675,29 @@ class CommsModule {
       })
     }
 
+    const ensurePhaseLineLayers = () => {
+      if (!this.map) return
+      if (this.map.getSource(this._phaseLineSourceId)) return
+
+      this.map.addSource(this._phaseLineSourceId, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+
+      this.map.addLayer({
+        id: this._phaseLineLineLayerId,
+        type: 'line',
+        source: this._phaseLineSourceId,
+        paint: {
+          'line-color': 'rgba(124,199,255,0.95)',
+          'line-width': 3,
+        },
+      })
+    }
+
     this.map.on('load', () => {
       ensureZoneLayers()
+      ensurePhaseLineLayers()
     })
 
     // Click-to-pick and click-to-add zone vertices
@@ -669,22 +714,39 @@ class CommsModule {
       } else if (this.pickMode === 'zone') {
         this.tempZonePoints.push([lat, lng])
         this.updateZoneOverlay()
+      } else if (this.pickMode === 'phaseline') {
+        this.tempPhaseLinePoints.push([lat, lng])
+        this.updatePhaseLineOverlay()
       }
     })
 
     // Double-click finishes zone (MapLibre default is zoom; we disable it).
     this.map.doubleClickZoom.disable()
     this.map.on('dblclick', () => {
-      if (this.pickMode !== 'zone') return
-      if (this.tempZonePoints.length < 3) {
-        alert('Zone needs at least 3 points')
+      if (this.pickMode === 'zone') {
+        if (this.tempZonePoints.length < 3) {
+          alert('Zone needs at least 3 points')
+          return
+        }
+        const pts = this.tempZonePoints.map(([lat, lon]) => `${lat.toFixed(5)},${lon.toFixed(5)}`).join('\\n')
+        const el = document.getElementById('t_zone_points')
+        if (el) el.value = pts
+        this.setMapOverlayHint('Zone points set.')
+        this.finishMapPicker()
         return
       }
-      const pts = this.tempZonePoints.map(([lat, lon]) => `${lat.toFixed(5)},${lon.toFixed(5)}`).join('\\n')
-      const el = document.getElementById('t_zone_points')
-      if (el) el.value = pts
-      this.setMapOverlayHint('Zone points set.')
-      this.finishMapPicker()
+
+      if (this.pickMode === 'phaseline') {
+        if (this.tempPhaseLinePoints.length < 2) {
+          alert('Phase line needs at least 2 points')
+          return
+        }
+        const pts = this.tempPhaseLinePoints.map(([lat, lon]) => `${lat.toFixed(5)},${lon.toFixed(5)}`).join('\\n')
+        const el = document.getElementById('t_phaseline_points')
+        if (el) el.value = pts
+        this.setMapOverlayHint('Phase line points set.')
+        this.finishMapPicker()
+      }
     })
   }
 
@@ -709,6 +771,24 @@ class CommsModule {
       features.push({
         type: 'Feature',
         geometry: { type: 'Polygon', coordinates: [ring] },
+        properties: {},
+      })
+    }
+
+    src.setData({ type: 'FeatureCollection', features })
+  }
+
+  updatePhaseLineOverlay() {
+    if (!this.map || !this._phaseLineSourceId) return
+    const src = this.map.getSource(this._phaseLineSourceId)
+    if (!src) return
+
+    const coords = this.tempPhaseLinePoints.map(([lat, lon]) => [lon, lat])
+    const features = []
+    if (coords.length >= 2) {
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: coords },
         properties: {},
       })
     }
@@ -744,9 +824,12 @@ class CommsModule {
     this.map = null
     this.mapContainer = null
     this.tempZonePolyline = null
+    this.tempPhaseLinePoints = []
     this._zoneSourceId = null
     this._zoneLineLayerId = null
     this._zoneFillLayerId = null
+    this._phaseLineSourceId = null
+    this._phaseLineLineLayerId = null
 
     try {
       this.mapOverlayEl.remove()
@@ -948,6 +1031,72 @@ class CommsModule {
         <div class="commsRow">
           <label>Polygon points (lat,lon per line)</label>
           <textarea id="t_zone_points" rows="4" placeholder="43.70000,-79.40000\n43.71000,-79.39000\n..."></textarea>
+        </div>
+      `
+      return
+    }
+
+    if (t === 10) {
+      const pid = `PL-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+      wrap.innerHTML = `
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Phase Line ID</label><input id="t_phaseline_id" type="text" value="${pid}" /></div>
+          <div class="commsRow"><label>Time (ms)</label><input id="t_time" type="number" value="${now}" /></div>
+        </div>
+        <div class="commsRow"><label>Owning unit(s)</label>${srcPicker}</div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Kind</label>
+            <select id="t_phaseline_kind">
+              <option value="0">PHASE LINE</option>
+              <option value="1">LD (Line of Departure)</option>
+              <option value="2">LC (Line of Contact)</option>
+              <option value="3">LOA (Limit of Advance)</option>
+            </select>
+          </div>
+          <div class="commsRow"><label>Status</label>
+            <select id="t_phaseline_status">
+              <option value="0">PLANNED</option>
+              <option value="1">ACTIVE</option>
+              <option value="2">CROSSED</option>
+              <option value="3">CLOSED</option>
+            </select>
+          </div>
+        </div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Style</label>
+            <select id="t_phaseline_style">
+              <option value="0">SOLID</option>
+              <option value="1">DASHED</option>
+              <option value="2">DOUBLE</option>
+            </select>
+          </div>
+          <div class="commsRow"><label>Color</label>
+            <select id="t_phaseline_color">
+              <option value="0">Default (blue)</option>
+              <option value="1">Red</option>
+              <option value="2">Blue</option>
+              <option value="3">Green</option>
+              <option value="4">Yellow</option>
+              <option value="5">Orange</option>
+              <option value="6">Purple</option>
+              <option value="7">Cyan</option>
+              <option value="8">White</option>
+              <option value="9">Black</option>
+            </select>
+          </div>
+        </div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Start At (ms)</label><input id="t_start_at" type="number" value="" placeholder="(optional)" /></div>
+          <div class="commsRow"><label>End At (ms)</label><input id="t_end_at" type="number" value="" placeholder="(optional)" /></div>
+        </div>
+        <div class="commsRow"><label>Name</label><input id="t_label" type="text" placeholder="(optional)" /></div>
+        <div class="commsRow"><label>Instruction</label><input id="t_instruction" type="text" placeholder="(optional)" /></div>
+        <div class="commsRow">
+          <label class="commsInline"><input id="t_pl_autocross" type="checkbox" checked> Auto-detect crossing</label>
+        </div>
+        <div class="commsRow">
+          <label>Line points (lat,lon per line)</label>
+          <textarea id="t_phaseline_points" rows="4" placeholder="43.70000,-79.40000\n43.71000,-79.39000\n..."></textarea>
         </div>
       `
       return
@@ -1344,6 +1493,7 @@ class CommsModule {
     if (templateId === 2) return `X1.2.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeContactClear(payloadObj)}`
     if (templateId === 8) return `X1.8.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeMissionClear(payloadObj)}`
     if (templateId === 9) return `X1.9.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeEventClear(payloadObj)}`
+    if (templateId === 10) return `X1.10.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodePhaseLineClear(payloadObj)}`
     return `X1.1.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeSitrepClear(payloadObj)}`
   }
 
@@ -1478,6 +1628,51 @@ class CommsModule {
         }
         payloadObj = payload
         clearPacket = `X1.9.C.${window.generatePacketId(8)}.1/1.${window.encodeEventClear(payload)}`
+      } else if (templateId === 10) {
+        const points = String(document.getElementById('t_phaseline_points')?.value || '')
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((line) => {
+            const [a, b] = line.split(',').map((x) => x.trim())
+            return { lat: Number(a), lon: Number(b) }
+          })
+          .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+
+        const { src, srcIds } = readSrc()
+
+        const readOptMs = (id) => {
+          const raw = String(document.getElementById(id)?.value || '').trim()
+          if (!raw) return undefined
+          const n = Number(raw)
+          return (Number.isFinite(n) && n > 0) ? n : undefined
+        }
+
+        const startAt = readOptMs('t_start_at')
+        const endAt = readOptMs('t_end_at')
+
+        const tVal = Number(document.getElementById('t_time')?.value || now)
+        const ts = (Number.isFinite(tVal) && tVal > 0) ? tVal : now
+
+        const payload = {
+          id: String(document.getElementById('t_phaseline_id')?.value || '').trim(),
+          src,
+          ...(srcIds.length > 1 ? { srcIds } : {}),
+          createdAt: ts,
+          updatedAt: ts,
+          status: Number(document.getElementById('t_phaseline_status')?.value || 0),
+          kind: Number(document.getElementById('t_phaseline_kind')?.value || 0),
+          style: Number(document.getElementById('t_phaseline_style')?.value || 0),
+          color: Number(document.getElementById('t_phaseline_color')?.value || 0),
+          label: String(document.getElementById('t_label')?.value || '').trim(),
+          instruction: String(document.getElementById('t_instruction')?.value || '').trim(),
+          ...(startAt != null ? { startAt } : {}),
+          ...(endAt != null ? { endAt } : {}),
+          ...(document.getElementById('t_pl_autocross')?.checked ? { autoDetectCross: true } : {}),
+          points,
+        }
+        payloadObj = payload
+        clearPacket = `X1.10.C.${window.generatePacketId(8)}.1/1.${window.encodePhaseLineClear(payload)}`
       } else if (templateId === 6) {
         const { src, srcIds } = readSrc()
         const payload = {
@@ -2635,6 +2830,8 @@ class CommsModule {
     let markersDup = 0
     let zoneDecoded = 0
     let zoneDecodeFailed = 0
+    let phaseLineDecoded = 0
+    let phaseLineDecodeFailed = 0
 
     const parse = globalThis.parsePacket
     const canStore = typeof globalThis.xcomPutXtocPackets === 'function'
@@ -2665,7 +2862,7 @@ class CommsModule {
       let features = []
       let hasGeo = false
 
-      // Zones require decode to get geometry.
+      // Some templates require decode to get geometry (zones, phase lines).
       if (Number(wrapper?.templateId) === 7) {
         try {
           decodedObj = this.decodeParsedWrapper(wrapper)
@@ -2675,6 +2872,19 @@ class CommsModule {
           hasGeo = Array.isArray(features) && features.length > 0
         } catch (e) {
           zoneDecodeFailed++
+          decodeError = e?.message ? String(e.message) : String(e)
+          features = []
+          hasGeo = false
+        }
+      } else if (Number(wrapper?.templateId) === 10) {
+        try {
+          decodedObj = this.decodeParsedWrapper(wrapper)
+          phaseLineDecoded++
+          if (!summaryFromBackup) summary = this.summaryFromDecoded(wrapper, decodedObj)
+          features = this.buildImportedFeatures({ key, wrapper, decodedObj, summary, receivedAt })
+          hasGeo = Array.isArray(features) && features.length > 0
+        } catch (e) {
+          phaseLineDecodeFailed++
           decodeError = e?.message ? String(e.message) : String(e)
           features = []
           hasGeo = false
@@ -2798,6 +3008,8 @@ class CommsModule {
       markersDup,
       zoneDecoded,
       zoneDecodeFailed,
+      phaseLineDecoded,
+      phaseLineDecodeFailed,
     }
   }
 
@@ -2866,6 +3078,7 @@ class CommsModule {
       case 7: return 'ZONE'
       case 8: return 'MISSION'
       case 9: return 'EVENT'
+      case 10: return 'PHASE LINE'
       default: return `T=${String(templateId)}`
     }
   }
@@ -2911,7 +3124,7 @@ class CommsModule {
     try {
       const tpl = Number(wrapper?.templateId) || 0
       if (!decodedObj || typeof decodedObj !== 'object') return null
-      const n = tpl === 8 ? Number(decodedObj?.updatedAt) : Number(decodedObj?.t)
+      const n = (tpl === 8 || tpl === 10) ? Number(decodedObj?.updatedAt) : Number(decodedObj?.t)
       return Number.isFinite(n) && n > 0 ? n : null
     } catch (_) {
       return null
@@ -3104,6 +3317,19 @@ class CommsModule {
       return `${head}${label ? ` \"${label}\"` : ''}${note ? ` — ${note}` : ''}`.trim()
     }
 
+    if (tpl === 10) {
+      const src = Number(decoded?.src)
+      const from = srcLabel(decoded)
+      const statusIdx = Math.max(0, Math.min(3, Math.floor(Number(decoded?.status) || 0)))
+      const st = ['PLANNED', 'ACTIVE', 'CROSSED', 'CLOSED'][statusIdx] || 'UNKNOWN'
+      const kindIdx = Math.max(0, Math.min(3, Math.floor(Number(decoded?.kind) || 0)))
+      const kind = ['PHASE LINE', 'LD', 'LC', 'LOA'][kindIdx] || 'PHASE LINE'
+      const label = String(decoded?.label || '').trim()
+      const head = `${kind} ${st}${from ? ` ${from}` : Number.isFinite(src) ? ` U${src}` : ''}`.trim()
+      if (isSecure) return `SECURE ${head}${label ? ` \"${label}\"` : ''}`.trim()
+      return `${head}${label ? ` \"${label}\"` : ''}`.trim()
+    }
+
     if (tpl === 9) {
       const pri = priLabel(decoded?.pri)
       const statusIdx = Math.max(0, Math.min(4, Math.floor(Number(decoded?.status) || 0)))
@@ -3261,6 +3487,71 @@ class CommsModule {
           }
           return feats
         }
+      }
+
+      return feats
+    }
+
+    if (t === 10 && decodedObj && typeof decodedObj === 'object') {
+      const pl = decodedObj
+
+      const pts = Array.isArray(pl?.points) ? pl.points : []
+      const coords = pts
+        .filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
+        .map((p) => [Number(p.lon), Number(p.lat)])
+
+      if (coords.length >= 2) {
+        const status = Math.max(0, Math.min(255, Math.floor(Number(pl?.status) || 0)))
+        const kind = Math.max(0, Math.min(255, Math.floor(Number(pl?.kind) || 0)))
+        const style = Math.max(0, Math.min(255, Math.floor(Number(pl?.style) || 0)))
+        const colorCode = Math.max(0, Math.min(255, Math.floor(Number(pl?.color) || 0)))
+
+        const rgb = (() => {
+          // Keep in sync with XTOC/XCOM phase line palette (T=10).
+          if (colorCode === 1) return [255, 96, 96] // red
+          if (colorCode === 2) return [124, 199, 255] // blue
+          if (colorCode === 3) return [46, 230, 166] // green
+          if (colorCode === 4) return [246, 201, 69] // yellow
+          if (colorCode === 5) return [255, 160, 64] // orange
+          if (colorCode === 6) return [190, 120, 255] // purple
+          if (colorCode === 7) return [96, 220, 255] // cyan
+          if (colorCode === 8) return [255, 255, 255] // white
+          if (colorCode === 9) return [0, 0, 0] // black
+          return [124, 199, 255] // default
+        })()
+
+        const a = status === 0 ? 0.65 : status === 2 ? 1.0 : 0.95
+        const stroke = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a.toFixed(3)})`
+        const strokeWidth = status === 2 ? 4 : status === 0 ? 2 : 3
+        const lineStyle = style === 1 ? 'dashed' : style === 2 ? 'double' : 'solid'
+
+        const phaseLineId = String(pl?.id || '').trim() || undefined
+        const label = pl?.label ? String(pl.label).trim() : ''
+        const instruction = pl?.instruction ? String(pl.instruction).trim() : ''
+        const startAt = Number(pl?.startAt)
+        const endAt = Number(pl?.endAt)
+
+        const props = {
+          ...baseProps,
+          kind: 'phaseline',
+          phaseLineId,
+          phaseLineKind: kind,
+          status,
+          ...(label ? { label } : {}),
+          ...(instruction ? { instruction } : {}),
+          ...(Number.isFinite(startAt) && startAt > 0 ? { startAt } : {}),
+          ...(Number.isFinite(endAt) && endAt > 0 ? { endAt } : {}),
+          lineStyle,
+          stroke,
+          strokeWidth,
+        }
+
+        feats.push({
+          type: 'Feature',
+          id: `imported:${key}:phaseline`,
+          geometry: { type: 'LineString', coordinates: coords },
+          properties: props,
+        })
       }
 
       return feats
@@ -3667,6 +3958,35 @@ class CommsModule {
         const pts = Array.isArray(shape.points) ? shape.points : []
         addKV('Zone shape', `Polygon (${pts.length} points)`)
       }
+    } else if (t === 10) {
+      addKV('Source Unit(s)', srcUnits)
+      addKV('Phase Line ID', decodedObj?.id)
+
+      const kindIdx = Math.max(0, Math.min(3, Math.floor(Number(decodedObj?.kind) || 0)))
+      addKV('Kind', ['PHASE LINE', 'LD', 'LC', 'LOA'][kindIdx] || 'PHASE LINE')
+
+      const statusIdx = Math.max(0, Math.min(3, Math.floor(Number(decodedObj?.status) || 0)))
+      addKV('Status', ['PLANNED', 'ACTIVE', 'CROSSED', 'CLOSED'][statusIdx] || 'UNKNOWN')
+
+      const styleIdx = Math.max(0, Math.min(2, Math.floor(Number(decodedObj?.style) || 0)))
+      addKV('Style', ['SOLID', 'DASHED', 'DOUBLE'][styleIdx] || 'SOLID')
+
+      addKV('Color code', decodedObj?.color)
+      if (decodedObj?.label) addKV('Name', decodedObj.label)
+      if (decodedObj?.instruction) addKV('Instruction', decodedObj.instruction)
+      if (decodedObj?.autoDetectCross) addKV('Auto-detect crossing', 'Yes')
+
+      if (Number.isFinite(decodedObj?.startAt) && Number(decodedObj.startAt) > 0) {
+        addKV('Start (Local)', this.formatTimeParts(decodedObj.startAt).local)
+        addKV('Start (UTC)', this.formatTimeParts(decodedObj.startAt).utc)
+      }
+      if (Number.isFinite(decodedObj?.endAt) && Number(decodedObj.endAt) > 0) {
+        addKV('End (Local)', this.formatTimeParts(decodedObj.endAt).local)
+        addKV('End (UTC)', this.formatTimeParts(decodedObj.endAt).utc)
+      }
+
+      const pts = Array.isArray(decodedObj?.points) ? decodedObj.points : []
+      addKV('Points', pts.length)
     } else if (t === 8) {
       addKV('Mission ID', decodedObj?.id)
       addKV('Title', decodedObj?.title)
@@ -3702,6 +4022,18 @@ class CommsModule {
         extra = `
           <details class="commsDetails commsDetails--inline">
             <summary>Zone points</summary>
+            <pre class="commsPre commsPre--small">${this.escapeHtml(ptsText)}</pre>
+          </details>
+        `
+      }
+    }
+    if (t === 10) {
+      const pts = Array.isArray(decodedObj?.points) ? decodedObj.points : []
+      if (pts.length) {
+        const ptsText = pts.map((p) => `${Number(p.lat).toFixed(5)},${Number(p.lon).toFixed(5)}`).join('\n')
+        extra += `
+          <details class="commsDetails commsDetails--inline">
+            <summary>Phase line points</summary>
             <pre class="commsPre commsPre--small">${this.escapeHtml(ptsText)}</pre>
           </details>
         `
@@ -4545,6 +4877,8 @@ class CommsModule {
         return window.decodeMissionClear(payloadB64Url)
       case 9:
         return window.decodeEventClear(payloadB64Url)
+      case 10:
+        return window.decodePhaseLineClear(payloadB64Url)
       default:
         return { payloadB64Url }
     }

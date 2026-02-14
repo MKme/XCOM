@@ -203,12 +203,7 @@ class MeshModule {
         </div>
 
         <div class="meshCard">
-          <div class="meshCardTitle">Traffic</div>
-          <pre id="meshTraffic" class="meshPre"></pre>
-        </div>
-
-        <div class="meshCard">
-          <div class="meshCardTitle">Channels</div>
+          <div class="meshCardTitle">Channels + Nodes heard</div>
           <div class="meshSmallMuted" style="margin-bottom: 10px;">
             Click a channel to set <strong>Broadcast</strong> + channel index. Import labels from a connected Meshtastic device.
           </div>
@@ -217,16 +212,20 @@ class MeshModule {
             <button id="meshClearChannelsBtn" type="button" class="danger">Clear</button>
           </div>
           <div id="meshChannelList" class="meshChipRow" style="margin-top: 10px;"></div>
-        </div>
 
-        <div class="meshCard">
-          <div class="meshCardTitle">Nodes heard</div>
+          <div class="meshDivider"></div>
+
           <div class="meshRow">
-            <label>Filter</label>
+            <label>Filter nodes</label>
             <input id="meshNodeFilter" type="text" placeholder="name / id / #" />
           </div>
           <div id="meshNodeCount" class="meshSmallMuted"></div>
           <div id="meshNodeList" class="meshList"></div>
+        </div>
+
+        <div class="meshCard meshSpanFull">
+          <div class="meshCardTitle">Traffic</div>
+          <pre id="meshTraffic" class="meshPre"></pre>
         </div>
 
         <div class="meshCard meshSpanFull">

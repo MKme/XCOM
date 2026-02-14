@@ -1604,6 +1604,281 @@ function makeEventClearPacket(p) {
   return `X1.9.C.${id}.1/1.${encoded}`
 }
 
+// -----------------------------
+// Template 10: PHASE LINE (CLEAR)
+// -----------------------------
+
+// binary layout (v1):
+// [0] u8 ver=1
+// [1..2] u16 src
+// [3] u8 status
+// [4] u8 kind
+// [5] u8 style
+// [6] u8 color
+// [7] u8 flags bit0 hasLabel bit1 hasInstruction bit2 hasStart bit3 hasEnd bit4 hasSrcIds bit5 autoDetectCross
+// [8..11] u32 updatedUnixMinutes
+// [12..15] u32 createdUnixMinutes
+// then:
+//   u8 idLen + id bytes (utf8, max 32)
+//   if hasLabel: u8 labelLen + label bytes (utf8, max 48)
+//   if hasInstruction: u8 instructionLen + instruction bytes (utf8, max 160)
+//   if hasStart: u32 startUnixMinutes
+//   if hasEnd: u32 endUnixMinutes
+//   u8 nPoints (2..32)
+//   repeated nPoints: i32 latE5, i32 lonE5
+//   if hasSrcIds: u8 n + (n * u16 unitId) // extra unitIds beyond src
+
+const PHASE_LINE_VERSION = 1
+const PHASE_LINE_MAX_ID_BYTES = 32
+const PHASE_LINE_MAX_LABEL_BYTES = 48
+const PHASE_LINE_MAX_INSTRUCTION_BYTES = 160
+const PHASE_LINE_MAX_POINTS = 32
+
+function encodePhaseLineClear(p) {
+  const enc = new TextEncoder()
+
+  const idBytesAll = enc.encode(String(p?.id ?? '').trim())
+  const idBytes = idBytesAll.subarray(0, Math.min(idBytesAll.length, PHASE_LINE_MAX_ID_BYTES))
+  if (!idBytes.length) throw new Error('PHASE_LINE id is required')
+
+  const labelBytes = p?.label && String(p.label).trim() ? enc.encode(String(p.label).trim()) : undefined
+  const instructionBytes = p?.instruction && String(p.instruction).trim() ? enc.encode(String(p.instruction).trim()) : undefined
+
+  const hasLabel = !!labelBytes && labelBytes.length > 0
+  const hasInstruction = !!instructionBytes && instructionBytes.length > 0
+  const hasStart = Number.isFinite(p?.startAt)
+  const hasEnd = Number.isFinite(p?.endAt)
+  const extraSrcIds = extraUnitIdsBeyondPrimary(p?.src, p?.srcIds)
+  const hasSrcIds = extraSrcIds.length > 0
+  const autoDetectCross = p?.autoDetectCross === true
+
+  const pts = Array.isArray(p?.points) ? p.points : []
+  const nPoints = Math.min(Math.max(pts.length, 0), PHASE_LINE_MAX_POINTS)
+  if (nPoints < 2) throw new Error('PHASE_LINE must have >= 2 points')
+
+  const baseLen = 16
+  const idLen = 1 + idBytes.length
+  const labelLen = hasLabel ? 1 + Math.min(labelBytes.length, PHASE_LINE_MAX_LABEL_BYTES) : 0
+  const instructionLen = hasInstruction ? 1 + Math.min(instructionBytes.length, PHASE_LINE_MAX_INSTRUCTION_BYTES) : 0
+  const startLen = hasStart ? 4 : 0
+  const endLen = hasEnd ? 4 : 0
+  const pointsLen = 1 + nPoints * 8
+  const srcIdsLen = hasSrcIds ? 1 + extraSrcIds.length * 2 : 0
+
+  const buf = new Uint8Array(baseLen + idLen + labelLen + instructionLen + startLen + endLen + pointsLen + srcIdsLen)
+  const dv = new DataView(buf.buffer)
+
+  dv.setUint8(0, PHASE_LINE_VERSION)
+  dv.setUint16(1, Number(p?.src) || 0, false)
+  dv.setUint8(3, Math.max(0, Math.min(255, Math.floor(Number(p?.status) || 0))))
+  dv.setUint8(4, Math.max(0, Math.min(255, Math.floor(Number(p?.kind) || 0))))
+  dv.setUint8(5, Math.max(0, Math.min(255, Math.floor(Number(p?.style) || 0))))
+  dv.setUint8(6, Math.max(0, Math.min(255, Math.floor(Number(p?.color) || 0))))
+
+  let flags = 0
+  if (hasLabel) flags |= 1
+  if (hasInstruction) flags |= 2
+  if (hasStart) flags |= 4
+  if (hasEnd) flags |= 8
+  if (hasSrcIds) flags |= 16
+  if (autoDetectCross) flags |= 32
+  dv.setUint8(7, flags)
+
+  dv.setUint32(8, Math.floor(Number(p?.updatedAt ?? Date.now()) / 60000), false)
+  dv.setUint32(12, Math.floor(Number(p?.createdAt ?? Date.now()) / 60000), false)
+
+  let o = 16
+
+  dv.setUint8(o, idBytes.length)
+  o += 1
+  buf.set(idBytes, o)
+  o += idBytes.length
+
+  if (hasLabel) {
+    const n = Math.min(labelBytes.length, PHASE_LINE_MAX_LABEL_BYTES)
+    dv.setUint8(o, n)
+    o += 1
+    buf.set(labelBytes.subarray(0, n), o)
+    o += n
+  }
+  if (hasInstruction) {
+    const n = Math.min(instructionBytes.length, PHASE_LINE_MAX_INSTRUCTION_BYTES)
+    dv.setUint8(o, n)
+    o += 1
+    buf.set(instructionBytes.subarray(0, n), o)
+    o += n
+  }
+
+  if (hasStart) {
+    dv.setUint32(o, Math.floor(Number(p.startAt) / 60000), false)
+    o += 4
+  }
+  if (hasEnd) {
+    dv.setUint32(o, Math.floor(Number(p.endAt) / 60000), false)
+    o += 4
+  }
+
+  dv.setUint8(o, nPoints)
+  o += 1
+  for (let i = 0; i < nPoints; i++) {
+    const pt = pts[i] || {}
+    dv.setInt32(o, Math.round(Number(pt.lat) * 1e5), false)
+    o += 4
+    dv.setInt32(o, Math.round(Number(pt.lon) * 1e5), false)
+    o += 4
+  }
+
+  if (hasSrcIds) {
+    dv.setUint8(o, extraSrcIds.length)
+    o += 1
+    for (const unitId of extraSrcIds) {
+      dv.setUint16(o, unitId, false)
+      o += 2
+    }
+  }
+
+  return encodeBase64Url(buf)
+}
+
+function decodePhaseLineClear(b64) {
+  const bytes = decodeBase64Url(b64)
+  if (bytes.length < 16) throw new Error('PHASE_LINE payload too short')
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+
+  const ver = dv.getUint8(0)
+  if (ver !== PHASE_LINE_VERSION) throw new Error(`Unsupported PHASE_LINE version ${ver}`)
+
+  const src = dv.getUint16(1, false)
+  const status = dv.getUint8(3)
+  const kind = dv.getUint8(4)
+  const style = dv.getUint8(5)
+  const color = dv.getUint8(6)
+  const flags = dv.getUint8(7)
+  const hasLabel = (flags & 1) !== 0
+  const hasInstruction = (flags & 2) !== 0
+  const hasStart = (flags & 4) !== 0
+  const hasEnd = (flags & 8) !== 0
+  const hasSrcIds = (flags & 16) !== 0
+  const autoDetectCross = (flags & 32) !== 0
+
+  const updatedUnixMinutes = dv.getUint32(8, false)
+  const createdUnixMinutes = dv.getUint32(12, false)
+
+  let o = 16
+  const dec = new TextDecoder()
+
+  if (bytes.length < o + 1) throw new Error('PHASE_LINE id truncated')
+  const idLen = dv.getUint8(o)
+  o += 1
+  if (!idLen) throw new Error('PHASE_LINE id missing')
+  if (bytes.length < o + idLen) throw new Error('PHASE_LINE id truncated')
+  const id = dec.decode(bytes.subarray(o, o + idLen))
+  o += idLen
+
+  let label = undefined
+  if (hasLabel) {
+    if (bytes.length < o + 1) throw new Error('PHASE_LINE label truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n) throw new Error('PHASE_LINE label truncated')
+    label = dec.decode(bytes.subarray(o, o + n))
+    o += n
+  }
+
+  let instruction = undefined
+  if (hasInstruction) {
+    if (bytes.length < o + 1) throw new Error('PHASE_LINE instruction truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n) throw new Error('PHASE_LINE instruction truncated')
+    instruction = dec.decode(bytes.subarray(o, o + n))
+    o += n
+  }
+
+  let startAt = undefined
+  if (hasStart) {
+    if (bytes.length < o + 4) throw new Error('PHASE_LINE startAt truncated')
+    const startUnixMinutes = dv.getUint32(o, false)
+    o += 4
+    startAt = startUnixMinutes * 60000
+  }
+
+  let endAt = undefined
+  if (hasEnd) {
+    if (bytes.length < o + 4) throw new Error('PHASE_LINE endAt truncated')
+    const endUnixMinutes = dv.getUint32(o, false)
+    o += 4
+    endAt = endUnixMinutes * 60000
+  }
+
+  if (bytes.length < o + 1) throw new Error('PHASE_LINE points truncated')
+  const nPoints = dv.getUint8(o)
+  o += 1
+  if (nPoints < 2) throw new Error('PHASE_LINE must have >= 2 points')
+  if (nPoints > PHASE_LINE_MAX_POINTS) throw new Error(`PHASE_LINE too many points (${nPoints})`)
+  if (bytes.length < o + nPoints * 8) throw new Error('PHASE_LINE points truncated')
+
+  const points = []
+  for (let i = 0; i < nPoints; i++) {
+    const lat = dv.getInt32(o, false) / 1e5
+    o += 4
+    const lon = dv.getInt32(o, false) / 1e5
+    o += 4
+    points.push({ lat, lon })
+  }
+
+  let srcIds = undefined
+  if (hasSrcIds) {
+    if (bytes.length < o + 1) throw new Error('PHASE_LINE srcIds truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n * 2) throw new Error('PHASE_LINE srcIds truncated')
+    const extras = []
+    for (let i = 0; i < n; i++) {
+      const v = dv.getUint16(o, false)
+      o += 2
+      extras.push(v)
+    }
+
+    const out = []
+    const seen = new Set()
+    const add = (v) => {
+      const n = Math.floor(Number(v))
+      if (!Number.isFinite(n) || n <= 0) return
+      if (seen.has(n)) return
+      seen.add(n)
+      out.push(n)
+    }
+    add(src)
+    for (const v of extras) add(v)
+    if (out.length > 1) srcIds = out
+  }
+
+  return {
+    id,
+    src,
+    ...(srcIds ? { srcIds } : {}),
+    createdAt: createdUnixMinutes * 60000,
+    updatedAt: updatedUnixMinutes * 60000,
+    status,
+    kind,
+    style,
+    color,
+    ...(hasStart ? { startAt } : {}),
+    ...(hasEnd ? { endAt } : {}),
+    label,
+    instruction,
+    points,
+    ...(autoDetectCross ? { autoDetectCross: true } : {}),
+  }
+}
+
+function makePhaseLineClearPacket(p) {
+  const id = generatePacketId(8)
+  const encoded = encodePhaseLineClear(p)
+  return `X1.10.C.${id}.1/1.${encoded}`
+}
+
 // Make available to non-module scripts (XCOM loads via <script> not ESM).
 try {
   globalThis.parsePacket = parsePacket
@@ -1645,6 +1920,10 @@ try {
   globalThis.encodeEventClear = encodeEventClear
   globalThis.decodeEventClear = decodeEventClear
   globalThis.makeEventClearPacket = makeEventClearPacket
+
+  globalThis.encodePhaseLineClear = encodePhaseLineClear
+  globalThis.decodePhaseLineClear = decodePhaseLineClear
+  globalThis.makePhaseLineClearPacket = makePhaseLineClearPacket
 } catch (_) {
   // ignore
 }

@@ -3,6 +3,8 @@
   /* Prevent long, unbroken tokens (ids/urls/errors) from forcing horizontal overflow */
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  align-content: start;
+  align-items: start;
 }
 
 .meshCard {

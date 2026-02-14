@@ -32,6 +32,7 @@ class XtocDataModule {
       case 7: return 'ZONE'
       case 8: return 'MISSION'
       case 9: return 'EVENT'
+      case 10: return 'PHASE LINE'
       default: return `T=${String(templateId)}`
     }
   }
@@ -144,7 +145,7 @@ class XtocDataModule {
     try {
       const tpl = Number(wrapper?.templateId) || 0
       if (!decodedObj || typeof decodedObj !== 'object') return null
-      const n = tpl === 8 ? Number(decodedObj?.updatedAt) : Number(decodedObj?.t)
+      const n = (tpl === 8 || tpl === 10) ? Number(decodedObj?.updatedAt) : Number(decodedObj?.t)
       return Number.isFinite(n) && n > 0 ? n : null
     } catch (_) {
       return null
@@ -282,6 +283,71 @@ class XtocDataModule {
       return feats
     }
 
+    if (t === 10 && decodedObj && typeof decodedObj === 'object') {
+      const pl = decodedObj
+
+      const pts = Array.isArray(pl?.points) ? pl.points : []
+      const coords = pts
+        .filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
+        .map((p) => [Number(p.lon), Number(p.lat)])
+
+      if (coords.length >= 2) {
+        const status = Math.max(0, Math.min(255, Math.floor(Number(pl?.status) || 0)))
+        const kind = Math.max(0, Math.min(255, Math.floor(Number(pl?.kind) || 0)))
+        const style = Math.max(0, Math.min(255, Math.floor(Number(pl?.style) || 0)))
+        const colorCode = Math.max(0, Math.min(255, Math.floor(Number(pl?.color) || 0)))
+
+        const rgb = (() => {
+          // Keep in sync with XTOC/XCOM phase line palette (T=10).
+          if (colorCode === 1) return [255, 96, 96] // red
+          if (colorCode === 2) return [124, 199, 255] // blue
+          if (colorCode === 3) return [46, 230, 166] // green
+          if (colorCode === 4) return [246, 201, 69] // yellow
+          if (colorCode === 5) return [255, 160, 64] // orange
+          if (colorCode === 6) return [190, 120, 255] // purple
+          if (colorCode === 7) return [96, 220, 255] // cyan
+          if (colorCode === 8) return [255, 255, 255] // white
+          if (colorCode === 9) return [0, 0, 0] // black
+          return [124, 199, 255] // default
+        })()
+
+        const a = status === 0 ? 0.65 : status === 2 ? 1.0 : 0.95
+        const stroke = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a.toFixed(3)})`
+        const strokeWidth = status === 2 ? 4 : status === 0 ? 2 : 3
+        const lineStyle = style === 1 ? 'dashed' : style === 2 ? 'double' : 'solid'
+
+        const phaseLineId = String(pl?.id || '').trim() || undefined
+        const label = pl?.label ? String(pl.label).trim() : ''
+        const instruction = pl?.instruction ? String(pl.instruction).trim() : ''
+        const startAt = Number(pl?.startAt)
+        const endAt = Number(pl?.endAt)
+
+        const props = {
+          ...baseProps,
+          kind: 'phaseline',
+          phaseLineId,
+          phaseLineKind: kind,
+          status,
+          ...(label ? { label } : {}),
+          ...(instruction ? { instruction } : {}),
+          ...(Number.isFinite(startAt) && startAt > 0 ? { startAt } : {}),
+          ...(Number.isFinite(endAt) && endAt > 0 ? { endAt } : {}),
+          lineStyle,
+          stroke,
+          strokeWidth,
+        }
+
+        feats.push({
+          type: 'Feature',
+          id: `imported:${key}:phaseline`,
+          geometry: { type: 'LineString', coordinates: coords },
+          properties: props,
+        })
+      }
+
+      return feats
+    }
+
     if (decodedObj && typeof decodedObj === 'object' && Number.isFinite(decodedObj?.lat) && Number.isFinite(decodedObj?.lon)) {
       feats.push({
         type: 'Feature',
@@ -314,6 +380,8 @@ class XtocDataModule {
         return globalThis.decodeMissionClear(payloadB64Url)
       case 9:
         return globalThis.decodeEventClear(payloadB64Url)
+      case 10:
+        return globalThis.decodePhaseLineClear(payloadB64Url)
       default:
         return { payloadB64Url }
     }
@@ -459,6 +527,8 @@ class XtocDataModule {
     let markersDup = 0
     let zoneDecoded = 0
     let zoneDecodeFailed = 0
+    let phaseLineDecoded = 0
+    let phaseLineDecodeFailed = 0
 
     const parse = globalThis.parsePacket
     const canStore = typeof globalThis.xcomPutXtocPackets === 'function'
@@ -489,7 +559,7 @@ class XtocDataModule {
       let features = []
       let hasGeo = false
 
-      // Zones require decode to get geometry.
+      // Some templates require decode to get geometry (zones, phase lines).
       if (Number(wrapper?.templateId) === 7) {
         try {
           decodedObj = this.decodeParsedWrapper(wrapper)
@@ -512,6 +582,32 @@ class XtocDataModule {
           }
         } catch (e) {
           zoneDecodeFailed++
+          decodeError = e?.message ? String(e.message) : String(e)
+          features = []
+          hasGeo = false
+        }
+      } else if (Number(wrapper?.templateId) === 10) {
+        try {
+          decodedObj = this.decodeParsedWrapper(wrapper)
+          phaseLineDecoded++
+          features = this.buildImportedFeatures({ key, wrapper, decodedObj, summary, receivedAt })
+          hasGeo = Array.isArray(features) && features.length > 0
+
+          // Improve summary if backup didn't include one.
+          if (!summaryFromBackup) {
+            try {
+              const statusIdx = Math.max(0, Math.min(3, Math.floor(Number(decodedObj?.status) || 0)))
+              const st = ['PLANNED', 'ACTIVE', 'CROSSED', 'CLOSED'][statusIdx] || 'UNKNOWN'
+              const kindIdx = Math.max(0, Math.min(3, Math.floor(Number(decodedObj?.kind) || 0)))
+              const kind = ['PHASE LINE', 'LD', 'LC', 'LOA'][kindIdx] || 'PHASE LINE'
+              const label = decodedObj?.label ? String(decodedObj.label).trim() : ''
+              summary = `${wrapper?.mode === 'S' ? 'SECURE ' : ''}${kind} ${st}${label ? ` \"${label}\"` : ''}`.trim()
+            } catch (_) {
+              // ignore
+            }
+          }
+        } catch (e) {
+          phaseLineDecodeFailed++
           decodeError = e?.message ? String(e.message) : String(e)
           features = []
           hasGeo = false
@@ -635,6 +731,8 @@ class XtocDataModule {
       markersDup,
       zoneDecoded,
       zoneDecodeFailed,
+      phaseLineDecoded,
+      phaseLineDecodeFailed,
     }
   }
 
@@ -928,6 +1026,7 @@ class XtocDataModule {
               <option value="7">ZONE</option>
               <option value="8">MISSION</option>
               <option value="9">EVENT</option>
+              <option value="10">PHASE LINE</option>
             </select>
             <select id="xtocDataSource" class="xtocInput" aria-label="Source filter">
               <option value="">All sources</option>
