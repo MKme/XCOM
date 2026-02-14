@@ -215,7 +215,7 @@ What it does:
 - Writes: `modules/shortwave/shortwave-data.js`
 - The same EiBi dataset is also browsable online at `https://shortwave.live/` (nice UI)
 
-### 6. Repeater database (ARD â€” USA)
+### 6. Repeater database (ARD — USA)
 
 **Goal:** keep the **Repeaters** module backed by a community-maintained, CC0 dataset.
 
@@ -227,7 +227,7 @@ npm run fetch-ard-repeaters
 
 What it does:
 - Downloads the ARD master list JSON from GitHub
-- Normalizes it into XCOMâ€™s `repeaterData` format (adds band/mode/tone/offset strings)
+- Normalizes it into XCOM's `repeaterData` format (adds band/mode/tone/offset strings)
 - Writes:
   - `modules/repeater-map/repeater-data.js` (used by the app)
   - `repeater-data.js` (legacy mirror kept in sync)

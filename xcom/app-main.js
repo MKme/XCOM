@@ -821,8 +821,8 @@ function showLicenseGate(initialMessage = '') {
 
                 try {
                     restoreBtn.disabled = true;
-                    restoreBtn.textContent = 'Restoringâ€¦';
-                    setMessage('Restoring from backupâ€¦');
+                    restoreBtn.textContent = 'Restoring…';
+                    setMessage('Restoring from backup…');
 
                     const text = await xcomReadFileAsText(file);
                     const backup = xcomParseBackupJson(text);
@@ -831,7 +831,7 @@ function showLicenseGate(initialMessage = '') {
                         throw new Error(res?.reason || 'Restore failed');
                     }
 
-                    setMessage('Restore complete. Reloadingâ€¦');
+                    setMessage('Restore complete. Reloading…');
                     await new Promise((r) => setTimeout(r, 150));
                     window.location.reload();
                 } catch (e) {

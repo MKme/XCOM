@@ -27,6 +27,7 @@
       case 6: return 'ASSET'
       case 7: return 'ZONE'
       case 8: return 'MISSION'
+      case 9: return 'EVENT'
       default: return `T=${String(templateId)}`
     }
   }
@@ -262,6 +263,7 @@
       case 6: return globalThis.decodeAssetClear(payloadB64Url)
       case 7: return globalThis.decodeZoneClear(payloadB64Url)
       case 8: return globalThis.decodeMissionClear(payloadB64Url)
+      case 9: return globalThis.decodeEventClear(payloadB64Url)
       default: return { payloadB64Url }
     }
   }
@@ -337,6 +339,25 @@
     const statusLabel = (n) => {
       const i = Math.max(0, Math.min(3, Math.floor(Number(n) || 0)))
       return ['OK', 'HELP', 'RTB', 'UNK'][i] || 'UNK'
+    }
+    const eventStatusLabel = (n) => {
+      const i = Math.max(0, Math.min(4, Math.floor(Number(n) || 0)))
+      return ['PLANNED', 'ACTIVE', 'COMPLETE', 'CANCELED', 'UNKNOWN'][i] || 'UNKNOWN'
+    }
+    const fmtYmdHm = (ts) => {
+      const n = Number(ts)
+      if (!Number.isFinite(n) || n <= 0) return ''
+      try {
+        const d = new Date(n)
+        const yyyy = d.getFullYear()
+        const mm = String(d.getMonth() + 1).padStart(2, '0')
+        const dd = String(d.getDate()).padStart(2, '0')
+        const hh = String(d.getHours()).padStart(2, '0')
+        const min = String(d.getMinutes()).padStart(2, '0')
+        return `${yyyy}-${mm}-${dd} ${hh}:${min}`
+      } catch (_) {
+        return ''
+      }
     }
     const srcLabel = (d) => {
       const ids = Array.isArray(d?.srcIds) && d.srcIds.length ? d.srcIds : (d?.src != null ? [d.src] : [])
@@ -446,6 +467,43 @@
 
       if (isSecure) return `SECURE ${head}${label ? ` "${label}"` : ''}`.trim()
       return `${head}${label ? ` "${label}"` : ''}${note ? ` — ${note}` : ''}`.trim()
+    }
+
+    if (tpl === 9) {
+      const pri = priLabel(decoded?.pri)
+      const st = eventStatusLabel(decoded?.status)
+      const src = Number(decoded?.src)
+      const from = srcLabel(decoded)
+      const dst = Number(decoded?.dst)
+      const typeCode = Number(decoded?.typeCode)
+      const label = String(decoded?.label || '').trim()
+      const locationLabel = String(decoded?.locationLabel || '').trim()
+      const lat = Number(decoded?.lat)
+      const lon = Number(decoded?.lon)
+      const startAt = Number(decoded?.startAt)
+      const endAt = Number(decoded?.endAt)
+      const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
+
+      const to = dst === 0 ? 'ALL' : `U${Number.isFinite(dst) ? dst : ''}`
+      const head = `${pri} ${st} EVENT FROM${from ? ` ${from}` : Number.isFinite(src) ? ` U${src}` : ''} TO ${to} type=${Number.isFinite(typeCode) ? typeCode : ''}`.trim()
+
+      const labelPart = label ? ` "${label}"` : ''
+      const locPart = (() => {
+        if (locationLabel) return ` @ "${locationLabel}"`
+        if (!isSecure && Number.isFinite(lat) && Number.isFinite(lon)) return ` @ ${lat.toFixed(4)},${lon.toFixed(4)}`
+        return ''
+      })()
+      const whenPart = (() => {
+        const s = fmtYmdHm(startAt)
+        const e = fmtYmdHm(endAt)
+        if (s && e) return ` (${s} - ${e})`
+        if (s) return ` (${s} - )`
+        if (e) return ` ( - ${e})`
+        return ''
+      })()
+
+      if (isSecure) return `SECURE ${head}${labelPart}${locPart}${whenPart}`.trim()
+      return `${head}${labelPart}${locPart}${whenPart}${note ? ` - ${note}` : ''}`.trim()
     }
 
     if (tpl === 8) {

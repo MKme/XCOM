@@ -1352,6 +1352,258 @@ function makeMissionClearPacket(m) {
   return `X1.8.C.${id}.1/1.${encoded}`
 }
 
+// -----------------------------
+// Template 9: EVENT (CLEAR)
+// -----------------------------
+
+// binary layout (v1):
+// [0] u8 ver=1
+// [1..2] u16 src
+// [3..4] u16 dst
+// [5] u8 pri
+// [6] u8 status
+// [7..10] u32 unixMinutes (reportedAt)
+// [11] u8 typeCode
+// [12] u8 flags bit0 hasLoc bit1 hasLabel bit2 hasLocLabel bit3 hasNote bit4 hasStart bit5 hasEnd bit6 hasSrcIds
+// if hasStart: u32 startUnixMinutes
+// if hasEnd: u32 endUnixMinutes
+// if hasLoc: i32 latE5, i32 lonE5
+// if hasLabel: u8 labelLen, label bytes (utf8, max 48)
+// if hasLocLabel: u8 locLabelLen, locLabel bytes (utf8, max 48)
+// if hasNote: u8 noteLen, note bytes (utf8, max 160)
+// if hasSrcIds: u8 n + (n * u16 unitId) // extra unitIds beyond src
+
+const EVENT_VERSION = 1
+const EVENT_MAX_LABEL_BYTES = 48
+const EVENT_MAX_LOC_LABEL_BYTES = 48
+const EVENT_MAX_NOTE_BYTES = 160
+
+function encodeEventClear(p) {
+  const enc = new TextEncoder()
+  const labelBytes = p?.label && String(p.label).trim() ? enc.encode(String(p.label).trim()) : undefined
+  const locLabelBytes = p?.locationLabel && String(p.locationLabel).trim() ? enc.encode(String(p.locationLabel).trim()) : undefined
+  const noteBytes = p?.note && String(p.note).trim() ? enc.encode(String(p.note).trim()) : undefined
+
+  const hasLoc = Number.isFinite(p?.lat) && Number.isFinite(p?.lon)
+  const hasLabel = !!labelBytes && labelBytes.length > 0
+  const hasLocLabel = !!locLabelBytes && locLabelBytes.length > 0
+  const hasNote = !!noteBytes && noteBytes.length > 0
+  const hasStart = Number.isFinite(p?.startAt)
+  const hasEnd = Number.isFinite(p?.endAt)
+  const extraSrcIds = extraUnitIdsBeyondPrimary(p?.src, p?.srcIds)
+  const hasSrcIds = extraSrcIds.length > 0
+
+  const baseLen = 13
+  const startLen = hasStart ? 4 : 0
+  const endLen = hasEnd ? 4 : 0
+  const locLen = hasLoc ? 8 : 0
+  const labelLen = hasLabel ? 1 + Math.min(labelBytes.length, EVENT_MAX_LABEL_BYTES) : 0
+  const locLabelLen = hasLocLabel ? 1 + Math.min(locLabelBytes.length, EVENT_MAX_LOC_LABEL_BYTES) : 0
+  const noteLen = hasNote ? 1 + Math.min(noteBytes.length, EVENT_MAX_NOTE_BYTES) : 0
+  const srcIdsLen = hasSrcIds ? 1 + extraSrcIds.length * 2 : 0
+
+  const buf = new Uint8Array(baseLen + startLen + endLen + locLen + labelLen + locLabelLen + noteLen + srcIdsLen)
+  const dv = new DataView(buf.buffer)
+
+  dv.setUint8(0, EVENT_VERSION)
+  dv.setUint16(1, Math.floor(Number(p?.src) || 0), false)
+  dv.setUint16(3, Math.floor(Number(p?.dst) || 0), false)
+  dv.setUint8(5, (Math.floor(Number(p?.pri) || 0) & 3))
+  dv.setUint8(6, Math.max(0, Math.min(255, Math.floor(Number(p?.status) || 0))))
+  dv.setUint32(7, Math.floor(Number(p?.t || Date.now()) / 60000), false)
+  dv.setUint8(11, Math.max(0, Math.min(255, Math.floor(Number(p?.typeCode) || 0))))
+
+  let flags = 0
+  if (hasLoc) flags |= 1
+  if (hasLabel) flags |= 2
+  if (hasLocLabel) flags |= 4
+  if (hasNote) flags |= 8
+  if (hasStart) flags |= 16
+  if (hasEnd) flags |= 32
+  if (hasSrcIds) flags |= 64
+  dv.setUint8(12, flags)
+
+  let o = 13
+  if (hasStart) {
+    dv.setUint32(o, Math.floor(Number(p.startAt) / 60000), false)
+    o += 4
+  }
+  if (hasEnd) {
+    dv.setUint32(o, Math.floor(Number(p.endAt) / 60000), false)
+    o += 4
+  }
+  if (hasLoc) {
+    dv.setInt32(o, Math.round(Number(p.lat) * 1e5), false)
+    o += 4
+    dv.setInt32(o, Math.round(Number(p.lon) * 1e5), false)
+    o += 4
+  }
+  if (hasLabel) {
+    const n = Math.min(labelBytes.length, EVENT_MAX_LABEL_BYTES)
+    dv.setUint8(o, n)
+    o += 1
+    buf.set(labelBytes.subarray(0, n), o)
+    o += n
+  }
+  if (hasLocLabel) {
+    const n = Math.min(locLabelBytes.length, EVENT_MAX_LOC_LABEL_BYTES)
+    dv.setUint8(o, n)
+    o += 1
+    buf.set(locLabelBytes.subarray(0, n), o)
+    o += n
+  }
+  if (hasNote) {
+    const n = Math.min(noteBytes.length, EVENT_MAX_NOTE_BYTES)
+    dv.setUint8(o, n)
+    o += 1
+    buf.set(noteBytes.subarray(0, n), o)
+    o += n
+  }
+  if (hasSrcIds) {
+    dv.setUint8(o, extraSrcIds.length)
+    o += 1
+    for (const unitId of extraSrcIds) {
+      dv.setUint16(o, unitId, false)
+      o += 2
+    }
+  }
+
+  return encodeBase64Url(buf)
+}
+
+function decodeEventClear(b64) {
+  const bytes = decodeBase64Url(b64)
+  if (bytes.length < 13) throw new Error('EVENT payload too short')
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+
+  const ver = dv.getUint8(0)
+  if (ver !== EVENT_VERSION) throw new Error(`Unsupported EVENT version ${ver}`)
+
+  const src = dv.getUint16(1, false)
+  const dst = dv.getUint16(3, false)
+  const pri = dv.getUint8(5) & 3
+  const status = dv.getUint8(6)
+  const unixMinutes = dv.getUint32(7, false)
+  const typeCode = dv.getUint8(11)
+  const flags = dv.getUint8(12)
+  const hasLoc = (flags & 1) !== 0
+  const hasLabel = (flags & 2) !== 0
+  const hasLocLabel = (flags & 4) !== 0
+  const hasNote = (flags & 8) !== 0
+  const hasStart = (flags & 16) !== 0
+  const hasEnd = (flags & 32) !== 0
+  const hasSrcIds = (flags & 64) !== 0
+
+  let o = 13
+  const dec = new TextDecoder()
+
+  let startAt = undefined
+  if (hasStart) {
+    if (bytes.length < o + 4) throw new Error('EVENT startAt truncated')
+    const startUnixMinutes = dv.getUint32(o, false)
+    o += 4
+    startAt = startUnixMinutes * 60000
+  }
+
+  let endAt = undefined
+  if (hasEnd) {
+    if (bytes.length < o + 4) throw new Error('EVENT endAt truncated')
+    const endUnixMinutes = dv.getUint32(o, false)
+    o += 4
+    endAt = endUnixMinutes * 60000
+  }
+
+  let lat = undefined
+  let lon = undefined
+  if (hasLoc) {
+    if (bytes.length < o + 8) throw new Error('EVENT location truncated')
+    lat = dv.getInt32(o, false) / 1e5
+    o += 4
+    lon = dv.getInt32(o, false) / 1e5
+    o += 4
+  }
+
+  let label = undefined
+  if (hasLabel) {
+    if (bytes.length < o + 1) throw new Error('EVENT label truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n) throw new Error('EVENT label truncated')
+    label = dec.decode(bytes.subarray(o, o + n))
+    o += n
+  }
+
+  let locationLabel = undefined
+  if (hasLocLabel) {
+    if (bytes.length < o + 1) throw new Error('EVENT location label truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n) throw new Error('EVENT location label truncated')
+    locationLabel = dec.decode(bytes.subarray(o, o + n))
+    o += n
+  }
+
+  let note = undefined
+  if (hasNote) {
+    if (bytes.length < o + 1) throw new Error('EVENT note truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n) throw new Error('EVENT note truncated')
+    note = dec.decode(bytes.subarray(o, o + n))
+    o += n
+  }
+
+  let srcIds = undefined
+  if (hasSrcIds) {
+    if (bytes.length < o + 1) throw new Error('EVENT srcIds truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n * 2) throw new Error('EVENT srcIds truncated')
+    const extras = []
+    for (let i = 0; i < n; i++) {
+      const v = dv.getUint16(o, false)
+      o += 2
+      extras.push(v)
+    }
+
+    const out = []
+    const seen = new Set()
+    const add = (v) => {
+      const n = Math.floor(Number(v))
+      if (!Number.isFinite(n) || n <= 0) return
+      if (seen.has(n)) return
+      seen.add(n)
+      out.push(n)
+    }
+    add(src)
+    for (const v of extras) add(v)
+    if (out.length > 1) srcIds = out
+  }
+
+  return {
+    src,
+    ...(srcIds ? { srcIds } : {}),
+    dst,
+    pri,
+    status,
+    t: unixMinutes * 60000,
+    ...(hasStart ? { startAt } : {}),
+    ...(hasEnd ? { endAt } : {}),
+    typeCode,
+    label,
+    locationLabel,
+    lat,
+    lon,
+    note,
+  }
+}
+
+function makeEventClearPacket(p) {
+  const id = generatePacketId(8)
+  const encoded = encodeEventClear(p)
+  return `X1.9.C.${id}.1/1.${encoded}`
+}
+
 // Make available to non-module scripts (XCOM loads via <script> not ESM).
 try {
   globalThis.parsePacket = parsePacket
@@ -1389,6 +1641,10 @@ try {
   globalThis.encodeMissionClear = encodeMissionClear
   globalThis.decodeMissionClear = decodeMissionClear
   globalThis.makeMissionClearPacket = makeMissionClearPacket
+
+  globalThis.encodeEventClear = encodeEventClear
+  globalThis.decodeEventClear = decodeEventClear
+  globalThis.makeEventClearPacket = makeEventClearPacket
 } catch (_) {
   // ignore
 }

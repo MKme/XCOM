@@ -112,6 +112,7 @@ class CommsModule {
             <label>Template</label>
             <select id="commsTemplate">
               <option value="1">T=1 SITREP</option>
+              <option value="9">T=9 EVENT</option>
               <option value="2">T=2 CONTACT</option>
               <option value="3">T=3 TASK</option>
               <option value="4" selected>T=4 CHECKIN/LOC</option>
@@ -952,6 +953,43 @@ class CommsModule {
       return
     }
 
+    if (t === 9) {
+      wrap.innerHTML = `
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Source Unit(s)</label>${srcPicker}</div>
+          <div class="commsRow"><label>Dst (unit #)</label><input id="t_dst" type="number" min="0" step="1" value="0" /></div>
+        </div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Pri</label><input id="t_pri" type="number" min="0" max="3" step="1" value="2" /></div>
+          <div class="commsRow"><label>Status</label>
+            <select id="t_event_status">
+              <option value="0">PLANNED</option>
+              <option value="1">ACTIVE</option>
+              <option value="2">COMPLETE</option>
+              <option value="3">CANCELED</option>
+              <option value="4">UNKNOWN</option>
+            </select>
+          </div>
+        </div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Type Code</label><input id="t_type" type="number" min="0" max="255" step="1" value="0" /></div>
+          <div class="commsRow"><label>Time (ms)</label><input id="t_time" type="number" value="${now}" /></div>
+        </div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Start At (ms)</label><input id="t_start_at" type="number" value="" placeholder="(optional)" /></div>
+          <div class="commsRow"><label>End At (ms)</label><input id="t_end_at" type="number" value="" placeholder="(optional)" /></div>
+        </div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Lat</label><input id="t_lat" type="number" step="0.00001" /></div>
+          <div class="commsRow"><label>Lon</label><input id="t_lon" type="number" step="0.00001" /></div>
+        </div>
+        <div class="commsRow"><label>Label</label><input id="t_label" type="text" placeholder="(optional)" /></div>
+        <div class="commsRow"><label>Location label</label><input id="t_location_label" type="text" placeholder="(optional)" /></div>
+        <div class="commsRow"><label>Note</label><input id="t_note" type="text" placeholder="(optional)" /></div>
+      `
+      return
+    }
+
     if (t === 8) {
       wrap.innerHTML = `
         <div class="commsGrid2">
@@ -1305,6 +1343,7 @@ class CommsModule {
     if (templateId === 3) return `X1.3.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeTaskClear(payloadObj)}`
     if (templateId === 2) return `X1.2.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeContactClear(payloadObj)}`
     if (templateId === 8) return `X1.8.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeMissionClear(payloadObj)}`
+    if (templateId === 9) return `X1.9.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeEventClear(payloadObj)}`
     return `X1.1.C.${globalThis.generatePacketId(8)}.1/1.${globalThis.encodeSitrepClear(payloadObj)}`
   }
 
@@ -1404,6 +1443,41 @@ class CommsModule {
         }
         payloadObj = payload
         clearPacket = `X1.8.C.${window.generatePacketId(8)}.1/1.${window.encodeMissionClear(payload)}`
+      } else if (templateId === 9) {
+        const { src, srcIds } = readSrc()
+
+        const readOptMs = (id) => {
+          const raw = String(document.getElementById(id)?.value || '').trim()
+          if (!raw) return undefined
+          const n = Number(raw)
+          return (Number.isFinite(n) && n > 0) ? n : undefined
+        }
+
+        const startAt = readOptMs('t_start_at')
+        const endAt = readOptMs('t_end_at')
+
+        const latRaw = String(document.getElementById('t_lat')?.value || '').trim()
+        const lonRaw = String(document.getElementById('t_lon')?.value || '').trim()
+        const lat = latRaw ? Number(latRaw) : undefined
+        const lon = lonRaw ? Number(lonRaw) : undefined
+
+        const payload = {
+          src,
+          ...(srcIds.length > 1 ? { srcIds } : {}),
+          dst: Number(document.getElementById('t_dst')?.value || 0),
+          pri: Number(document.getElementById('t_pri')?.value || 2),
+          status: Number(document.getElementById('t_event_status')?.value || 0),
+          t: Number(document.getElementById('t_time')?.value || Date.now()),
+          ...(startAt != null ? { startAt } : {}),
+          ...(endAt != null ? { endAt } : {}),
+          typeCode: Number(document.getElementById('t_type')?.value || 0),
+          label: String(document.getElementById('t_label')?.value || '').trim(),
+          locationLabel: String(document.getElementById('t_location_label')?.value || '').trim(),
+          ...(Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : {}),
+          note: String(document.getElementById('t_note')?.value || '').trim(),
+        }
+        payloadObj = payload
+        clearPacket = `X1.9.C.${window.generatePacketId(8)}.1/1.${window.encodeEventClear(payload)}`
       } else if (templateId === 6) {
         const { src, srcIds } = readSrc()
         const payload = {
@@ -2791,6 +2865,7 @@ class CommsModule {
       case 6: return 'ASSET'
       case 7: return 'ZONE'
       case 8: return 'MISSION'
+      case 9: return 'EVENT'
       default: return `T=${String(templateId)}`
     }
   }
@@ -3027,6 +3102,43 @@ class CommsModule {
 
       if (isSecure) return `SECURE ${head}${label ? ` \"${label}\"` : ''}`.trim()
       return `${head}${label ? ` \"${label}\"` : ''}${note ? ` — ${note}` : ''}`.trim()
+    }
+
+    if (tpl === 9) {
+      const pri = priLabel(decoded?.pri)
+      const statusIdx = Math.max(0, Math.min(4, Math.floor(Number(decoded?.status) || 0)))
+      const st = ['PLANNED', 'ACTIVE', 'COMPLETE', 'CANCELED', 'UNKNOWN'][statusIdx] || 'UNKNOWN'
+      const src = Number(decoded?.src)
+      const from = srcLabel(decoded)
+      const dst = Number(decoded?.dst)
+      const typeCode = Number(decoded?.typeCode)
+      const label = String(decoded?.label || '').trim()
+      const locationLabel = String(decoded?.locationLabel || '').trim()
+      const note = !isSecure && decoded?.note ? String(decoded.note).trim() : ''
+
+      const fmtYmdHm = (tsMs) => {
+        const n = Number(tsMs)
+        if (!Number.isFinite(n) || n <= 0) return ''
+        const d = new Date(n)
+        if (Number.isNaN(d.getTime())) return ''
+        const y = d.getFullYear()
+        const m = String(d.getMonth() + 1).padStart(2, '0')
+        const day = String(d.getDate()).padStart(2, '0')
+        const hh = String(d.getHours()).padStart(2, '0')
+        const mm = String(d.getMinutes()).padStart(2, '0')
+        return `${y}-${m}-${day} ${hh}:${mm}`
+      }
+
+      const startAt = Number(decoded?.startAt)
+      const endAt = Number(decoded?.endAt)
+      const startText = (Number.isFinite(startAt) && startAt > 0) ? ` start=${fmtYmdHm(startAt)}` : ''
+      const endText = (Number.isFinite(endAt) && endAt > 0) ? ` end=${fmtYmdHm(endAt)}` : ''
+      const locText = locationLabel ? ` @ ${locationLabel}` : ''
+
+      const head = `${pri} EVENT ${st} FROM${from ? ` ${from}` : Number.isFinite(src) ? ` U${src}` : ''} TO ${dst === 0 ? 'ALL' : `U${Number.isFinite(dst) ? dst : ''}`} type=${Number.isFinite(typeCode) ? typeCode : ''}`.trim()
+
+      if (isSecure) return `SECURE ${head}${label ? ` \"${label}\"` : ''}${startText}${endText}${locText}`.trim()
+      return `${head}${label ? ` \"${label}\"` : ''}${startText}${endText}${locText}${note ? ` — ${note}` : ''}`.trim()
     }
 
     if (tpl === 8) {
@@ -3970,13 +4082,13 @@ class CommsModule {
       try {
         const t = new Date(Number(this._lastHaLowRxAt)).toLocaleTimeString()
         const from = this._lastHaLowRxFrom != null ? ` from ${String(this._lastHaLowRxFrom)}` : ''
-        tail = ` â€¢ last rx ${t}${from}`
+        tail = ` • last rx ${t}${from}`
       } catch (_) {
         // ignore
       }
     }
 
-    el.textContent = `MANET: ${connected ? 'connected' : 'not connected'} â€¢ auto-receive ${auto ? 'ON' : 'OFF'}${tail}`
+    el.textContent = `MANET: ${connected ? 'connected' : 'not connected'} • auto-receive ${auto ? 'ON' : 'OFF'}${tail}`
   }
 
   _meshSetTrafficCursorToEnd(traffic) {
@@ -4431,6 +4543,8 @@ class CommsModule {
         return window.decodeZoneClear(payloadB64Url)
       case 8:
         return window.decodeMissionClear(payloadB64Url)
+      case 9:
+        return window.decodeEventClear(payloadB64Url)
       default:
         return { payloadB64Url }
     }

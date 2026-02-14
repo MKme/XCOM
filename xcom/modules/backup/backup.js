@@ -1,6 +1,6 @@
 /**
  * Backup Module
- * Export/import XCOMâ„¢ local data so users can recover after clearing site data or reinstalling.
+ * Export/import XCOM™ local data so users can recover after clearing site data or reinstalling.
  */
 
 class BackupModule {
@@ -183,4 +183,3 @@ class BackupModule {
     }
   }
 }
-

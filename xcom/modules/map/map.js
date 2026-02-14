@@ -198,6 +198,7 @@ class MapModule {
                 <label class="mapInline"><input id="mapImportedT6" type="checkbox" /> ASSET</label>
                 <label class="mapInline"><input id="mapImportedT7" type="checkbox" /> ZONE</label>
                 <label class="mapInline"><input id="mapImportedT8" type="checkbox" /> MISSION</label>
+                <label class="mapInline"><input id="mapImportedT9" type="checkbox" /> EVENT</label>
               </div>
               <div class="mapSmallMuted" id="mapImportedLegend"></div>
               <div class="mapSmallMuted">Imported markers come from XTOC Comm “Import” and XTOC Backup imports.</div>
@@ -436,7 +437,7 @@ class MapModule {
 
     // Seed Imported type toggles
     this._importedTplEls = []
-    const tplIds = [1, 2, 3, 4, 5, 6, 7, 8]
+    const tplIds = [1, 2, 3, 4, 5, 6, 7, 8, 9]
     for (const t of tplIds) {
       const el = document.getElementById(`mapImportedT${String(t)}`)
       if (!el) continue
@@ -930,6 +931,7 @@ class MapModule {
 
   importedMarkerClassName(templateId) {
     const t = Number(templateId)
+    if (t === 9) return 'xcomMapMarker--event'
     return t === 2
       ? 'xcomMapMarker--contact'
       : t === 3
@@ -947,6 +949,7 @@ class MapModule {
 
   importedMarkerIconKind(templateId) {
     const t = Number(templateId)
+    if (t === 9) return 'flag'
     return t === 2
       ? 'target'
       : t === 3
@@ -973,6 +976,7 @@ class MapModule {
       'xcomMapMarker--resource',
       'xcomMapMarker--asset',
       'xcomMapMarker--mission',
+      'xcomMapMarker--event',
       'xcomMapMarker--team',
     ]
     for (const c of typeClasses) {
@@ -1957,7 +1961,7 @@ class MapModule {
       } else {
         assignHtml = `
           <div style="margin-top:10px; font-size:12px; color:#666;">
-            Tip: import a roster in Comms â†’ Team to assign nodes.
+            Tip: import a roster in Comms → Team to assign nodes.
           </div>
         `
       }

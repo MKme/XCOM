@@ -31,6 +31,7 @@ class XtocDataModule {
       case 6: return 'ASSET'
       case 7: return 'ZONE'
       case 8: return 'MISSION'
+      case 9: return 'EVENT'
       default: return `T=${String(templateId)}`
     }
   }
@@ -311,6 +312,8 @@ class XtocDataModule {
         return globalThis.decodeZoneClear(payloadB64Url)
       case 8:
         return globalThis.decodeMissionClear(payloadB64Url)
+      case 9:
+        return globalThis.decodeEventClear(payloadB64Url)
       default:
         return { payloadB64Url }
     }

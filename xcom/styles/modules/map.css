@@ -202,6 +202,7 @@
 .xcomMapMarker--resource { background: #ff9f7c; }
 .xcomMapMarker--asset { background: #7ce3ff; }
 .xcomMapMarker--mission { background: #c58bff; }
+.xcomMapMarker--event { background: #6cf0d0; }
 .xcomMapMarker--mesh {
   background: #5b7cfa;
   color: rgba(255, 255, 255, 0.96);

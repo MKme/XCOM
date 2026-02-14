@@ -262,3 +262,52 @@ test('srcIds: caps multi-source tagging to 32 unit IDs', () => {
   assert.equal(Array.from(out.srcIds || []).length, 32)
   assert.equal(Array.from(out.srcIds || [])[0], 12)
 })
+
+test('EVENT: encodes/decodes schedule + labels + srcIds', () => {
+  const sandbox = makeSandbox()
+  runScriptFile(sandbox, fromRepoRoot('modules', 'shared', 'xtoc', 'base64url.js'))
+  runScriptFile(sandbox, fromRepoRoot('modules', 'shared', 'xtoc', 'packet.js'))
+
+  const payload = {
+    src: 12,
+    srcIds: [12, 14],
+    dst: 0,
+    pri: 1,
+    status: 0, // PLANNED
+    t: 1700000000123,
+    startAt: 1700003600123,
+    endAt: 1700007200123,
+    typeCode: 7,
+    label: 'TRAINING',
+    locationLabel: 'STAGING',
+    lat: 35.5,
+    lon: -83.25,
+    note: 'bring PPE',
+  }
+
+  const b64 = sandbox.encodeEventClear(payload)
+  const bytes = sandbox.decodeBase64Url(b64)
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+
+  assert.equal(bytes[0], 1)
+  assert.equal(bytes[12], 127) // all flags set
+  assert.equal(dv.getUint16(1, false), 12)
+  assert.equal(dv.getUint16(3, false), 0)
+  assert.equal(bytes[11], 7)
+
+  const out = sandbox.decodeEventClear(b64)
+  assert.equal(out.src, 12)
+  assert.deepEqual(Array.from(out.srcIds || []), [12, 14])
+  assert.equal(out.dst, 0)
+  assert.equal(out.pri, 1)
+  assert.equal(out.status, 0)
+  assert.equal(out.typeCode, 7)
+  assert.equal(out.label, 'TRAINING')
+  assert.equal(out.locationLabel, 'STAGING')
+  assert.equal(out.note, 'bring PPE')
+  assert.equal(out.t, Math.floor(payload.t / 60000) * 60000)
+  assert.equal(out.startAt, Math.floor(payload.startAt / 60000) * 60000)
+  assert.equal(out.endAt, Math.floor(payload.endAt / 60000) * 60000)
+  assert.equal(approxEq(out.lat, 35.5), true)
+  assert.equal(approxEq(out.lon, -83.25), true)
+})

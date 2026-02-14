@@ -205,7 +205,7 @@ class HelpModule {
 
                     <h3>Creating packets</h3>
                     <ul>
-                        <li><strong>Templates:</strong> T=1&ndash;8 (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION).</li>
+                        <li><strong>Templates:</strong> T=1&ndash;9 (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION/EVENT).</li>
                         <li><strong>Modes:</strong> <strong>CLEAR</strong> (human-readable fields) or <strong>SECURE</strong> (encrypted).</li>
                         <li><strong>Transport profiles:</strong> choose Copy/Paste, Voice (TTS), JS8/APRS, Winlink, Meshtastic/MeshCore, MANET (LAN), or QR &mdash; then click <strong>Generate</strong>.</li>
                         <li><strong>Location tools:</strong> <strong>Use GPS</strong> fills Lat/Lon from your device; <strong>Pick Location</strong> and <strong>Draw Zone</strong> open a mini-map so you can embed coordinates/areas into packets.</li>
@@ -316,7 +316,7 @@ class HelpModule {
                     <ul>
                         <li><strong>What it is:</strong> Imported markers/zones are XTOC packet locations/zones that you imported into XCOM.</li>
                         <li><strong>Where it comes from:</strong> <strong>XTOC Comm</strong> &rarr; <strong>Import</strong> (single packet) and <strong>XTOC Data</strong> &rarr; <strong>XTOC &rarr; XCOM Import</strong> &rarr; <strong>Import Backup</strong> (roster + keys + packets).</li>
-                        <li><strong>Controls:</strong> open <strong>Map</strong> &rarr; <strong>Overlays</strong> and toggle <strong>Imported</strong>, <strong>Last 7 days only</strong>, and the per-type filters (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION).</li>
+                        <li><strong>Controls:</strong> open <strong>Map</strong> &rarr; <strong>Overlays</strong> and toggle <strong>Imported</strong>, <strong>Last 7 days only</strong>, and the per-type filters (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION/EVENT).</li>
                         <li><strong>7-day filter:</strong> this is render-only (older packets remain stored locally). It uses packet timestamp when available, otherwise received/import time.</li>
                         <li><strong>Friendly labels:</strong> popups use team roster labels when available (import via <strong>Import Team</strong> or <strong>Scan Team QR</strong>).</li>
                         <li><strong>Hide from map:</strong> click an Imported marker and choose <strong>Hide from map</strong> to declutter without deleting. Restore items under <strong>Map</strong> &rarr; <strong>Overlays</strong> &rarr; <strong>Hidden</strong> (enable the toggle to plot hidden markers, then click a marker &rarr; <strong>Unhide</strong>).</li>
@@ -405,7 +405,7 @@ class HelpModule {
                         <li><strong>Release bundles:</strong> the downloadable web fileset ZIP includes <code>halow-bridge/</code> alongside the app files.</li>
                         <li>Bridge URL cannot be <code>0.0.0.0</code> (bind address). Use the XTOC laptop IP or <code>http://127.0.0.1:8095</code> on the laptop.</li>
                         <li>If <strong>Share Bridge QR</strong> / <strong>Scan Bridge QR</strong> says <em>Failed to fetch</em>, the bridge is usually not running yet, the Bridge URL is wrong, or the browser is blocking the request.</li>
-                        <li>Troubleshooting: from any device browser, open <code>http://&lt;XTOC-IP&gt;:8095/health</code>. If it wonâ€™t load, check that both devices are on the same MANET/LAN and that Windows Firewall allows inbound port 8095.</li>
+                        <li>Troubleshooting: from any device browser, open <code>http://&lt;XTOC-IP&gt;:8095/health</code>. If it won't load, check that both devices are on the same MANET/LAN and that Windows Firewall allows inbound port 8095.</li>
                         <li>If the app is running on <code>https://</code> and the bridge is <code>http://</code>, some browsers may block the connection. For field use, run the apps from the local web fileset (<code>http://localhost</code> / LAN HTTP) or use a secure bridge origin.</li>
                         <li>Traffic and settings are stored locally under <code>xcom.halow.*</code> keys in localStorage.</li>
                     </ul>

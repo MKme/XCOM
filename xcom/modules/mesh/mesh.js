@@ -737,7 +737,7 @@ class MeshModule {
           const num = Number.isFinite(Number(n?.num)) ? Math.floor(Number(n.num)) : null
           const label = String(n?.shortName || n?.longName || (id ? id : (num != null ? `#${num}` : 'Node'))).trim() || 'Node'
           const lastSeenTs = Number(n?.lastSeenTs || 0) || 0
-          const when = lastSeenTs ? new Date(lastSeenTs).toISOString() : 'â€”'
+          const when = lastSeenTs ? new Date(lastSeenTs).toISOString() : '—'
 
           const btn = document.createElement('button')
           btn.type = 'button'
