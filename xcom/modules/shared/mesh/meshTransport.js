@@ -1240,6 +1240,35 @@ function meshcoreDecodeUtf8(bytes) {
   return s
 }
 
+function meshcoreLooksLikeHumanText(s) {
+  const t = String(s ?? '')
+  if (!t.trim()) return false
+  if (t.includes('X1.')) return true
+
+  let bad = 0
+  let total = 0
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i]
+    const code = t.charCodeAt(i)
+    total++
+
+    if (ch === '\uFFFD' || code === 0) {
+      bad += 2
+      continue
+    }
+    if (code < 0x20) {
+      if (ch !== '\n' && ch !== '\r' && ch !== '\t') bad++
+      continue
+    }
+    if (code === 0x7f) {
+      bad++
+      continue
+    }
+  }
+  const ratio = total > 0 ? bad / total : 1
+  return ratio <= 0.08
+}
+
 function meshcoreXorChecksum(payload) {
   let c = 0
   for (let i = 0; i < payload.length; i++) c ^= payload[i]
@@ -1573,9 +1602,9 @@ class MeshCoreDriver {
             const data = payload.subarray(o, o + payloadLen)
 
             const asText = meshcoreDecodeUtf8(data)
-            const looksLikeXtoc = typeof asText === 'string' && asText.includes('X1.')
+            const looksLikeText = meshcoreLooksLikeHumanText(asText)
 
-            if (looksLikeXtoc) {
+            if (looksLikeText) {
               const msg = {
                 from: null,
                 to: null,
@@ -2457,11 +2486,35 @@ class XcomMeshTransport {
       meta = null
     }
 
-    this._appendLog({ dir: 'out', ts, kind: 'text', text: msg, opts: opts || null, ...(meta || {}) })
+    const updateOut = (patch) => {
+      try {
+        const log = _meshTrafficGet()
+        for (let i = log.length - 1; i >= 0; i--) {
+          const e = log[i]
+          if (e?.dir === 'out' && e?.ts === ts && String(e?.kind || '') === 'text') {
+            Object.assign(e, patch || {})
+            meshWriteJson(LS_MESH_LOG, log)
+            break
+          }
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
 
-    const res = await this.driver.sendText(msg, opts)
-    // If we want to attach ack status later, we can update log entries.
-    return res
+    this._appendLog({ dir: 'out', ts, kind: 'text', text: msg, opts: opts || null, status: 'pending', ...(meta || {}) })
+
+    try {
+      const res = await this.driver.sendText(msg, opts)
+      const id = (typeof res === 'number') ? res : null
+      updateOut({ ...(id != null ? { id } : {}), status: 'ok', doneAt: Date.now() })
+      this._notify()
+      return res
+    } catch (e) {
+      updateOut({ status: 'error', error: formatError(e), doneAt: Date.now() })
+      this._notify()
+      throw e
+    }
   }
 }
 

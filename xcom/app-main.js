@@ -1118,6 +1118,7 @@ class RadioApp {
                     'modules/shared/xtoc/secureTemplates.js',
                     'modules/shared/xtoc/storage.js',
                     'modules/shared/xtoc/packetStore.js',
+                    'modules/shared/xtoc/teamRoster.js',
                     'modules/shared/xtoc/importedPackets.js',
                     'modules/shared/xtoc/autoIngest.js',
                     // Shared mesh transport

@@ -84,6 +84,10 @@ class MeshModule {
     this.lastGeo = null
     this._lastCov = null
     this._boundHashChange = null
+    this._boundRosterUpdated = null
+
+    this.squadSending = false
+    this.squadResults = []
     this.init()
   }
 
@@ -105,6 +109,8 @@ class MeshModule {
     this.unsub = (globalThis.xcomMesh && typeof globalThis.xcomMesh.subscribe === 'function')
       ? globalThis.xcomMesh.subscribe(() => this.renderFromState())
       : null
+    this._boundRosterUpdated = () => this.renderFromState()
+    try { globalThis.addEventListener('xcomTeamRosterUpdated', this._boundRosterUpdated) } catch (_) { /* ignore */ }
     window.radioApp.updateStatus('Mesh module loaded')
   }
 
@@ -114,6 +120,8 @@ class MeshModule {
     try { this.stopCoverageLogging() } catch (_) { /* ignore */ }
     try { if (this._boundHashChange) window.removeEventListener('hashchange', this._boundHashChange) } catch (_) { /* ignore */ }
     this._boundHashChange = null
+    try { if (this._boundRosterUpdated) globalThis.removeEventListener('xcomTeamRosterUpdated', this._boundRosterUpdated) } catch (_) { /* ignore */ }
+    this._boundRosterUpdated = null
   }
 
   createModuleStructure() {
@@ -200,6 +208,27 @@ class MeshModule {
           <div class="meshSmallMuted">
             Tip: Comms can also send generated packet lines directly over Mesh after you connect here.
           </div>
+
+          <div class="meshDivider"></div>
+
+          <div class="meshRow">
+            <label>Squad message (direct)</label>
+            <select id="meshSquadSelect"></select>
+            <div class="meshSmallMuted">
+              Sends a direct message to each roster member in the selected squad with a matching <code>meshNodeId</code>.
+            </div>
+          </div>
+
+          <div class="meshRow">
+            <label>Message to squad</label>
+            <textarea id="meshSquadText" rows="2" placeholder="Type a message to send to every squad member"></textarea>
+          </div>
+
+          <div class="meshButtonRow">
+            <button id="meshSendSquadBtn" type="button" class="primary">Send to squad</button>
+            <button id="meshClearSquadBtn" type="button" class="danger">Clear</button>
+          </div>
+          <div id="meshSquadStatus" class="meshSmallMuted"></div>
         </div>
 
         <div class="meshCard">
@@ -381,6 +410,25 @@ class MeshModule {
       }
     })
 
+    const sendSquadBtn = document.getElementById('meshSendSquadBtn')
+    if (sendSquadBtn) sendSquadBtn.addEventListener('click', async () => {
+      try {
+        await this.sendSquad()
+      } catch (e) {
+        alert(formatError(e))
+      }
+    })
+
+    const clearSquadBtn = document.getElementById('meshClearSquadBtn')
+    if (clearSquadBtn) clearSquadBtn.addEventListener('click', () => {
+      try {
+        this.squadResults = []
+        this.renderSquadResults()
+      } catch (_) {
+        // ignore
+      }
+    })
+
     if (importChBtn) importChBtn.addEventListener('click', async () => {
       try {
         if (typeof globalThis.meshImportChannels !== 'function') throw new Error('Channel import not available in this build')
@@ -509,6 +557,7 @@ class MeshModule {
   renderFromState() {
     const cfg = globalThis.getMeshConfig ? globalThis.getMeshConfig() : null
     const state = globalThis.xcomMesh ? globalThis.xcomMesh.getState() : { status: { connected: false }, traffic: [] }
+    const driverName = (cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic'
 
     // status pill
     const statusEl = document.getElementById('meshStatus')
@@ -579,7 +628,7 @@ class MeshModule {
 
     // settings
     try {
-      const driver = (cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic'
+      const driver = driverName
       const mt = (cfg && cfg.meshtastic) ? cfg.meshtastic : {}
       const mc = (cfg && cfg.meshcore) ? cfg.meshcore : {}
       const active = (driver === 'meshcore') ? mc : mt
@@ -620,19 +669,129 @@ class MeshModule {
       // ignore
     }
 
+    // squad messaging (roster-driven)
+    try {
+      const squadSel = document.getElementById('meshSquadSelect')
+      const sendSquadBtn = document.getElementById('meshSendSquadBtn')
+      const clearSquadBtn = document.getElementById('meshClearSquadBtn')
+
+      const haveRoster = typeof globalThis.xcomListSquads === 'function' && typeof globalThis.xcomListRosterMembers === 'function'
+      const squads = haveRoster ? (globalThis.xcomListSquads() || []) : []
+
+      if (squadSel) {
+        const prev = String(squadSel.value || '')
+        squadSel.innerHTML = ''
+
+        const opt0 = document.createElement('option')
+        opt0.value = ''
+        opt0.textContent = haveRoster ? '(pick squad)' : '(import roster first)'
+        squadSel.appendChild(opt0)
+
+        for (const s of Array.isArray(squads) ? squads : []) {
+          const id = String(s?.id ?? '').trim()
+          const name = String(s?.name ?? '').trim()
+          if (!id || !name) continue
+          const call = String(s?.callsign ?? '').trim()
+          const label = call ? `${call} (${name})` : name
+          const opt = document.createElement('option')
+          opt.value = id
+          opt.textContent = label
+          squadSel.appendChild(opt)
+        }
+
+        if (prev) squadSel.value = prev
+        squadSel.disabled = !haveRoster || this.squadSending
+      }
+
+      const connectedNow = !!state?.status?.connected
+      const selected = String(squadSel?.value || '').trim()
+      if (sendSquadBtn) sendSquadBtn.disabled = !connectedNow || this.squadSending || !haveRoster || !selected
+      if (clearSquadBtn) clearSquadBtn.disabled = this.squadSending || !(Array.isArray(this.squadResults) && this.squadResults.length)
+
+      this.renderSquadResults()
+    } catch (_) {
+      // ignore
+    }
+
     // traffic log
     const pre = document.getElementById('meshTraffic')
     if (pre) {
       const traffic = Array.isArray(state.traffic) ? state.traffic : []
+
+       const nodesAll = Array.isArray(state?.nodes) ? state.nodes : (typeof globalThis.meshGetNodes === 'function' ? globalThis.meshGetNodes() : [])
+       const nodes = Array.isArray(nodesAll) ? nodesAll.filter((n) => String(n?.driver || '') === driverName) : []
+       const labelByNum = new Map()
+       const labelById = new Map()
+       for (const n of nodes) {
+         const id = String(n?.id || '').trim()
+         const num = Number.isFinite(Number(n?.num)) ? Math.floor(Number(n.num)) : null
+         const label = String(n?.shortName || n?.longName || (id ? id : (num != null ? `#${num}` : 'Node'))).trim() || 'Node'
+         if (num != null) labelByNum.set(num, label)
+         if (id) labelById.set(id, label)
+       }
+
+       const normalizeMeshtasticNodeId = (raw) => {
+         const s = String(raw ?? '').trim()
+         if (!s) return null
+         if (s.startsWith('!')) {
+           const n = parseInt(s.slice(1), 16)
+           if (!Number.isFinite(n)) return null
+           return '!' + ((n >>> 0).toString(16).padStart(8, '0'))
+         }
+         const n = Number(s)
+         if (!Number.isFinite(n)) return null
+         return '!' + ((Math.floor(n) >>> 0).toString(16).padStart(8, '0'))
+       }
+
+       const labelForTo = (toNodeId) => {
+         const raw = String(toNodeId ?? '').trim()
+         if (!raw) return ''
+         if (driverName === 'meshcore') {
+           const cleaned = raw.replace(/^!/, '').replace(/[^0-9a-fA-F]/g, '').toLowerCase()
+           if (cleaned.length !== 12) return raw
+           return labelById.get(cleaned) || cleaned
+         }
+         const id = normalizeMeshtasticNodeId(raw)
+         if (!id) return raw
+         return labelById.get(id) || id
+       }
+
+       const labelForFrom = (from) => {
+         const n = Number(from)
+         if (!Number.isFinite(n)) return ''
+         const num = Math.floor(n) >>> 0
+         return labelByNum.get(num) || `#${num}`
+       }
+
       const lines = traffic
         .slice(-200)
         .map((e) => {
           const ts = e.ts ? new Date(e.ts).toISOString() : ''
           const dir = e.dir || ''
-          if (dir === 'out' && e.kind === 'text') return `${ts}  OUT  ${e.text}`
+          if (dir === 'out' && e.kind === 'text') {
+            const status = String(e?.status || '')
+            const statusText = status === 'pending' ? ' …' : status === 'ok' ? ' ACK' : status === 'error' ? ' ERR' : ''
+            const err = status === 'error' && e?.error ? ` (${String(e.error)})` : ''
+            const idText = status === 'ok' && typeof e?.id === 'number' ? ` (id=${String(e.id)})` : ''
+
+            const dest = (String(e?.destination || '') === 'direct')
+              ? `DM to ${labelForTo(e?.toNodeId ?? null)}`
+              : (typeof e?.channel === 'number' ? `CH${Math.floor(e.channel)}` : null)
+            const prefix = dest ? `[${dest}] ` : ''
+
+            return `${ts}  OUT  ${prefix}${e.text}${statusText}${idText}${err}`
+          }
           if (dir === 'in') {
             const txt = e?.text || (e?.kind === 'message' ? e?.raw?.data : null)
-            if (typeof txt === 'string' && txt.trim()) return `${ts}  IN   ${txt}`
+            if (typeof txt === 'string' && txt.trim()) {
+              const msgType = String(e?.raw?.type || '')
+              const fromLabel = e?.from != null ? labelForFrom(e.from) : ''
+              const tag = fromLabel ? (msgType === 'direct' ? `DM from ${fromLabel}` : `from ${fromLabel}`) : (msgType === 'direct' ? 'DM' : '')
+              const ch = Number.isFinite(Number(e?.channel)) ? `CH${Math.floor(Number(e.channel))}` : ''
+              const bits = [tag, ch].filter(Boolean).join(' • ')
+              const prefix = bits ? `[${bits}] ` : ''
+              return `${ts}  IN   ${prefix}${txt}`
+            }
             return `${ts}  IN   ${JSON.stringify(e.raw)}`
           }
           if (dir === 'sys') return `${ts}  SYS  ${e.level || ''} ${e.msg || ''}`
@@ -656,7 +815,7 @@ class MeshModule {
 
     // channels + nodes heard lists
     try {
-      const driver = (cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic'
+      const driver = driverName
       const mt = (cfg && cfg.meshtastic) ? cfg.meshtastic : {}
       const mc = (cfg && cfg.meshcore) ? cfg.meshcore : {}
       const active = (driver === 'meshcore') ? mc : mt
@@ -1350,6 +1509,124 @@ class MeshModule {
       Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
     return R * c
+  }
+
+  renderSquadResults() {
+    const statusEl = document.getElementById('meshSquadStatus')
+    if (!statusEl) return
+
+    const results = Array.isArray(this.squadResults) ? this.squadResults : []
+    if (!results.length) {
+      const haveRoster = typeof globalThis.xcomListSquads === 'function' && typeof globalThis.xcomListRosterMembers === 'function'
+      if (!haveRoster) {
+        statusEl.textContent = 'Tip: import roster bundle from XTOC to enable squad messaging.'
+        return
+      }
+
+      const squads = globalThis.xcomListSquads?.() || []
+      statusEl.textContent = Array.isArray(squads) && squads.length ? '' : 'No squads found in roster.'
+      return
+    }
+
+    statusEl.innerHTML = ''
+    for (const r of results) {
+      const base = `U${r.unitId} • ${r.label}`
+      const okLabel = String(r?.meshKey || '').startsWith('meshtastic:') ? 'ACK' : 'OK'
+      const status =
+        r.status === 'sending'
+          ? 'Sending…'
+          : r.status === 'ok'
+            ? `${okLabel}${r.id != null ? ` (id=${r.id})` : ''}`
+            : r.status === 'error'
+              ? `ERR: ${r.error || 'Unknown error'}`
+              : 'Pending'
+      const div = document.createElement('div')
+      div.textContent = `${base} — ${status}`
+      statusEl.appendChild(div)
+    }
+  }
+
+  async sendSquad() {
+    if (this.squadSending) return
+    if (typeof globalThis.meshSendText !== 'function') throw new Error('Mesh transport not loaded')
+    if (typeof globalThis.getMeshConfig !== 'function') throw new Error('Mesh config not available')
+
+    const state = globalThis.xcomMesh?.getState?.() || null
+    const connected = !!state?.status?.connected
+    if (!connected) throw new Error('Mesh not connected')
+
+    const sid = String(document.getElementById('meshSquadSelect')?.value || '').trim()
+    if (!sid) throw new Error('Pick a squad')
+
+    const msg = String(document.getElementById('meshSquadText')?.value || '').trim()
+    if (!msg) throw new Error('Nothing to send')
+
+    const haveRoster = typeof globalThis.xcomListSquads === 'function' && typeof globalThis.xcomListRosterMembers === 'function'
+    if (!haveRoster) throw new Error('Roster not loaded. Import roster bundle from XTOC.')
+
+    const cfg = globalThis.getMeshConfig() || {}
+    const driver = (cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic'
+    const mt = (cfg && cfg.meshtastic) ? cfg.meshtastic : {}
+    const mc = (cfg && cfg.meshcore) ? cfg.meshcore : {}
+    const active = (driver === 'meshcore') ? mc : mt
+
+    const squads = globalThis.xcomListSquads() || []
+    const squad = Array.isArray(squads) ? (squads.find((s) => String(s?.id || '').trim() === sid) || null) : null
+    const squadLabel = squad
+      ? (String(squad?.callsign || '').trim() ? `${String(squad.callsign).trim()} (${String(squad?.name || '').trim() || sid})` : String(squad?.name || '').trim() || sid)
+      : sid
+
+    const members = globalThis.xcomListRosterMembers() || []
+    const driverPrefix = `${driver}:`
+    const targets = []
+    for (const m of Array.isArray(members) ? members : []) {
+      const msid = String(m?.squadId || '').trim()
+      if (msid !== sid) continue
+      const meshKey = String(m?.meshNodeId || '').trim()
+      if (!meshKey || !meshKey.startsWith(driverPrefix)) continue
+      const toNodeId = meshKey.slice(driverPrefix.length).trim()
+      if (!toNodeId) continue
+      const unitId = Number(m?.unitId)
+      const safeUnitId = Number.isFinite(unitId) ? Math.floor(unitId) : 0
+      const label = String(m?.label || '').trim() || meshKey
+      targets.push({ unitId: safeUnitId, label, meshKey, toNodeId, status: 'pending' })
+    }
+
+    if (!targets.length) throw new Error(`No squad members have ${driver} meshNodeId assigned.`)
+
+    const ok = confirm(`Send direct message to ${targets.length} member(s) in ${squadLabel}?`)
+    if (!ok) return
+
+    this.squadResults = targets
+    this.renderSquadResults()
+
+    this.squadSending = true
+    this.renderFromState()
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        const t = targets[i]
+        t.status = 'sending'
+        t.error = undefined
+        this.renderSquadResults()
+
+        try {
+          const res = driver === 'meshcore'
+            ? await globalThis.meshSendText(msg, { destination: 'direct', toNodeId: t.toNodeId, channel: active?.channel })
+            : await globalThis.meshSendText(msg, { destination: 'direct', toNodeId: t.toNodeId, channel: active?.channel, wantAck: mt.wantAck !== false })
+
+          if (typeof res === 'number') t.id = res
+          t.status = 'ok'
+        } catch (e) {
+          t.status = 'error'
+          t.error = formatError(e)
+        }
+
+        this.renderSquadResults()
+      }
+    } finally {
+      this.squadSending = false
+      this.renderFromState()
+    }
   }
 
   async sendText(text) {
