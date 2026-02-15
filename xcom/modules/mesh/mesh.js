@@ -63,6 +63,14 @@ function formatError(e) {
   return String(e)
 }
 
+function meshNodeDisplayName(n, fallback) {
+  const shortName = String(n?.shortName || '').trim()
+  const longName = String(n?.longName || '').trim()
+  const fb = String(fallback || '').trim()
+  if (shortName && longName && shortName !== longName) return `${shortName} (${longName})`
+  return shortName || longName || fb || 'Node'
+}
+
 // eslint-disable-next-line no-unused-vars
 class MeshModule {
   constructor() {
@@ -725,7 +733,7 @@ class MeshModule {
        for (const n of nodes) {
          const id = String(n?.id || '').trim()
          const num = Number.isFinite(Number(n?.num)) ? Math.floor(Number(n.num)) : null
-         const label = String(n?.shortName || n?.longName || (id ? id : (num != null ? `#${num}` : 'Node'))).trim() || 'Node'
+         const label = meshNodeDisplayName(n, id ? id : (num != null ? `#${num}` : 'Node'))
          if (num != null) labelByNum.set(num, label)
          if (id) labelById.set(id, label)
        }
@@ -893,9 +901,15 @@ class MeshModule {
         for (const n of filtered.slice(0, 200)) {
           const id = String(n?.id || '').trim()
           const num = Number.isFinite(Number(n?.num)) ? Math.floor(Number(n.num)) : null
-          const label = String(n?.shortName || n?.longName || (id ? id : (num != null ? `#${num}` : 'Node'))).trim() || 'Node'
+          const label = meshNodeDisplayName(n, id ? id : (num != null ? `#${num}` : 'Node'))
           const lastSeenTs = Number(n?.lastSeenTs || 0) || 0
+          const lat = Number(n?.position?.lat)
+          const lon = Number(n?.position?.lon)
+          const hasPos = Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180
           const when = lastSeenTs ? new Date(lastSeenTs).toISOString() : '—'
+
+          const row = document.createElement('div')
+          row.className = 'meshNodeRow'
 
           const btn = document.createElement('button')
           btn.type = 'button'
@@ -926,7 +940,19 @@ class MeshModule {
 
           btn.appendChild(title)
           btn.appendChild(meta)
-          listEl.appendChild(btn)
+          row.appendChild(btn)
+
+          if (hasPos) {
+            const mapBtn = document.createElement('button')
+            mapBtn.type = 'button'
+            mapBtn.className = 'meshNodeMapBtn'
+            mapBtn.textContent = 'View on map'
+            mapBtn.title = 'Open Map module centered on this node'
+            mapBtn.addEventListener('click', () => this.jumpToMap(lat, lon, 15))
+            row.appendChild(mapBtn)
+          }
+
+          listEl.appendChild(row)
         }
 
         if (filtered.length === 0) {
@@ -945,6 +971,32 @@ class MeshModule {
     this.updateCoverageStatusUi()
     this.updateMapSummary(state)
     this.refreshMapOverlays(state)
+  }
+
+  jumpToMap(lat, lon, zoom) {
+    const a = Number(lat)
+    const b = Number(lon)
+    const zRaw = Number(zoom)
+    if (!Number.isFinite(a) || Math.abs(a) > 90) return
+    if (!Number.isFinite(b) || Math.abs(b) > 180) return
+    const z = Number.isFinite(zRaw) ? Math.max(0, Math.min(22, zRaw)) : 15
+
+    try { globalThis.setMapDefaultCoords && globalThis.setMapDefaultCoords({ lat: a, lon: b }) } catch (_) { /* ignore */ }
+    try { globalThis.setMapDefaultZoom && globalThis.setMapDefaultZoom(z) } catch (_) { /* ignore */ }
+
+    // Prefer a real nav click so the sidebar highlight stays in sync.
+    try {
+      const link = document.querySelector('#module-nav a[href="#map"], .xNav a[href="#map"], #module-nav a[data-module="map"], .xNav a[data-module="map"]')
+      if (link && typeof link.click === 'function') {
+        link.click()
+        return
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    try { window.location.hash = 'map' } catch (_) { /* ignore */ }
+    try { window.radioApp?.loadModule?.('map') } catch (_) { /* ignore */ }
   }
 
   initMap() {
@@ -1241,7 +1293,7 @@ class MeshModule {
       const lon = Number(pos?.lon)
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
 
-      const label = String(n?.shortName || n?.longName || `#${n?.num ?? ''}` || 'Node').trim()
+      const label = meshNodeDisplayName(n, `#${n?.num ?? ''}`)
       const lastSeenTs = Number(n?.lastSeenTs || 0) || 0
       const ageMin = lastSeenTs ? Math.max(0, (now - lastSeenTs) / 60000) : 9999
       const opacity = ageMin <= 10 ? 0.9 : ageMin <= 60 ? 0.65 : 0.35
