@@ -1072,13 +1072,15 @@ class RadioApp {
                     'modules/shared/xtoc/keyImport.js',
                     // Shared mesh transport (so Comms can Connect + Send without opening Mesh module)
                     'modules/shared/mesh/meshTransport.js',
-                    // Shared HaLow transport (so Comms can Connect + Send without opening HaLow module)
-                    'modules/shared/halow/halowTransport.js',
-                    // Module
-                    'modules/comms/comms.js'
-                ],
-                styles: ['styles/modules/comms.css'],
-                dependencies: [
+                     // Shared HaLow transport (so Comms can Connect + Send without opening HaLow module)
+                     'modules/shared/halow/halowTransport.js',
+                     // Shared Reticulum transport (so Comms can Connect + Send without opening MeshChat module)
+                     'modules/shared/reticulum/reticulumTransport.js',
+                     // Module
+                     'modules/comms/comms.js'
+                 ],
+                 styles: ['styles/modules/comms.css'],
+                 dependencies: [
                     'assets/vendor/maplibre-gl/maplibre-gl.js',
                     'assets/vendor/maplibre-gl/maplibre-gl.css'
                 ]
@@ -1153,6 +1155,29 @@ class RadioApp {
                     'modules/halow/halow.js'
                 ],
                 styles: ['styles/modules/halow.css'],
+                dependencies: []
+            },
+            'meshchat': {
+                name: 'MeshChat',
+                description: 'Reticulum MeshChat bridge (RNode/RNS) for XTOC master <-> XCOM clients with peers + traffic',
+                scripts: [
+                    // Shared XTOC helpers (so incoming packets can be auto-mapped even if Comms/Map aren't open)
+                    'modules/shared/xtoc/settings.js',
+                    'modules/shared/xtoc/base64url.js',
+                    'modules/shared/xtoc/packet.js',
+                    'modules/shared/xtoc/chunking.js',
+                    'modules/shared/xtoc/secure.js',
+                    'modules/shared/xtoc/secureTemplates.js',
+                    'modules/shared/xtoc/storage.js',
+                    'modules/shared/xtoc/packetStore.js',
+                    'modules/shared/xtoc/importedPackets.js',
+                    'modules/shared/xtoc/autoIngest.js',
+                    // Shared Reticulum transport
+                    'modules/shared/reticulum/reticulumTransport.js',
+                    // Module
+                    'modules/meshchat/meshchat.js'
+                ],
+                styles: ['styles/modules/meshchat.css'],
                 dependencies: []
             }
             // Additional modules will be added here

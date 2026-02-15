@@ -16,6 +16,7 @@
 const LS_MESH_PREFIX = 'xcom.mesh.'
 const LS_MESH_CONFIG = LS_MESH_PREFIX + 'config.v1'
 const LS_MESH_LOG = LS_MESH_PREFIX + 'traffic.v1'
+const LS_MESH_DM_UNREAD = LS_MESH_PREFIX + 'dmUnread.v1'
 // Note: we keep a legacy key for older builds that only supported Meshtastic.
 const LS_MESH_LAST_DEVICE_ID_LEGACY = LS_MESH_PREFIX + 'lastBleDeviceId.v1'
 const LS_MESH_LAST_DEVICE_ID_MT = LS_MESH_PREFIX + 'lastBleDeviceId.meshtastic.v1'
@@ -301,6 +302,78 @@ function meshAsNonEmptyString(v) {
   const s = (v == null) ? '' : String(v)
   const t = s.trim()
   return t ? t : null
+}
+
+function meshNormalizeMeshcorePrefixHex(raw) {
+  const s = meshAsNonEmptyString(raw)
+  if (!s) return null
+  const cleaned = s.replace(/^!/, '').replace(/[^0-9a-fA-F]/g, '').toLowerCase()
+  return cleaned.length === 12 ? cleaned : null
+}
+
+function meshNormalizeMeshtasticNodeId(raw) {
+  const s = meshAsNonEmptyString(raw)
+  if (!s) return null
+  if (s.startsWith('!')) {
+    const n = parseInt(s.slice(1), 16)
+    if (!Number.isFinite(n)) return null
+    return '!' + ((n >>> 0).toString(16).padStart(8, '0'))
+  }
+  const n = Number(s)
+  if (!Number.isFinite(n)) return null
+  return '!' + ((Math.floor(n) >>> 0).toString(16).padStart(8, '0'))
+}
+
+// -----------------------------
+// Direct-message unread DB (persistent)
+// -----------------------------
+
+function meshNormalizeDmUnreadMeta(v) {
+  if (typeof v === 'number') {
+    const ts = meshAsFiniteNumber(v)
+    if (!ts) return null
+    return { ts: Math.floor(ts), count: 1 }
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+  const ts = meshAsFiniteNumber(v?.ts ?? null)
+  if (!ts) return null
+  const countRaw = meshAsFiniteNumber(v?.count ?? null)
+  const count = countRaw != null ? Math.max(1, Math.min(999, Math.floor(countRaw))) : 1
+  return { ts: Math.floor(ts), count }
+}
+
+function meshPruneDmUnreadDb(db, maxKeys) {
+  const max = Math.max(10, Math.min(2000, Math.floor(Number(maxKeys) || 250)))
+  try {
+    const entries = Object.entries(db || {})
+      .filter(([k, v]) => k != null && String(k).trim() && v && typeof v === 'object')
+    if (entries.length <= max) return db
+    entries.sort((a, b) => Number(b?.[1]?.ts || 0) - Number(a?.[1]?.ts || 0))
+    const next = {}
+    for (const [k, v] of entries.slice(0, max)) next[k] = v
+    return next
+  } catch (_) {
+    return db
+  }
+}
+
+function meshReadDmUnreadDb() {
+  const raw = meshReadJson(LS_MESH_DM_UNREAD, {})
+  const obj = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {}
+  const out = {}
+  for (const [k, v] of Object.entries(obj || {})) {
+    const key = String(k || '').trim()
+    if (!key) continue
+    const meta = meshNormalizeDmUnreadMeta(v)
+    if (!meta) continue
+    out[key] = meta
+  }
+  return meshPruneDmUnreadDb(out, 250)
+}
+
+function meshWriteDmUnreadDb(db) {
+  const safe = (db && typeof db === 'object' && !Array.isArray(db)) ? db : {}
+  meshWriteJson(LS_MESH_DM_UNREAD, safe)
 }
 
 // -----------------------------
@@ -1114,11 +1187,12 @@ class MeshtasticDriver {
     const cfg = _meshConfigGet()
     const mt = { ...cfg.meshtastic, ...(opts || {}) }
     const channel = Math.max(0, Math.min(7, Math.floor(Number(mt.channel) || 0)))
-    const wantAck = !!mt.wantAck
 
     // Destination
     const destination = String(mt.destination || 'broadcast')
     const toNodeId = String(mt.toNodeId || '').trim()
+    // Broadcast messages do not have a single recipient to ACK; requesting ACK can lead to ROUTING_APP TIMEOUT errors.
+    const wantAck = (destination === 'direct' && !!toNodeId) ? !!mt.wantAck : false
 
     // @meshtastic/js: sendText(text, destination?, wantAck?, channel?)
     if (typeof conn?.sendText === 'function') {
@@ -1921,6 +1995,7 @@ class XcomMeshTransport {
 
     this.nodeDb = meshReadNodeDb()
     this.channelDb = meshReadChannelDb()
+    this.dmUnreadDb = meshReadDmUnreadDb()
   }
 
   getConfig() { return _meshConfigGet() }
@@ -1944,6 +2019,62 @@ class XcomMeshTransport {
 
   getTrafficLog() { return _meshTrafficGet() }
   clearTrafficLog() { meshClearTraffic(); this._notify() }
+
+  getDmUnreadDb() {
+    const db = (this.dmUnreadDb && typeof this.dmUnreadDb === 'object') ? this.dmUnreadDb : {}
+    // Return a defensive copy so consumers can't mutate our internal DB.
+    const out = {}
+    for (const [k, v] of Object.entries(db)) {
+      const key = String(k || '').trim()
+      if (!key) continue
+      const meta = meshNormalizeDmUnreadMeta(v)
+      if (!meta) continue
+      out[key] = meta
+    }
+    return out
+  }
+
+  getDmUnreadMeta(peerKey) {
+    const k = String(peerKey || '').trim()
+    if (!k) return null
+    const meta = meshNormalizeDmUnreadMeta(this.dmUnreadDb?.[k] ?? null)
+    return meta ? { ...meta } : null
+  }
+
+  _markDmUnread(peerKey, ts) {
+    const k = String(peerKey || '').trim()
+    if (!k) return
+    const t = meshAsFiniteNumber(ts) ?? Date.now()
+    if (!t) return
+
+    const db = (this.dmUnreadDb && typeof this.dmUnreadDb === 'object') ? this.dmUnreadDb : {}
+    const prev = meshNormalizeDmUnreadMeta(db?.[k] ?? null) || null
+    const next = {
+      ts: Math.max(prev?.ts ?? 0, Math.floor(t)),
+      count: Math.max(1, Math.min(999, (prev?.count ?? 0) + 1)),
+    }
+
+    db[k] = next
+    this.dmUnreadDb = meshPruneDmUnreadDb(db, 250)
+    meshWriteDmUnreadDb(this.dmUnreadDb)
+  }
+
+  markDmRead(peerKey) {
+    const k = String(peerKey || '').trim()
+    if (!k) return
+    const db = (this.dmUnreadDb && typeof this.dmUnreadDb === 'object') ? this.dmUnreadDb : {}
+    if (!db[k]) return
+    delete db[k]
+    this.dmUnreadDb = db
+    meshWriteDmUnreadDb(db)
+    this._notify()
+  }
+
+  clearDmUnread() {
+    this.dmUnreadDb = {}
+    meshWriteDmUnreadDb({})
+    this._notify()
+  }
 
   getNodeDb() { return this.nodeDb || {} }
   getNodes() { return meshNodeDbToArray(this.getNodeDb()) }
@@ -2297,6 +2428,9 @@ class XcomMeshTransport {
       })
       d.onReceive((e) => {
         // store a simplified view for UI
+        let msgType = null
+        let fromKey = null
+        let toKey = null
         try {
           const ts = Date.now()
           if (e?.kind === 'message') {
@@ -2305,10 +2439,25 @@ class XcomMeshTransport {
               const patch = { lastSeenTs: ts, driver: driverName }
               if (driverName === 'meshtastic') {
                 const id = meshFormatMeshtasticNodeId(from)
-                if (id) patch.id = id
+                if (id) {
+                  patch.id = id
+                  fromKey = `meshtastic:${id}`
+                }
+                const t = String(e?.msg?.type ?? '').trim()
+                msgType = (t === 'direct' || t === 'broadcast') ? t : null
+                if (msgType === 'direct') {
+                  const to = meshAsFiniteNumber(e?.msg?.to ?? null)
+                  const toId = to != null ? meshFormatMeshtasticNodeId(to) : null
+                  if (toId) toKey = `meshtastic:${toId}`
+                }
               } else if (driverName === 'meshcore') {
-                const id = meshAsNonEmptyString(e?.msg?.meshcore?.prefixHex ?? null)
-                if (id) patch.id = id
+                const raw = meshAsNonEmptyString(e?.msg?.meshcore?.prefixHex ?? null)
+                const id = raw ? (meshNormalizeMeshcorePrefixHex(raw) || raw) : null
+                if (id) {
+                  patch.id = id
+                  fromKey = `meshcore:${id}`
+                }
+                msgType = 'direct'
               }
               this._upsertNode(from, patch)
             }
@@ -2358,10 +2507,24 @@ class XcomMeshTransport {
         } catch (_) {
           // ignore
         }
+
+        // Mark unread DMs before notifying the UI via log append.
+        try {
+          if (e?.kind === 'message' && msgType === 'direct' && fromKey) {
+            this._markDmUnread(fromKey, e.ts)
+          }
+        } catch (_) {
+          // ignore
+        }
+
         this._appendLog({
           dir: 'in',
           ts: e.ts,
           kind: e.kind,
+          driver: driverName,
+          ...(msgType ? { msgType } : {}),
+          ...(fromKey ? { fromKey } : {}),
+          ...(toKey ? { toKey } : {}),
           from: e?.kind === 'message' ? (meshAsFiniteNumber(e?.msg?.from ?? null) ?? undefined) : (meshAsFiniteNumber(e?.pkt?.from ?? null) ?? undefined),
           to: e?.kind === 'message' ? (meshAsFiniteNumber(e?.msg?.to ?? null) ?? undefined) : (meshAsFiniteNumber(e?.pkt?.to ?? null) ?? undefined),
           channel: e?.kind === 'message' ? (meshAsFiniteNumber(e?.msg?.channel ?? null) ?? undefined) : (meshAsFiniteNumber(e?.pkt?.channel ?? null) ?? undefined),
@@ -2474,13 +2637,17 @@ class XcomMeshTransport {
         const destination = mc.destination === 'direct' ? 'direct' : 'broadcast'
         const channel = Math.max(0, Math.min(255, Math.floor(Number(mc.channel) || 0)))
         const toNodeId = meshAsNonEmptyString(mc.toNodeId ?? null) || undefined
-        meta = { driver: driverName, destination, channel, ...(destination === 'direct' && toNodeId ? { toNodeId } : {}) }
+        const toNorm = (destination === 'direct' && toNodeId) ? (meshNormalizeMeshcorePrefixHex(toNodeId) || null) : null
+        const toKey = (destination === 'direct' && toNodeId && toNorm) ? `meshcore:${toNorm}` : undefined
+        meta = { driver: driverName, destination, channel, ...(destination === 'direct' && toNodeId ? { toNodeId } : {}), ...(toKey ? { toKey } : {}) }
       } else {
         const mt = { ...(cfg?.meshtastic || {}), ...(opts || {}) }
         const destination = mt.destination === 'direct' ? 'direct' : 'broadcast'
         const channel = Math.max(0, Math.min(7, Math.floor(Number(mt.channel) || 0)))
         const toNodeId = meshAsNonEmptyString(mt.toNodeId ?? null) || undefined
-        meta = { driver: driverName, destination, channel, ...(destination === 'direct' && toNodeId ? { toNodeId } : {}) }
+        const toNorm = (destination === 'direct' && toNodeId) ? (meshNormalizeMeshtasticNodeId(toNodeId) || null) : null
+        const toKey = (destination === 'direct' && toNodeId && toNorm) ? `meshtastic:${toNorm}` : undefined
+        meta = { driver: driverName, destination, channel, ...(destination === 'direct' && toNodeId ? { toNodeId } : {}), ...(toKey ? { toKey } : {}) }
       }
     } catch (_) {
       meta = null

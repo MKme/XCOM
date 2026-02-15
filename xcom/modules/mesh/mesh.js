@@ -87,6 +87,8 @@ class MeshModule {
     this.nodeFilter = ''
 
     this._lastTrafficLen = 0
+    this._dmMarkReadTimer = null
+    this._dmMarkReadKey = null
     this.coverageLogging = false
     this.geoWatchId = null
     this.lastGeo = null
@@ -125,6 +127,9 @@ class MeshModule {
   destroy() {
     try { if (this.unsub) this.unsub() } catch (_) { /* ignore */ }
     this.unsub = null
+    try { if (this._dmMarkReadTimer) clearTimeout(this._dmMarkReadTimer) } catch (_) { /* ignore */ }
+    this._dmMarkReadTimer = null
+    this._dmMarkReadKey = null
     try { this.stopCoverageLogging() } catch (_) { /* ignore */ }
     try { if (this._boundHashChange) window.removeEventListener('hashchange', this._boundHashChange) } catch (_) { /* ignore */ }
     this._boundHashChange = null
@@ -161,6 +166,7 @@ class MeshModule {
             <button id="meshConnectBtn" type="button" class="primary">Connect</button>
             <button id="meshDisconnectBtn" type="button" class="danger">Disconnect</button>
             <button id="meshClearLogBtn" type="button">Clear Log</button>
+            <label class="meshInline"><input id="meshAutoReconnect" type="checkbox" checked /> Auto-reconnect</label>
           </div>
         </div>
 
@@ -196,12 +202,7 @@ class MeshModule {
           </div>
 
           <div class="meshRow" id="meshWantAckRow">
-            <label class="meshInline"><input id="meshWantAck" type="checkbox" checked /> Request ACK</label>
-          </div>
-
-          <div class="meshRow">
-            <label class="meshInline"><input id="meshAutoReconnect" type="checkbox" checked /> Auto-reconnect</label>
-            <div class="meshSmallMuted">If Bluetooth drops, try to reconnect automatically</div>
+            <label class="meshInline"><input id="meshWantAck" type="checkbox" checked /> Request ACK (direct only)</label>
           </div>
 
           <div class="meshDivider"></div>
@@ -212,6 +213,10 @@ class MeshModule {
           </div>
           <div class="meshButtonRow">
             <button id="meshSendTestBtn" type="button">Send</button>
+          </div>
+          <div id="meshDmThreadWrap" class="meshDmThreadWrap" style="display: none;">
+            <div id="meshDmThreadTitle" class="meshSmallMuted" style="margin-top: 10px; margin-bottom: 6px;"></div>
+            <pre id="meshDmThread" class="meshPre meshThreadPre"></pre>
           </div>
           <div class="meshSmallMuted">
             Tip: Comms can also send generated packet lines directly over Mesh after you connect here.
@@ -239,25 +244,33 @@ class MeshModule {
           <div id="meshSquadStatus" class="meshSmallMuted"></div>
         </div>
 
-        <div class="meshCard">
-          <div class="meshCardTitle">Channels + Nodes heard</div>
-          <div class="meshSmallMuted" style="margin-bottom: 10px;">
-            Click a channel to set <strong>Broadcast</strong> + channel index. Import labels from a connected Meshtastic device.
+        <div class="meshStack">
+          <div class="meshCard">
+            <div class="meshCardTitle">Chat View</div>
+            <div id="meshChatHint" class="meshSmallMuted" style="margin-bottom: 10px;"></div>
+            <div id="meshChatList" class="meshChatList"></div>
           </div>
-          <div class="meshButtonRow" style="margin-top: 0;">
-            <button id="meshImportChannelsBtn" type="button" class="primary">Import labels</button>
-            <button id="meshClearChannelsBtn" type="button" class="danger">Clear</button>
-          </div>
-          <div id="meshChannelList" class="meshChipRow" style="margin-top: 10px;"></div>
 
-          <div class="meshDivider"></div>
+          <div class="meshCard">
+            <div class="meshCardTitle">Channels + Nodes heard</div>
+            <div class="meshSmallMuted" style="margin-bottom: 10px;">
+              Click a channel to set <strong>Broadcast</strong> + channel index. Import labels from a connected Meshtastic device.
+            </div>
+            <div class="meshButtonRow" style="margin-top: 0;">
+              <button id="meshImportChannelsBtn" type="button" class="primary">Import labels</button>
+              <button id="meshClearChannelsBtn" type="button" class="danger">Clear</button>
+            </div>
+            <div id="meshChannelList" class="meshChipRow" style="margin-top: 10px;"></div>
 
-          <div class="meshRow">
-            <label>Filter nodes</label>
-            <input id="meshNodeFilter" type="text" placeholder="name / id / #" />
+            <div class="meshDivider"></div>
+
+            <div class="meshRow">
+              <label>Filter nodes</label>
+              <input id="meshNodeFilter" type="text" placeholder="name / id / #" />
+            </div>
+            <div id="meshNodeCount" class="meshSmallMuted"></div>
+            <div id="meshNodeList" class="meshList"></div>
           </div>
-          <div id="meshNodeCount" class="meshSmallMuted"></div>
-          <div id="meshNodeList" class="meshList"></div>
         </div>
 
         <div class="meshCard meshSpanFull">
@@ -367,6 +380,27 @@ class MeshModule {
             patch.meshtastic = { destination: dest, channel, toNodeId, wantAck }
           }
           globalThis.setMeshConfig(patch)
+        }
+
+        // If a DM thread is open/selected, clear unread for that peer.
+        if (String(dest || '') === 'direct' && toNodeId) {
+          const peerKey = (() => {
+            if (driver === 'meshcore') {
+              const cleaned = String(toNodeId || '').trim().replace(/^!/, '').replace(/[^0-9a-fA-F]/g, '').toLowerCase()
+              return cleaned.length === 12 ? `meshcore:${cleaned}` : null
+            }
+            const raw = String(toNodeId || '').trim()
+            if (!raw) return null
+            if (raw.startsWith('!')) {
+              const n = parseInt(raw.slice(1), 16)
+              if (!Number.isFinite(n)) return null
+              return `meshtastic:${'!' + ((n >>> 0).toString(16).padStart(8, '0'))}`
+            }
+            const n = Number(raw)
+            if (!Number.isFinite(n)) return null
+            return `meshtastic:${'!' + ((Math.floor(n) >>> 0).toString(16).padStart(8, '0'))}`
+          })()
+          if (peerKey) globalThis.xcomMesh?.markDmRead?.(peerKey)
         }
       } catch (_) {
         // ignore
@@ -502,6 +536,29 @@ class MeshModule {
           if (driver === 'meshcore') globalThis.setMeshConfig({ meshcore: { destination: 'direct', toNodeId } })
           else globalThis.setMeshConfig({ meshtastic: { destination: 'direct', toNodeId } })
         }
+
+        // Opening the thread clears unread indicator for this peer.
+        try {
+          const peerKey = (() => {
+            if (driver === 'meshcore') {
+              const cleaned = String(toNodeId || '').trim().replace(/^!/, '').replace(/[^0-9a-fA-F]/g, '').toLowerCase()
+              return cleaned.length === 12 ? `meshcore:${cleaned}` : null
+            }
+            const raw = String(toNodeId || '').trim()
+            if (!raw) return null
+            if (raw.startsWith('!')) {
+              const n = parseInt(raw.slice(1), 16)
+              if (!Number.isFinite(n)) return null
+              return `meshtastic:${'!' + ((n >>> 0).toString(16).padStart(8, '0'))}`
+            }
+            const n = Number(raw)
+            if (!Number.isFinite(n)) return null
+            return `meshtastic:${'!' + ((Math.floor(n) >>> 0).toString(16).padStart(8, '0'))}`
+          })()
+          if (peerKey) globalThis.xcomMesh?.markDmRead?.(peerKey)
+        } catch (_) {
+          // ignore
+        }
         try { document.getElementById('meshTestText')?.focus?.() } catch (_) { /* ignore */ }
       } catch (_) {
         // ignore
@@ -562,10 +619,56 @@ class MeshModule {
     if (centerBtn) centerBtn.addEventListener('click', () => this.centerOnMe())
   }
 
+  _scheduleMarkDmRead(peerKey) {
+    const k = String(peerKey || '').trim()
+    if (!k) return
+    this._dmMarkReadKey = k
+    if (this._dmMarkReadTimer) return
+    this._dmMarkReadTimer = setTimeout(() => {
+      this._dmMarkReadTimer = null
+      const key = this._dmMarkReadKey
+      this._dmMarkReadKey = null
+      if (!key) return
+      try { globalThis.xcomMesh?.markDmRead?.(key) } catch (_) { /* ignore */ }
+    }, 0)
+  }
+
   renderFromState() {
     const cfg = globalThis.getMeshConfig ? globalThis.getMeshConfig() : null
     const state = globalThis.xcomMesh ? globalThis.xcomMesh.getState() : { status: { connected: false }, traffic: [] }
     const driverName = (cfg?.driver === 'meshcore') ? 'meshcore' : 'meshtastic'
+
+    const normalizeMeshcorePrefixHex = (raw) => {
+      const s = String(raw ?? '').trim()
+      if (!s) return null
+      const cleaned = s.replace(/^!/, '').replace(/[^0-9a-fA-F]/g, '').toLowerCase()
+      return cleaned.length === 12 ? cleaned : null
+    }
+
+    const normalizeMeshtasticNodeId = (raw) => {
+      const s = String(raw ?? '').trim()
+      if (!s) return null
+      if (s.startsWith('!')) {
+        const n = parseInt(s.slice(1), 16)
+        if (!Number.isFinite(n)) return null
+        return '!' + ((n >>> 0).toString(16).padStart(8, '0'))
+      }
+      const n = Number(s)
+      if (!Number.isFinite(n)) return null
+      return '!' + ((Math.floor(n) >>> 0).toString(16).padStart(8, '0'))
+    }
+
+    const normalizePeerKey = (driver, rawTo) => {
+      const d = (String(driver || '') === 'meshcore') ? 'meshcore' : 'meshtastic'
+      const raw = String(rawTo ?? '').trim()
+      if (!raw) return null
+      if (d === 'meshcore') {
+        const cleaned = normalizeMeshcorePrefixHex(raw)
+        return cleaned ? `meshcore:${cleaned}` : null
+      }
+      const id = normalizeMeshtasticNodeId(raw)
+      return id ? `meshtastic:${id}` : null
+    }
 
     // status pill
     const statusEl = document.getElementById('meshStatus')
@@ -669,10 +772,343 @@ class MeshModule {
         toEl.placeholder = driver === 'meshcore' ? 'a1b2c3d4e5f6' : '!deadbeef or numeric node id'
       }
       if (ackRowEl) ackRowEl.style.display = driver === 'meshcore' ? 'none' : ''
-      if (ackEl) ackEl.checked = mt.wantAck !== false
+      if (ackEl) {
+        ackEl.checked = mt.wantAck !== false
+        ackEl.disabled = (destEl?.value !== 'direct')
+      }
       if (arEl) arEl.checked = ui.autoReconnect !== false
 
       if (toEl) toEl.disabled = (destEl?.value !== 'direct')
+    } catch (_) {
+      // ignore
+    }
+
+    // chat view (channel broadcast or per-peer DM)
+    try {
+      const driver = driverName
+      const mt = (cfg && cfg.meshtastic) ? cfg.meshtastic : {}
+      const mc = (cfg && cfg.meshcore) ? cfg.meshcore : {}
+      const active = (driver === 'meshcore') ? mc : mt
+
+      const wantDest = (String(active?.destination || '') === 'direct') ? 'direct' : 'broadcast'
+      const selectedPeerKey = (wantDest === 'direct') ? normalizePeerKey(driver, active?.toNodeId ?? null) : null
+
+      const rawChannel = Number(active?.channel || 0)
+      const channel = (driver === 'meshcore')
+        ? Math.max(0, Math.min(255, Math.floor(Number.isFinite(rawChannel) ? rawChannel : 0)))
+        : Math.max(0, Math.min(7, Math.floor(Number.isFinite(rawChannel) ? rawChannel : 0)))
+
+      const channelsAll = Array.isArray(state?.channels) ? state.channels : (typeof globalThis.meshGetChannels === 'function' ? globalThis.meshGetChannels() : [])
+      const channels = Array.isArray(channelsAll) ? channelsAll.filter((c) => {
+        const d = String(c?.driver || '').trim()
+        return d ? d === driver : true
+      }) : []
+      const chEntry = channels.find((c) => Number(c?.index ?? c?.channel ?? 0) === channel) || null
+      const channelName = String(chEntry?.name || '').trim() || (driver === 'meshtastic' && channel === 0 ? 'Primary' : `Channel ${channel}`)
+
+      const myShort = String(state?.status?.lastDeviceInfo?.shortName || state?.status?.lastDeviceInfo?.longName || '').trim() || 'You'
+      const myLongRaw = String(state?.status?.lastDeviceInfo?.longName || '').trim()
+      const myLong = (myLongRaw && myLongRaw !== myShort) ? myLongRaw : ''
+
+      // Build a name map for the current driver.
+      const nodesAll = Array.isArray(state?.nodes) ? state.nodes : (typeof globalThis.meshGetNodes === 'function' ? globalThis.meshGetNodes() : [])
+      const nodes = Array.isArray(nodesAll) ? nodesAll.filter((n) => String(n?.driver || '') === driver) : []
+      const nameByPeerKey = new Map()
+      for (const n of nodes) {
+        const rawId = String(n?.id || '').trim()
+        const normId = (driver === 'meshcore')
+          ? (normalizeMeshcorePrefixHex(rawId) || rawId.toLowerCase())
+          : (normalizeMeshtasticNodeId(rawId) || rawId)
+        if (!normId) continue
+        const peerKey = `${driver}:${normId}`
+        const shortRaw = String(n?.shortName || '').trim()
+        const longRaw = String(n?.longName || '').trim()
+        const shortName = shortRaw || longRaw || normId
+        const longName = (shortRaw && longRaw && longRaw !== shortRaw) ? longRaw : ''
+        nameByPeerKey.set(peerKey, { shortName, longName, id: normId })
+      }
+
+      const displayForPeerKey = (peerKey) => {
+        const k = String(peerKey || '').trim()
+        if (!k) return { shortName: 'Peer', longName: '', id: '' }
+        const hit = nameByPeerKey.get(k)
+        if (hit) return hit
+        const idx = k.indexOf(':')
+        const id = (idx >= 0) ? k.slice(idx + 1) : k
+        return { shortName: id || 'Peer', longName: '', id }
+      }
+
+      const traffic = Array.isArray(state?.traffic) ? state.traffic : []
+      const msgs = []
+      for (const e of traffic) {
+        if (!e) continue
+        const ed = String(e?.driver || '').trim()
+        if (ed && ed !== driver) continue
+        const text = (typeof e?.text === 'string' && e.text.trim())
+          ? e.text
+          : (String(e?.kind || '') === 'message' && typeof e?.raw?.data === 'string' ? e.raw.data : '')
+        if (!String(text || '').trim()) continue
+
+        if (wantDest === 'direct') {
+          if (!selectedPeerKey) continue
+
+          if (e?.dir === 'out' && String(e?.kind || '') === 'text') {
+            if (String(e?.destination || '') !== 'direct') continue
+            const to = String(e?.toKey || '').trim() || normalizePeerKey(driver, e?.toNodeId ?? null) || ''
+            if (to !== selectedPeerKey) continue
+            msgs.push({ ts: Number(e.ts) || Date.now(), dir: 'out', text, status: String(e?.status || ''), error: e?.error ? String(e.error) : '' })
+            continue
+          }
+
+          if (e?.dir === 'in') {
+            const kind = String(e?.kind || '')
+            if (kind !== 'message' && kind !== 'text') continue
+            const mt = String(e?.msgType || e?.raw?.type || (driver === 'meshcore' ? 'direct' : '')).trim()
+            if (mt !== 'direct') continue
+            const from = String(e?.fromKey || '').trim()
+            if (from && from !== selectedPeerKey) continue
+            if (!from) continue
+            msgs.push({ ts: Number(e.ts) || Date.now(), dir: 'in', text, fromKey: from })
+          }
+          continue
+        }
+
+        // broadcast (channel)
+        if (e?.dir === 'out' && String(e?.kind || '') === 'text') {
+          if (String(e?.destination || '') !== 'broadcast') continue
+          const ch = Number(e?.channel)
+          if (Number.isFinite(ch) && Math.floor(ch) !== channel) continue
+          msgs.push({ ts: Number(e.ts) || Date.now(), dir: 'out', text, status: String(e?.status || ''), error: e?.error ? String(e.error) : '' })
+          continue
+        }
+
+        if (e?.dir === 'in') {
+          const kind = String(e?.kind || '')
+          if (kind !== 'message' && kind !== 'text') continue
+          if (driver === 'meshtastic') {
+            const mt = String(e?.msgType || e?.raw?.type || '').trim()
+            if (mt === 'direct') continue
+            const ch = Number(e?.channel)
+            if (Number.isFinite(ch) && Math.floor(ch) !== channel) continue
+          }
+          const from = String(e?.fromKey || '').trim()
+          msgs.push({ ts: Number(e.ts) || Date.now(), dir: 'in', text, ...(from ? { fromKey: from } : {}) })
+        }
+      }
+
+      const slice = msgs.slice(-160)
+
+      const hintEl = document.getElementById('meshChatHint')
+      const listEl = document.getElementById('meshChatList')
+      if (hintEl) {
+        if (wantDest === 'direct') {
+          if (!selectedPeerKey) hintEl.textContent = 'Direct thread: select a node (from Nodes heard) to view the DM conversation.'
+          else {
+            const d = displayForPeerKey(selectedPeerKey)
+            hintEl.textContent = `Direct thread with ${d.shortName}${d.longName ? ` (${d.longName})` : ''}. Click a sender name to DM.`
+          }
+        } else {
+          hintEl.textContent = `Channel ${channelName} (#${channel}). Click a sender name to DM.`
+        }
+      }
+
+      if (listEl) {
+        listEl.innerHTML = ''
+        if (!slice.length) {
+          const empty = document.createElement('div')
+          empty.className = 'meshSmallMuted'
+          empty.textContent = 'No messages yet for this view.'
+          listEl.appendChild(empty)
+        } else {
+          for (const m of slice) {
+            const out = m.dir === 'out'
+            const row = document.createElement('div')
+            row.className = `meshChatRow ${out ? 'out' : 'in'}`
+
+            const meta = document.createElement('div')
+            meta.className = 'meshChatMeta'
+
+            const who = document.createElement('div')
+            who.className = 'meshChatWho'
+
+            if (out) {
+              const name = document.createElement('div')
+              name.className = 'meshChatName'
+              name.textContent = myShort
+              who.appendChild(name)
+              if (myLong) {
+                const long = document.createElement('div')
+                long.className = 'meshChatLong'
+                long.textContent = myLong
+                who.appendChild(long)
+              }
+            } else {
+              const fromKey = String(m.fromKey || '').trim()
+              const d = displayForPeerKey(fromKey)
+              if (fromKey) {
+                const btn = document.createElement('button')
+                btn.type = 'button'
+                btn.className = 'meshChatNameBtn'
+                btn.textContent = d.shortName || 'Peer'
+                btn.title = 'Click to DM this node'
+                btn.addEventListener('click', () => {
+                  try {
+                    const idx = fromKey.indexOf(':')
+                    const id = idx >= 0 ? fromKey.slice(idx + 1) : fromKey
+                    if (!id) return
+                    if (typeof globalThis.setMeshConfig === 'function') {
+                      if (driver === 'meshcore') globalThis.setMeshConfig({ meshcore: { destination: 'direct', toNodeId: id } })
+                      else globalThis.setMeshConfig({ meshtastic: { destination: 'direct', toNodeId: id } })
+                    }
+                    try { globalThis.xcomMesh?.markDmRead?.(fromKey) } catch (_) { /* ignore */ }
+                    try { document.getElementById('meshTestText')?.focus?.() } catch (_) { /* ignore */ }
+                  } catch (_) {
+                    // ignore
+                  }
+                })
+                who.appendChild(btn)
+              } else {
+                const name = document.createElement('div')
+                name.className = 'meshChatName'
+                name.textContent = d.shortName || 'Peer'
+                who.appendChild(name)
+              }
+
+              if (d.longName) {
+                const long = document.createElement('div')
+                long.className = 'meshChatLong'
+                long.textContent = d.longName
+                who.appendChild(long)
+              }
+            }
+
+            const right = document.createElement('div')
+            right.className = 'meshChatMetaRight'
+            const ts = Number(m.ts) || Date.now()
+            right.title = new Date(ts).toISOString()
+            right.textContent = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+            if (out && m.status) {
+              const st = String(m.status || '').trim()
+              if (st === 'pending' || st === 'error') {
+                const pill = document.createElement('span')
+                pill.className = `meshChatStatus${st === 'error' ? ' err' : ''}`
+                pill.textContent = st === 'pending' ? 'SENDING' : 'ERR'
+                if (st === 'error' && m.error) pill.title = String(m.error)
+                right.appendChild(pill)
+              }
+            }
+
+            meta.appendChild(who)
+            meta.appendChild(right)
+
+            const bubble = document.createElement('div')
+            bubble.className = 'meshChatBubble'
+            bubble.textContent = String(m.text || '')
+
+            row.appendChild(meta)
+            row.appendChild(bubble)
+            listEl.appendChild(row)
+          }
+        }
+
+        try { listEl.scrollTop = listEl.scrollHeight } catch (_) { /* ignore */ }
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    // direct thread (per-peer DM)
+    try {
+      const driver = driverName
+      const mt = (cfg && cfg.meshtastic) ? cfg.meshtastic : {}
+      const mc = (cfg && cfg.meshcore) ? cfg.meshcore : {}
+      const active = (driver === 'meshcore') ? mc : mt
+
+      const selectedPeerKey = (String(active?.destination || '') === 'direct')
+        ? normalizePeerKey(driver, active?.toNodeId ?? null)
+        : null
+
+      const wrapEl = document.getElementById('meshDmThreadWrap')
+      const titleEl = document.getElementById('meshDmThreadTitle')
+      const preEl = document.getElementById('meshDmThread')
+      if (wrapEl && titleEl && preEl) {
+        if (!selectedPeerKey) {
+          wrapEl.style.display = 'none'
+          titleEl.textContent = ''
+          preEl.textContent = ''
+        } else {
+          wrapEl.style.display = ''
+          const idx = selectedPeerKey.indexOf(':')
+          const peerId = idx >= 0 ? selectedPeerKey.slice(idx + 1) : selectedPeerKey
+
+          // Build a label map for the current driver.
+          const nodesAll = Array.isArray(state?.nodes) ? state.nodes : (typeof globalThis.meshGetNodes === 'function' ? globalThis.meshGetNodes() : [])
+          const nodes = Array.isArray(nodesAll) ? nodesAll.filter((n) => String(n?.driver || '') === driver) : []
+          const labelById = new Map()
+          for (const n of nodes) {
+            const rawId = String(n?.id || '').trim()
+            const normId = (driver === 'meshcore')
+              ? (normalizeMeshcorePrefixHex(rawId) || rawId.toLowerCase())
+              : (normalizeMeshtasticNodeId(rawId) || rawId)
+            if (!normId) continue
+            const num = Number.isFinite(Number(n?.num)) ? Math.floor(Number(n.num)) : null
+            const label = meshNodeDisplayName(n, normId || (num != null ? `#${num}` : 'Node'))
+            labelById.set(normId, label)
+          }
+          const titleLabel = labelById.get(peerId) || peerId
+          titleEl.textContent = `Direct thread: ${titleLabel}`
+
+          const traffic = Array.isArray(state?.traffic) ? state.traffic : []
+          const thread = traffic
+            .filter((e) => {
+              if (!e) return false
+              const ed = String(e?.driver || '').trim()
+              if (ed && ed !== driver) return false
+
+              if (e?.dir === 'out' && String(e?.kind || '') === 'text') {
+                if (String(e?.destination || '') !== 'direct') return false
+                const to = String(e?.toKey || '').trim() || normalizePeerKey(driver, e?.toNodeId ?? null) || ''
+                return to === selectedPeerKey
+              }
+
+              if (e?.dir === 'in') {
+                const kind = String(e?.kind || '')
+                if (kind !== 'message' && kind !== 'text') return false
+                const mt = String(e?.msgType || e?.raw?.type || (driver === 'meshcore' ? 'direct' : '')).trim()
+                if (mt !== 'direct') return false
+                const from = String(e?.fromKey || '').trim() || (driver === 'meshtastic'
+                  ? (() => {
+                    const id = normalizeMeshtasticNodeId(String(e?.from ?? ''))
+                    return id ? `meshtastic:${id}` : ''
+                  })()
+                  : (() => {
+                    const raw = e?.raw?.meshcore?.prefixHex ?? e?.raw?.meshcore?.prefix_hex ?? null
+                    const norm = normalizeMeshcorePrefixHex(raw)
+                    return norm ? `meshcore:${norm}` : ''
+                  })())
+                return from === selectedPeerKey
+              }
+
+              return false
+            })
+            .slice(-40)
+
+          const lines = thread.map((e) => {
+            const ts = e?.ts ? new Date(e.ts).toISOString() : ''
+            const dir = (e?.dir === 'out') ? 'OUT' : (e?.dir === 'in') ? 'IN ' : '?  '
+            const txt = (typeof e?.text === 'string' && e.text.trim())
+              ? e.text
+              : (e?.kind === 'message' && typeof e?.raw?.data === 'string' ? e.raw.data : '')
+            return `${ts}  ${dir}  ${txt}`.trimEnd()
+          })
+          preEl.textContent = lines.join('\n') || '—'
+
+          // Auto-clear unread while the thread is open.
+          const unreadMeta = globalThis.xcomMesh?.getDmUnreadMeta?.(selectedPeerKey)
+          if (unreadMeta) this._scheduleMarkDmRead(selectedPeerKey)
+        }
+      }
     } catch (_) {
       // ignore
     }
@@ -730,37 +1166,25 @@ class MeshModule {
        const nodes = Array.isArray(nodesAll) ? nodesAll.filter((n) => String(n?.driver || '') === driverName) : []
        const labelByNum = new Map()
        const labelById = new Map()
-       for (const n of nodes) {
-         const id = String(n?.id || '').trim()
-         const num = Number.isFinite(Number(n?.num)) ? Math.floor(Number(n.num)) : null
-         const label = meshNodeDisplayName(n, id ? id : (num != null ? `#${num}` : 'Node'))
-         if (num != null) labelByNum.set(num, label)
-         if (id) labelById.set(id, label)
-       }
+        for (const n of nodes) {
+          const idRaw = String(n?.id || '').trim()
+          const id = (driverName === 'meshcore') ? (normalizeMeshcorePrefixHex(idRaw) || idRaw.toLowerCase()) : idRaw
+          const num = Number.isFinite(Number(n?.num)) ? Math.floor(Number(n.num)) : null
+          const label = meshNodeDisplayName(n, id ? id : (num != null ? `#${num}` : 'Node'))
+          if (num != null) labelByNum.set(num, label)
+          if (id) labelById.set(id, label)
+        }
 
-       const normalizeMeshtasticNodeId = (raw) => {
-         const s = String(raw ?? '').trim()
-         if (!s) return null
-         if (s.startsWith('!')) {
-           const n = parseInt(s.slice(1), 16)
-           if (!Number.isFinite(n)) return null
-           return '!' + ((n >>> 0).toString(16).padStart(8, '0'))
-         }
-         const n = Number(s)
-         if (!Number.isFinite(n)) return null
-         return '!' + ((Math.floor(n) >>> 0).toString(16).padStart(8, '0'))
-       }
-
-       const labelForTo = (toNodeId) => {
-         const raw = String(toNodeId ?? '').trim()
-         if (!raw) return ''
-         if (driverName === 'meshcore') {
-           const cleaned = raw.replace(/^!/, '').replace(/[^0-9a-fA-F]/g, '').toLowerCase()
-           if (cleaned.length !== 12) return raw
-           return labelById.get(cleaned) || cleaned
-         }
-         const id = normalizeMeshtasticNodeId(raw)
-         if (!id) return raw
+        const labelForTo = (toNodeId) => {
+          const raw = String(toNodeId ?? '').trim()
+          if (!raw) return ''
+          if (driverName === 'meshcore') {
+            const cleaned = normalizeMeshcorePrefixHex(raw)
+            if (!cleaned) return raw
+            return labelById.get(cleaned) || cleaned
+          }
+          const id = normalizeMeshtasticNodeId(raw)
+          if (!id) return raw
          return labelById.get(id) || id
        }
 
@@ -792,7 +1216,7 @@ class MeshModule {
           if (dir === 'in') {
             const txt = e?.text || (e?.kind === 'message' ? e?.raw?.data : null)
             if (typeof txt === 'string' && txt.trim()) {
-              const msgType = String(e?.raw?.type || '')
+              const msgType = String(e?.msgType || e?.raw?.type || '')
               const fromLabel = e?.from != null ? labelForFrom(e.from) : ''
               const tag = fromLabel ? (msgType === 'direct' ? `DM from ${fromLabel}` : `from ${fromLabel}`) : (msgType === 'direct' ? 'DM' : '')
               const ch = Number.isFinite(Number(e?.channel)) ? `CH${Math.floor(Number(e.channel))}` : ''
@@ -880,6 +1304,36 @@ class MeshModule {
         })
         : nodes
 
+      const dmUnreadDb = (globalThis.xcomMesh && typeof globalThis.xcomMesh.getDmUnreadDb === 'function')
+        ? globalThis.xcomMesh.getDmUnreadDb()
+        : {}
+
+      const nodePeerKey = (node) => {
+        const id = String(node?.id || '').trim()
+        const num = Number.isFinite(Number(node?.num)) ? Math.floor(Number(node.num)) : null
+        if (driver === 'meshcore') {
+          const cleaned = normalizeMeshcorePrefixHex(id)
+          return cleaned ? `meshcore:${cleaned}` : null
+        }
+        const norm = id ? normalizeMeshtasticNodeId(id) : (num != null ? normalizeMeshtasticNodeId(String(num)) : null)
+        return norm ? `meshtastic:${norm}` : null
+      }
+
+      const sorted = filtered.slice().sort((a, b) => {
+        const ka = nodePeerKey(a) || ''
+        const kb = nodePeerKey(b) || ''
+        const au = ka && dmUnreadDb?.[ka]?.ts ? Number(dmUnreadDb[ka].ts) : 0
+        const bu = kb && dmUnreadDb?.[kb]?.ts ? Number(dmUnreadDb[kb].ts) : 0
+        const aUnread = au > 0
+        const bUnread = bu > 0
+        if (aUnread !== bUnread) return aUnread ? -1 : 1
+        if (aUnread && bUnread && bu !== au) return bu - au
+
+        const ta = Number(a?.lastSeenTs || 0) || 0
+        const tb = Number(b?.lastSeenTs || 0) || 0
+        return tb - ta
+      })
+
       let selectedNum = null
       const rawTo = String(active?.toNodeId || '').trim()
       if (active?.destination === 'direct' && driver === 'meshtastic' && rawTo) {
@@ -898,9 +1352,11 @@ class MeshModule {
       const listEl = document.getElementById('meshNodeList')
       if (listEl) {
         listEl.innerHTML = ''
-        for (const n of filtered.slice(0, 200)) {
+        for (const n of sorted.slice(0, 200)) {
           const id = String(n?.id || '').trim()
           const num = Number.isFinite(Number(n?.num)) ? Math.floor(Number(n.num)) : null
+          const peerKey = nodePeerKey(n)
+          const unread = (peerKey && dmUnreadDb?.[peerKey]) ? dmUnreadDb[peerKey] : null
           const label = meshNodeDisplayName(n, id ? id : (num != null ? `#${num}` : 'Node'))
           const lastSeenTs = Number(n?.lastSeenTs || 0) || 0
           const lat = Number(n?.position?.lat)
@@ -914,6 +1370,7 @@ class MeshModule {
           const btn = document.createElement('button')
           btn.type = 'button'
           btn.className = 'meshNodeRowBtn'
+          if (unread) btn.classList.add('unread')
           if (id) btn.dataset.nodeId = id
           if (num != null) btn.dataset.nodeNum = String(num)
 
@@ -935,10 +1392,21 @@ class MeshModule {
           meta.appendChild(left)
           meta.appendChild(right)
 
+          const titleRow = document.createElement('div')
+          titleRow.className = 'meshNodeTitleRow'
           const title = document.createElement('div')
           title.textContent = label
+          titleRow.appendChild(title)
+          if (unread) {
+            const icon = document.createElement('span')
+            icon.className = 'meshUnreadIcon'
+            icon.textContent = '✉'
+            icon.title = `Unread direct message${unread.count > 1 ? ` (${unread.count})` : ''}`
+            icon.setAttribute('aria-hidden', 'true')
+            titleRow.appendChild(icon)
+          }
 
-          btn.appendChild(title)
+          btn.appendChild(titleRow)
           btn.appendChild(meta)
           row.appendChild(btn)
 

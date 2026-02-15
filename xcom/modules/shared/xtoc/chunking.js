@@ -24,6 +24,9 @@ function getTransportMaxPacketChars(profile) {
     case 'HaLow':
       // IP LAN (HaLow/Open MANET/etc). Chunking generally not required.
       return 50000
+    case 'Reticulum':
+      // Reticulum MeshChat bridge (keep conservative under bridge max bytes).
+      return 320
     case 'Email':
       return 800
     case 'QR':

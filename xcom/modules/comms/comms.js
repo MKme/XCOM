@@ -47,6 +47,7 @@ class CommsModule {
     this.qrScanner = null
     this._meshUnsub = null
     this._halowUnsub = null
+    this._reticulumUnsub = null
 
     // Voice (TTS) state
     this._voiceSession = 0
@@ -80,6 +81,13 @@ class CommsModule {
     this._lastHaLowRxFrom = null
     this._halowLastState = null
 
+    // Reticulum auto-receive cursor (traffic log is a ring buffer)
+    this._reticulumTrafficCursorTs = null
+    this._reticulumTrafficCursorCountAtTs = 0
+    this._lastReticulumRxAt = null
+    this._lastReticulumRxFrom = null
+    this._reticulumLastState = null
+
     // Source hint for storing decoded packets (mesh/manet/manual/etc)
     this._importAutoSourceHint = null
     this._importStoredKeys = new Set()
@@ -102,7 +110,7 @@ class CommsModule {
       <div class="xModuleIntro">
           <div class="xModuleIntroTitle">What you can do here</div>
           <div class="xModuleIntroText">
-          Create XTOC packets (CLEAR or SECURE), split them for different transport limits, and move them via copy/paste, Voice (TTS), QR, Meshtastic/MeshCore, or MANET (LAN).
+          Create XTOC packets (CLEAR or SECURE), split them for different transport limits, and move them via copy/paste, Voice (TTS), QR, Meshtastic/MeshCore, MANET (LAN), or Reticulum (MeshChat).
           </div>
       </div>
       <div class="commsShell">
@@ -145,6 +153,7 @@ class CommsModule {
               <option value="Meshtastic">Meshtastic (180 chars)</option>
               <option value="MeshCore">MeshCore (160 bytes)</option>
               <option value="HaLow">MANET (LAN)</option>
+              <option value="Reticulum">Reticulum (MeshChat)</option>
               <option value="Winlink">Winlink (400 chars)</option>
               <option value="QR">QR</option>
             </select>
@@ -183,6 +192,7 @@ class CommsModule {
             <button id="commsVoiceEndBtn" type="button" style="display:none" title="Canned voice relay outro">End of message</button>
             <button id="commsSendMeshBtn" type="button">Send via Mesh</button>
             <button id="commsSendHaLowBtn" type="button">Send via MANET</button>
+            <button id="commsSendReticulumBtn" type="button">Send via MeshChat</button>
             <button id="commsMakeQrBtn" type="button">Make QR</button>
             <button id="commsPrintQrBtn" type="button">Print QR</button>
           </div>
@@ -219,6 +229,11 @@ class CommsModule {
                 Auto-receive from MANET
               </label>
               <div class="commsSmallMuted" id="commsHaLowRxHint">MANET: not connected</div>
+              <label class="commsInline commsInline--check">
+                <input type="checkbox" id="commsAutoReticulumRx" checked>
+                Auto-receive from MeshChat
+              </label>
+              <div class="commsSmallMuted" id="commsReticulumRxHint">MeshChat: not connected</div>
             </div>
           </div>
 
@@ -299,6 +314,7 @@ class CommsModule {
     if (transportSel) transportSel.addEventListener('change', () => {
       this.updateMeshSendButtonState()
       this.updateHaLowSendButtonState()
+      this.updateReticulumSendButtonState()
       this.updateVoiceButtonsState()
     })
 
@@ -318,6 +334,7 @@ class CommsModule {
     document.getElementById('commsVoiceEndBtn').addEventListener('click', () => void this.speakPlainText('End of message for X C O M command'))
     document.getElementById('commsSendMeshBtn').addEventListener('click', () => this.sendViaMesh())
     document.getElementById('commsSendHaLowBtn').addEventListener('click', () => this.sendViaHaLow())
+    document.getElementById('commsSendReticulumBtn').addEventListener('click', () => this.sendViaReticulum())
     document.getElementById('commsMakeQrBtn').addEventListener('click', () => this.makeQr())
     document.getElementById('commsPrintQrBtn').addEventListener('click', () => void this.printQr())
 
@@ -364,6 +381,20 @@ class CommsModule {
       })
     }
 
+    const autoReticulumRx = document.getElementById('commsAutoReticulumRx')
+    if (autoReticulumRx) {
+      try {
+        const raw = localStorage.getItem('xcom.comms.autoReticulumRx.v1')
+        if (raw === '0') autoReticulumRx.checked = false
+      } catch (_) {
+        // ignore
+      }
+      autoReticulumRx.addEventListener('change', () => {
+        try { localStorage.setItem('xcom.comms.autoReticulumRx.v1', autoReticulumRx.checked ? '1' : '0') } catch (_) { /* ignore */ }
+        try { this.updateReticulumRxHint() } catch (_) { /* ignore */ }
+      })
+    }
+
     document.getElementById('commsImportKeyBtn').addEventListener('click', () => this.importKey())
     document.getElementById('commsScanKeyQrBtn').addEventListener('click', () => this.scanKeyQr())
     document.getElementById('commsDeleteKeyBtn').addEventListener('click', () => this.deleteKey())
@@ -394,6 +425,7 @@ class CommsModule {
     // Sync the mesh send button with transport + mesh connection status.
     this.updateMeshSendButtonState()
     this.updateHaLowSendButtonState()
+    this.updateReticulumSendButtonState()
     this.updateVoiceButtonsState()
     try {
       // Avoid accumulating subscriptions across module reloads.
@@ -406,6 +438,9 @@ class CommsModule {
       } else if (globalThis.__xcomCommsHaLowUnsub) {
         try { globalThis.__xcomCommsHaLowUnsub() } catch (_) { /* ignore */ }
         globalThis.__xcomCommsHaLowUnsub = null
+      } else if (globalThis.__xcomCommsReticulumUnsub) {
+        try { globalThis.__xcomCommsReticulumUnsub() } catch (_) { /* ignore */ }
+        globalThis.__xcomCommsReticulumUnsub = null
       }
 
       globalThis.__xcomCommsCleanup = () => {
@@ -413,6 +448,8 @@ class CommsModule {
         this._meshUnsub = null
         try { if (this._halowUnsub) this._halowUnsub() } catch (_) { /* ignore */ }
         this._halowUnsub = null
+        try { if (this._reticulumUnsub) this._reticulumUnsub() } catch (_) { /* ignore */ }
+        this._reticulumUnsub = null
         try { if (this._importMap) this._importMap.remove() } catch (_) { /* ignore */ }
         this._importMap = null
       }
@@ -431,6 +468,14 @@ class CommsModule {
         })
         globalThis.__xcomCommsHaLowUnsub = this._halowUnsub
       }
+
+      if (globalThis.xcomReticulum && typeof globalThis.xcomReticulum.subscribe === 'function') {
+        this._reticulumUnsub = globalThis.xcomReticulum.subscribe((state) => {
+          try { this.updateReticulumSendButtonState() } catch (_) { /* ignore */ }
+          try { this.onReticulumState(state) } catch (_) { /* ignore */ }
+        })
+        globalThis.__xcomCommsReticulumUnsub = this._reticulumUnsub
+      }
     } catch (_) {
       // ignore
     }
@@ -439,6 +484,7 @@ class CommsModule {
     try { this.refreshImportMessageList({ keepSelection: false, preferLatestComplete: true }) } catch (_) { /* ignore */ }
     try { this.updateMeshRxHint() } catch (_) { /* ignore */ }
     try { this.updateHaLowRxHint() } catch (_) { /* ignore */ }
+    try { this.updateReticulumRxHint() } catch (_) { /* ignore */ }
     try { this.ensureImportMapInitialized() } catch (_) { /* ignore */ }
   }
 
@@ -1317,6 +1363,41 @@ class CommsModule {
 
     btn.textContent = ready ? 'Send via MANET' : 'Connect + Send'
     btn.title = ready ? 'Send packet text over MANET LAN link' : 'Connect, then send over MANET LAN link'
+  }
+
+  updateReticulumSendButtonState() {
+    const btn = document.getElementById('commsSendReticulumBtn')
+    if (!btn) return
+
+    const transport = String(document.getElementById('commsTransport')?.value || '').trim()
+    const shouldShow = transport === 'Reticulum'
+    btn.style.display = shouldShow ? '' : 'none'
+    if (!shouldShow) return
+
+    const hasApi =
+      globalThis.xcomReticulum &&
+      typeof globalThis.xcomReticulum.getState === 'function' &&
+      typeof globalThis.reticulumConnect === 'function' &&
+      typeof globalThis.reticulumSendText === 'function'
+
+    if (!hasApi) {
+      btn.disabled = true
+      btn.textContent = 'MeshChat Unavailable'
+      btn.title = 'Reticulum transport not loaded. Reload or open the MeshChat module once.'
+      return
+    }
+
+    btn.disabled = false
+    let ready = false
+    try {
+      const s = globalThis.xcomReticulum.getState().status
+      ready = !!s?.connected
+    } catch (_) {
+      ready = false
+    }
+
+    btn.textContent = ready ? 'Send via MeshChat' : 'Connect + Send'
+    btn.title = ready ? 'Send packet line(s) over Reticulum MeshChat' : 'Connect, then send over Reticulum MeshChat'
   }
 
   updateVoiceButtonsState() {
@@ -2453,6 +2534,151 @@ class CommsModule {
       console.error(e)
       this.updateHaLowSendButtonState()
       alert(`MANET send failed: ${formatHaLowError(e)}`)
+    }
+  }
+
+  async sendViaReticulum() {
+    const formatReticulumError = (e) => {
+      if (e == null) return 'Unknown error'
+      if (typeof e === 'string') return e
+      if (typeof e === 'number' || typeof e === 'boolean' || typeof e === 'bigint') return String(e)
+      if (e instanceof Error) return e.message ? `${e.name}: ${e.message}` : e.name
+      try {
+        const json = JSON.stringify(e)
+        return json && json !== '{}' ? json : Object.prototype.toString.call(e)
+      } catch (_) {
+        return Object.prototype.toString.call(e)
+      }
+    }
+
+    const transport = String(document.getElementById('commsTransport')?.value || '').trim()
+    if (transport !== 'Reticulum') {
+      alert('Set Transport to Reticulum first.')
+      return
+    }
+
+    const text = String(document.getElementById('commsOutput').value || '').trim()
+    if (!text) {
+      alert('Nothing to send. Generate a packet first.')
+      return
+    }
+
+    const rns = globalThis.xcomReticulum
+    const canConnect = typeof globalThis.reticulumConnect === 'function'
+    const canSend = typeof globalThis.reticulumSendText === 'function'
+    if (!rns || typeof rns.getState !== 'function' || !canConnect || !canSend) {
+      alert('Reticulum transport not available. Reload or open the MeshChat module once.')
+      return
+    }
+
+    // If not connected, prompt to connect.
+    try {
+      const s = rns.getState().status
+      const ready = !!s?.connected
+      if (!ready) {
+        const ok = confirm('MeshChat (Reticulum) not connected.\n\nConnect now?')
+        if (!ok) return
+        try {
+          await globalThis.reticulumConnect()
+        } catch (e) {
+          this.updateReticulumSendButtonState()
+          alert(`MeshChat connect failed: ${formatReticulumError(e)}`)
+          return
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    // Re-check ready
+    {
+      const s = rns.getState().status
+      const ready = !!s?.connected
+      this.updateReticulumSendButtonState()
+      if (!ready) {
+        alert('MeshChat not connected. Open MeshChat and click Connect first.')
+        return
+      }
+    }
+
+    // Basic validation: ensure at least one wrapper line is present.
+    const lines = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+    const parsedList = typeof window.parsePacket === 'function' ? lines.map((l) => window.parsePacket(l)).filter(Boolean) : []
+    if (parsedList.length === 0) {
+      alert('Paste or generate a valid XCOM packet wrapper first.')
+      return
+    }
+
+    // Chunk any single-part wrappers to the transport max so sends are reliable.
+    const rnsMax = window.getTransportMaxPacketChars ? window.getTransportMaxPacketChars('Reticulum') : 320
+    const chunkFn = globalThis.chunkPacketByMaxChars
+    const sendLines = []
+
+    if (lines.length === 1 && parsedList.length === 1) {
+      const p = parsedList[0]
+      if (p && Number(p.total) > 1) {
+        const ok = confirm(`This looks like 1 part of a multi-part packet (${p.part}/${p.total}).\n\nSend this part anyway?`)
+        if (!ok) return
+      }
+    }
+
+    for (const p of parsedList) {
+      if (!p) continue
+      const raw = String(p.raw || '').trim()
+      if (!raw) continue
+
+      // Already multi-part: send as-is.
+      if (Number(p.total) > 1) {
+        sendLines.push(raw)
+        continue
+      }
+
+      // Single-part wrapper: chunk if it exceeds the target.
+      if (raw.length > rnsMax && typeof chunkFn === 'function') {
+        try {
+          const parts = chunkFn(p, rnsMax)
+          if (Array.isArray(parts) && parts.length > 0) {
+            for (const part of parts) {
+              const t = String(part || '').trim()
+              if (t) sendLines.push(t)
+            }
+            continue
+          }
+        } catch (_) {
+          // ignore
+        }
+      }
+
+      sendLines.push(raw)
+    }
+
+    if (sendLines.length === 0) {
+      alert('Nothing to send')
+      return
+    }
+
+    const overMax = sendLines.find((l) => String(l || '').length > rnsMax)
+    if (overMax) {
+      alert(`One or more lines exceed the MeshChat limit (${rnsMax}).\n\nChoose a shorter template/note, or use a different transport.`)
+      return
+    }
+
+    // Confirm batch sends so users don't accidentally spam.
+    if (sendLines.length > 1) {
+      const ok = confirm(`Send ${sendLines.length} line(s) via MeshChat?`)
+      if (!ok) return
+    }
+
+    try {
+      for (const line of sendLines) {
+        await globalThis.reticulumSendText(line)
+      }
+      window.radioApp.updateStatus(`Sent ${sendLines.length} line(s) via MeshChat`)
+      this.updateReticulumSendButtonState()
+    } catch (e) {
+      console.error(e)
+      this.updateReticulumSendButtonState()
+      alert(`MeshChat send failed: ${formatReticulumError(e)}`)
     }
   }
 
@@ -4369,6 +4595,11 @@ class CommsModule {
     return el ? !!el.checked : true
   }
 
+  isAutoReticulumRxEnabled() {
+    const el = document.getElementById('commsAutoReticulumRx')
+    return el ? !!el.checked : true
+  }
+
   updateMeshRxHint(state = null) {
     const el = document.getElementById('commsMeshRxHint')
     if (!el) return
@@ -4421,6 +4652,33 @@ class CommsModule {
     }
 
     el.textContent = `MANET: ${connected ? 'connected' : 'not connected'} • auto-receive ${auto ? 'ON' : 'OFF'}${tail}`
+  }
+
+  updateReticulumRxHint(state = null) {
+    const el = document.getElementById('commsReticulumRxHint')
+    if (!el) return
+
+    let s = state
+    if (!s) {
+      try { s = globalThis.xcomReticulum?.getState?.() } catch (_) { s = null }
+    }
+
+    const status = s?.status || {}
+    const connected = !!status?.connected
+    const auto = this.isAutoReticulumRxEnabled()
+
+    let tail = ''
+    if (this._lastReticulumRxAt) {
+      try {
+        const t = new Date(Number(this._lastReticulumRxAt)).toLocaleTimeString()
+        const from = this._lastReticulumRxFrom != null ? ` from ${String(this._lastReticulumRxFrom)}` : ''
+        tail = ` • last rx ${t}${from}`
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    el.textContent = `MeshChat: ${connected ? 'connected' : 'not connected'} • auto-receive ${auto ? 'ON' : 'OFF'}${tail}`
   }
 
   _meshSetTrafficCursorToEnd(traffic) {
@@ -4498,6 +4756,52 @@ class CommsModule {
     if (cursorTs == null) return 0
 
     const cursorCount = Number(this._halowTrafficCursorCountAtTs || 0)
+    let seenAtTs = 0
+
+    for (let i = 0; i < arr.length; i++) {
+      const ts = Number(arr[i]?.ts || 0)
+      if (ts < cursorTs) continue
+      if (ts === cursorTs) {
+        seenAtTs++
+        if (seenAtTs <= cursorCount) continue
+        return i
+      }
+      // ts > cursorTs
+      return i
+    }
+
+    return arr.length
+  }
+
+  _reticulumSetTrafficCursorToEnd(traffic) {
+    const arr = Array.isArray(traffic) ? traffic : []
+    if (arr.length === 0) {
+      this._reticulumTrafficCursorTs = 0
+      this._reticulumTrafficCursorCountAtTs = 0
+      return
+    }
+
+    const lastTs = Number(arr[arr.length - 1]?.ts || 0)
+    let count = 0
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const ts = Number(arr[i]?.ts || 0)
+      if (ts !== lastTs) break
+      count++
+    }
+
+    this._reticulumTrafficCursorTs = lastTs
+    this._reticulumTrafficCursorCountAtTs = count
+  }
+
+  _reticulumComputeTrafficStartIndex(traffic) {
+    const arr = Array.isArray(traffic) ? traffic : []
+    const cursorTs = this._reticulumTrafficCursorTs
+
+    // First call: import history (traffic logs are capped and this prevents missing packets
+    // when Comms wasn't open at the time they were received).
+    if (cursorTs == null) return 0
+
+    const cursorCount = Number(this._reticulumTrafficCursorCountAtTs || 0)
     let seenAtTs = 0
 
     for (let i = 0; i < arr.length; i++) {
@@ -4762,6 +5066,75 @@ class CommsModule {
     this._halowLastState = state || null
     this.updateHaLowRxHint(state)
     this.processIncomingHaLowTraffic(state)
+  }
+
+  processIncomingReticulumTraffic(state) {
+    const s = state || null
+    const traffic = Array.isArray(s?.traffic) ? s.traffic : []
+
+    const status = s?.status || {}
+    const connected = !!status?.connected
+    if (!connected) {
+      this._reticulumSetTrafficCursorToEnd(traffic)
+      return
+    }
+
+    if (!this.isAutoReticulumRxEnabled()) {
+      this._reticulumSetTrafficCursorToEnd(traffic)
+      return
+    }
+
+    const startIdx = this._reticulumComputeTrafficStartIndex(traffic)
+    const slice = traffic.slice(startIdx)
+
+    // Advance cursor immediately so even if decoding throws, we don't re-import the same entries forever.
+    this._reticulumSetTrafficCursorToEnd(traffic)
+
+    const lines = []
+    for (const e of slice) {
+      if (!e || typeof e !== 'object') continue
+      if (e.dir !== 'in') continue
+      if (String(e.kind || '') !== 'packet') continue
+      const text = e.text
+      if (typeof text !== 'string' || !text.trim()) continue
+      const extracted = this.extractPacketLinesFromText(text)
+      for (const line of extracted) lines.push(line)
+
+      if (extracted.length) {
+        this._lastReticulumRxAt = Date.now()
+        try {
+          const from = e.from || {}
+          const peerHash = String(from?.peer?.hash || '').trim()
+          this._lastReticulumRxFrom = peerHash ? `${peerHash.slice(0, 12)}...` : (from?.label || from?.client_id || from?.clientId || null)
+        } catch (_) {
+          this._lastReticulumRxFrom = null
+        }
+      }
+    }
+
+    if (lines.length === 0) return
+
+    const added = this.appendImportLines(lines)
+    if (added > 0) {
+      try { window.radioApp?.updateStatus?.(`Received ${added} packet line(s) from MeshChat`) } catch (_) { /* ignore */ }
+      try { this.updateReticulumRxHint(s) } catch (_) { /* ignore */ }
+
+      const touchedAt = Number(this._importSelectionTouchedAt || 0)
+      const recentlyTouched = touchedAt > 0 && (Date.now() - touchedAt) < 8000
+      if (!recentlyTouched) {
+        this._importAutoSourceHint = 'reticulum'
+        this.maybeAutoDecodeLatestComplete({ source: 'reticulum' })
+      } else {
+        const msgs = this.refreshImportMessageList({ keepSelection: true, preferLatestComplete: false })
+        this.maybeStoreCompleteImportMessages(msgs, 'reticulum')
+      }
+    }
+  }
+
+  onReticulumState(state) {
+    this._reticulumLastState = state || null
+    this.updateReticulumRxHint(state)
+    this.processIncomingReticulumTraffic(state)
   }
 
   reassembleAndDecode(opts = {}) {

@@ -1,0 +1,266 @@
+.meshchatShell {
+  display: grid;
+  /* Prevent long, unbroken tokens (ids/urls/errors) from forcing horizontal overflow */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.meshchatCard {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 14px;
+  min-width: 0;
+}
+
+.meshchatCardTitle {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-bottom: 10px;
+}
+
+.meshchatRow {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.meshchatGrid2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.meshchatRow label {
+  font-size: 12px;
+  color: rgba(233, 238, 248, 0.85);
+}
+
+.meshchatRow input,
+.meshchatRow select,
+.meshchatRow textarea {
+  width: 100%;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #e9eef8;
+  border-radius: 10px;
+  padding: 10px;
+  outline: none;
+}
+
+.meshchatButtonRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.meshchatButtonRow button {
+  border-radius: 10px;
+}
+
+.meshchatButtonRow button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+}
+
+.meshchatSmallMuted {
+  font-size: 12px;
+  color: rgba(233, 238, 248, 0.7);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.meshchatInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meshchatStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  width: fit-content;
+}
+
+.meshchatStatusPill.ok {
+  border-color: rgba(88, 214, 141, 0.55);
+  color: rgba(88, 214, 141, 0.95);
+}
+
+.meshchatStatusPill.warn {
+  border-color: rgba(255, 209, 102, 0.55);
+  color: rgba(255, 209, 102, 0.95);
+}
+
+.meshchatPre {
+  margin: 0;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 220px;
+  max-height: 420px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.meshchatChatList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.meshchatChatRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.meshchatChatRow.out { align-items: flex-end; }
+.meshchatChatRow.in { align-items: flex-start; }
+
+.meshchatChatMeta {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+  color: rgba(233, 238, 248, 0.7);
+}
+
+.meshchatChatWho {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.meshchatChatName {
+  font-weight: 750;
+  color: rgba(233, 238, 248, 0.95);
+}
+
+.meshchatChatNameBtn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 750;
+  color: rgba(46, 230, 166, 0.95);
+  cursor: pointer;
+  text-align: left;
+}
+
+.meshchatChatNameBtn:hover { text-decoration: underline; }
+
+.meshchatChatLong {
+  font-size: 12px;
+  color: rgba(233, 238, 248, 0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 38ch;
+}
+
+.meshchatChatMetaRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.meshchatChatBubble {
+  max-width: min(720px, 100%);
+  padding: 9px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.25);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.meshchatChatRow.out .meshchatChatBubble {
+  border-color: rgba(88, 214, 141, 0.35);
+  background: rgba(88, 214, 141, 0.10);
+}
+
+.meshchatClientRow {
+  padding: 10px 0;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.meshchatLinkRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+/* QR scanner modal */
+.meshchatQrOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.meshchatQrModal {
+  width: min(680px, 95vw);
+  background: #0f1622;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.meshchatQrModalTitle {
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+
+.meshchatQrModal video {
+  width: 100%;
+  max-height: 60vh;
+  border-radius: 12px;
+  background: #000;
+}
+
+@media (max-width: 900px) {
+  .meshchatGrid2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 900px) {
+  .meshchatShell {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .meshchatShell .meshchatSpanFull {
+    grid-column: 1 / -1;
+  }
+}

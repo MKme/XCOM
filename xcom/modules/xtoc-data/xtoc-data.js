@@ -1035,6 +1035,7 @@ class XtocDataModule {
               <option value="commsOut">Comms (generated)</option>
               <option value="mesh">Mesh</option>
               <option value="manet">MANET</option>
+              <option value="reticulum">MeshChat (Reticulum)</option>
               <option value="unknown">Unknown</option>
             </select>
             <div class="xtocSmallMuted" id="xtocDataCounts"></div>

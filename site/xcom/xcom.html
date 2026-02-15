@@ -6,16 +6,17 @@
 <h2>XCOM™ Offline Radio Communication Suite (PWA)</h2>
 <div class="subtitle">XCOM™ is an <strong>offline-first radio communication suite</strong> and <strong>PWA</strong> for
 <strong>ham radio</strong>, <strong>shortwave</strong>, and modern <strong>mesh radio networks</strong> —
-with a heavy focus on <strong>Meshtastic</strong> and <strong>MeshCore</strong>.
+with a heavy focus on <strong>Meshtastic</strong>, <strong>MeshCore</strong>, and <strong>MeshChat (Reticulum / RNode)</strong>.
 It’s built as the <strong>field companion to XTOC™</strong> so you can
 <strong>form packets, move updates, and keep a tactical map synced</strong> using almost any method:
-copy/paste, QR, SMS, email, Winlink, Meshtastic, MeshCore, or local MANET links.</div>
+copy/paste, QR, SMS, email, Winlink, Meshtastic, MeshCore, Reticulum (MeshChat), or local MANET links.</div>
 <div class="subtitle" style="margin-top: 10px;">
 
 <strong>Hot topics it supports:</strong>
 <ul style="margin: 8px 0 0 18px;">
  	<li><strong>Meshtastic PWA tools:</strong> connect, import channel labels, message on channels, and DM nodes by clicking (Web Bluetooth where supported).</li>
  	<li><strong>MeshCore support:</strong> import/visualize MeshCore traffic and plot packets on the map.</li>
+ 	<li><strong>NEW: MeshChat (Reticulum / RNode):</strong> connect to the XTOC <code>reticulum-bridge</code> over a trusted LAN/localhost, scan a provisioning QR, announce, see peers/interfaces, and move XTOC packet text over RNS (including an RNode over Bluetooth/serial).</li>
  	<li><strong>OpenMANET node mapping:</strong> plot OpenMANET node locations on the tactical map and optionally assign nodes to roster members.</li>
  	<li><strong>Packet workflows to/from XTOC™:</strong> build, chunk, export, import, and overlay field intel.</li>
  	<li><strong>Offline maps:</strong> cache AO tiles for use with no signal.</li>
@@ -37,7 +38,7 @@ even with <strong>no signal</strong>.</div>
 
 <strong>Use it to (examples):</strong>
 <ul style="margin: 8px 0 0 18px;">
- 	<li>Create <strong>XTOC-compatible packets</strong> (markers, zones, events, updates, notes) and move them via copy/paste, QR, SMS, email, Winlink, Meshtastic, MeshCore, or MANET.</li>
+ 	<li>Create <strong>XTOC-compatible packets</strong> (markers, zones, events, updates, notes) and move them via copy/paste, QR, SMS, email, Winlink, Meshtastic, MeshCore, Reticulum (MeshChat), or MANET.</li>
  	<li>Create <strong>EVENT</strong> packets for training/incidents/emergencies (status, schedule, label, location) and plot them on the tactical map.</li>
  	<li>Send <strong>squad/group CHECKIN/LOC</strong> updates: include multiple team members in one check-in (Units picker shows <code>U###</code> + label).</li>
  	<li>Tag <strong>multiple units</strong> on most packets: use <strong>Source Unit(s)</strong> multi-select for SITREP/TASK/CONTACT/RESOURCE/ASSET/ZONE/EVENT (packets send Unit IDs only; names are looked up locally).</li>
@@ -88,7 +89,7 @@ XTOC™ maintains the operational picture. XCOM™ feeds it — including update
 view nodes, map positions, and send/receive messages.</li>
  	<li><strong>MeshCore support:</strong> import and visualize MeshCore packet logs/traffic and plot nodes/events on the map.</li>
  	<li><strong>Mesh Packet Visualization:</strong> overlay imported mesh traffic on the tactical map for situational awareness and after-action review.</li>
- 	<li><strong>XTOC Comm:</strong> create/import structured packets (CLEAR or SECURE), chunk for tight limits, and move via copy/QR/Meshtastic/MeshCore/MANET.</li>
+ 	<li><strong>XTOC Comm:</strong> create/import structured packets (CLEAR or SECURE), chunk for tight limits, and move via copy/QR/Meshtastic/MeshCore/Reticulum (MeshChat)/MANET.</li>
  	<li><strong>XTOC Data Vault:</strong> local packet archive — browse, search, decode, and push geo packets to the map overlay.</li>
  	<li><strong>Map (Tactical Field View):</strong> XTOC-style map with offline tile caching and overlays (XTOC markers/zones + mesh layers).</li>
  	<li><strong>Satellite Pass Planner:</strong> identify viable radio communication windows for satellite comms planning.</li>
@@ -108,10 +109,11 @@ view nodes, map positions, and send/receive messages.</li>
 XCOM™ is built to be <strong>Meshtastic-friendly</strong> with workflows that match real field usage:
 <strong>local-first</strong>, <strong>low bandwidth</strong>, and <strong>store-and-forward</strong>.</div>
 <ul style="margin: 8px 0 0 18px;">
- 	<li>Connect to a Meshtastic device and <strong>view nodes on a map</strong>.</li>
- 	<li><strong>Send/receive messages</strong> and keep local records.</li>
- 	<li>Turn received intel into <strong>XTOC-ready packets</strong> (markers/zones/updates).</li>
- 	<li>Use mesh as a transfer path for <strong>TOC sync</strong> in constrained environments.</li>
+ 	<li>Connect to a Meshtastic device (Web Bluetooth where supported) and <strong>view nodes on a map</strong>.</li>
+ 	<li><strong>Import channel labels</strong> and quick-select a channel by clicking.</li>
+ 	<li><strong>DM by clicking:</strong> click a heard node to quickly set a direct destination.</li>
+ 	<li><strong>Send/receive messages</strong> and keep a local traffic log.</li>
+ 	<li>Use <strong>XTOC Comm</strong> to chunk and move <strong>XTOC packets</strong> over the mesh (Meshtastic transport profile).</li>
 </ul>
 <div class="pill" style="margin-top: 12px;">Think: <strong>Meshtastic + XTOC</strong> = mesh-to-TOC operational picture.</div>
 </div>
@@ -122,10 +124,23 @@ XCOM™ is built to be <strong>Meshtastic-friendly</strong> with workflows that 
 <strong>import MeshCore traffic/logs</strong> and visualize packets, nodes, and events on the tactical map.
 This is ideal for operational review, coverage notes, and building a real-world “mesh picture.”</div>
 <ul style="margin: 8px 0 0 18px;">
- 	<li>Import MeshCore packet data and <strong>plot it on the map</strong>.</li>
+ 	<li>Connect to MeshCore (Web Bluetooth where supported) or import MeshCore traffic/logs and <strong>plot it on the map</strong>.</li>
  	<li>Visualize node activity for <strong>situational awareness</strong> and after-action review.</li>
+ 	<li><strong>Direct addressing:</strong> MeshCore DMs use a pubkey prefix and tight limits (~160 bytes) &mdash; use the MeshCore transport profile in XTOC Comm to chunk safely.</li>
  	<li>Convert relevant observations into <strong>XTOC-compatible packets</strong>.</li>
 </ul>
+</div>
+<!-- RETICULUM SEO SECTION -->
+<div id="meshchat" class="card section" style="margin-top: 14px;">
+<h2>NEW: MeshChat (Reticulum / RNode) packet transport</h2>
+<div class="subtitle">Reticulum (RNS) is a powerful off-grid networking stack. XCOM™ includes a <strong>MeshChat</strong> module that connects to the XTOC <strong>reticulum-bridge</strong> over a trusted LAN/localhost, enabling XTOC packets to move over Reticulum networks (including an RNode over Bluetooth/serial).</div>
+<ul style="margin: 8px 0 0 18px;">
+ 	<li><strong>Bridge host:</strong> run <code>reticulum-bridge</code> on the device attached to the RNode (usually the XTOC laptop), then share a provisioning QR.</li>
+ 	<li><strong>Field device:</strong> scan the QR to auto-configure Bridge URL + destination hash, then connect and send.</li>
+ 	<li><strong>Broadcast + Direct:</strong> send packet lines to broadcast, or DM a specific hash; see peers, interfaces, connected clients, and traffic.</li>
+ 	<li><strong>Chunking:</strong> use the Reticulum transport profile in XTOC Comm (conservative ~320 chars/line) so packets survive narrow links.</li>
+</ul>
+<div class="pill warn" style="margin-top: 12px;">Security note: the bridge is designed for trusted LANs only (permissive CORS, no authentication).</div>
 </div>
 <!-- VOACAP -->
 <div id="voacap" class="card section" style="margin-top: 14px;">
@@ -181,10 +196,11 @@ This is ideal for operational review, coverage notes, and building a real-world 
  	<li>Pan/zoom AO</li>
  	<li>Download tiles while online</li>
 </ul>
-<h3>3) Run the mesh-to-TOC loop</h3>
+<h3>3) Run the field-to-TOC loop</h3>
 <ul>
- 	<li>Build packet → transfer over Meshtastic / MeshCore / QR / copy → import into XTOC.</li>
- 	<li>Import TOC updates → overlay on map → share onward through the mesh.</li>
+ 	<li>Build packet → transfer over Meshtastic / MeshCore / MeshChat (Reticulum) / MANET / QR / copy → import into XTOC.</li>
+ 	<li>Import TOC updates → overlay on map → share onward through the mesh, Reticulum, or LAN.</li>
+ 	<li><strong>Reticulum tip:</strong> run <code>reticulum-bridge</code> on the TOC device connected to the RNode, then scan the provisioning QR in XCOM <strong>MeshChat</strong>.</li>
 </ul>
 </div>
 <!-- COMPLIANCE -->
@@ -210,6 +226,9 @@ Yes. XCOM™ supports Meshtastic workflows including mapping nodes, messaging, a
 
 <strong>Does XCOM™ support MeshCore?</strong>
 Yes. XCOM™ supports MeshCore workflows by allowing you to import and visualize MeshCore traffic/logs and plot packets/nodes on the map.
+
+<strong>Does XCOM™ support Reticulum / MeshChat?</strong>
+Yes. XCOM™ includes a MeshChat (Reticulum) module that connects to the XTOC <code>reticulum-bridge</code> over a trusted LAN/localhost so you can move XTOC packet text over Reticulum networks (including an RNode over Bluetooth/serial).
 
 <strong>Is XCOM™ just a repeater map?</strong>
 No — it’s a full <strong>offline radio suite</strong> with Meshtastic/MeshCore tools, packet formation, tactical mapping, HF prediction, and logging.

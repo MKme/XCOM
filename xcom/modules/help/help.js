@@ -199,7 +199,7 @@ class HelpModule {
                     <h2>XTOC Comm Module</h2>
                     <h3>Overview</h3>
                     <p>
-                        XTOC Comm is an XTOC-compatible packet workshop and import bridge: create standardized reports, chunk them for transport limits, and move them via copy/paste, Voice (TTS), QR, Mesh, or MANET (LAN).
+                        XTOC Comm is an XTOC-compatible packet workshop and import bridge: create standardized reports, chunk them for transport limits, and move them via copy/paste, Voice (TTS), QR, Mesh, MANET (LAN), or Reticulum (MeshChat).
                         For full XTOC backups (roster/keys/history), use <strong>XTOC Data</strong> &rarr; <strong>XTOC &rarr; XCOM Import</strong>.
                     </p>
 
@@ -207,7 +207,7 @@ class HelpModule {
                     <ul>
                         <li><strong>Templates:</strong> T=1&ndash;9 (SITREP/CONTACT/TASK/CHECKIN/RESOURCE/ASSET/ZONE/MISSION/EVENT).</li>
                         <li><strong>Modes:</strong> <strong>CLEAR</strong> (human-readable fields) or <strong>SECURE</strong> (encrypted).</li>
-                        <li><strong>Transport profiles:</strong> choose Copy/Paste, Voice (TTS), JS8/APRS, Winlink, Meshtastic/MeshCore, MANET (LAN), or QR &mdash; then click <strong>Generate</strong>.</li>
+                        <li><strong>Transport profiles:</strong> choose Copy/Paste, Voice (TTS), JS8/APRS, Winlink, Meshtastic/MeshCore, MANET (LAN), Reticulum (MeshChat), or QR &mdash; then click <strong>Generate</strong>.</li>
                         <li><strong>Location tools:</strong> <strong>Use GPS</strong> fills Lat/Lon from your device; <strong>Pick Location</strong> and <strong>Draw Zone</strong> open a mini-map so you can embed coordinates/areas into packets.</li>
                     </ul>
 
@@ -225,6 +225,7 @@ class HelpModule {
                         <li><strong>Scan QR</strong> (Import/Reassemble) reads packet lines from camera and decodes them.</li>
                         <li><strong>Send via Mesh</strong> sends each generated packet line as a mesh text message (Meshtastic or MeshCore; requires Mesh connected).</li>
                         <li><strong>Send via MANET</strong> sends the generated packet text over LAN via the XTOC MANET bridge (requires MANET connected).</li>
+                        <li><strong>Send via MeshChat</strong> sends each generated packet line over Reticulum via the MeshChat bridge (requires MeshChat connected).</li>
                     </ul>
 
                     <h3>XTOC &rarr; XCOM import (field handoff)</h3>
@@ -237,7 +238,7 @@ class HelpModule {
                         <li>In XCOM: <strong>XTOC Data</strong> &rarr; <strong>XTOC &rarr; XCOM Import</strong> &rarr; <strong>Import Backup</strong>.</li>
                     </ol>
                     <ul>
-                        <li><strong>Roster:</strong> imports full member records (including squad assignment) and prefers <code>label</code> for friendly display.</li>
+                        <li><strong>Roster:</strong> imports full member records (including squad assignment and mesh node links like <code>meshNodeId</code>) and prefers <code>label</code> for friendly display.</li>
                         <li><strong>Squads (optional):</strong> imports squad metadata so unit pickers can be grouped by squad.</li>
                         <li><strong>Keys:</strong> imports team keys by <code>KID</code> so SECURE packets can be decrypted/decoded.</li>
                         <li><strong>Packets:</strong> stores all packets (including non-location) in <strong>XTOC Data</strong>; geo packets are also added to the Map <strong>Imported</strong> overlay.</li>
@@ -248,7 +249,7 @@ class HelpModule {
 
                     <h3>Team roster bundle (labels only)</h3>
                     <p>
-                        If you only need friendly labels (no packets/keys), import the roster bundle from XTOC (includes squad metadata when present):
+                        If you only need roster metadata (friendly labels, squads, and optional mesh node links) (no packets/keys), import the roster bundle from XTOC:
                     </p>
                     <ul>
                         <li>In XTOC: <strong>Team</strong> &rarr; <strong>Transfer</strong> &rarr; copy the <code>XTOC-TEAM.</code> bundle (or show the QR).</li>
@@ -326,9 +327,13 @@ class HelpModule {
                     <h3>Mesh nodes overlay (Meshtastic / MeshCore / OpenMANET)</h3>
                     <ul>
                         <li><strong>Enable:</strong> open <strong>Map</strong> &rarr; <strong>Overlays</strong> and toggle <strong>Mesh nodes</strong>.</li>
-                        <li><strong>Meshtastic/MeshCore:</strong> plots the latest GPS packets seen in Mesh traffic/imports as map markers.</li>
+                        <li><strong>When markers appear:</strong> nodes only plot when they have a known lat/lon (GPS/telemetry). The legend shows how many nodes currently have position.</li>
+                        <li><strong>Meshtastic/MeshCore:</strong> plots the latest GPS positions seen in Mesh traffic/imports as markers. If a node shows in <strong>Mesh</strong> &rarr; <strong>Nodes heard</strong> but not on the map, it likely hasn&rsquo;t sent a position yet.</li>
                         <li><strong>OpenMANET:</strong> set <strong>OpenMANET API URL</strong> (example <code>http://10.0.0.1:8087</code>) and <strong>OpenMANET refresh (ms)</strong> to poll node positions.</li>
-                        <li><strong>Assign to roster:</strong> click a node marker and pick a Team member in the popup (requires a roster import via <strong>Import Team</strong>, <strong>Scan Team QR</strong>, or an XTOC backup import).</li>
+                        <li><strong>Assign to roster:</strong> click a node marker and pick a Team member in the popup (requires a roster import via <strong>Import Team</strong>, <strong>Scan Team QR</strong>, or an XTOC backup import). This saves <code>meshNodeId</code> on that member using a <code>driver:id</code> key (examples: <code>meshtastic:!deadbeef</code>, <code>meshcore:a1b2c3d4e5f6</code>).</li>
+                        <li><strong>1:1 rule:</strong> a node key can only be assigned to one roster member at a time. Re-assigning moves it; choose <strong>Unassigned</strong> to clear.</li>
+                        <li><strong>Why assign:</strong> assigned labels show under the node name in tooltips/popups, and squad messaging can DM each member by their assigned node.</li>
+                        <li><strong>Reticulum note:</strong> MeshChat (Reticulum) is a packet transport. It can auto-ingest packets into the <strong>Imported</strong> overlay, but Reticulum peers are not part of the Mesh nodes map overlay.</li>
                         <li><strong>CORS tip:</strong> if the browser blocks OpenMANET polling, connect to the XTOC MANET bridge; XCOM will proxy OpenMANET requests through the bridge.</li>
                     </ul>
                 </div>
@@ -349,12 +354,24 @@ class HelpModule {
                 </div>
 
                 <div class="help-section">
-                    <h2>Mesh Module</h2>
+                    <h2>Mesh Module (Meshtastic / MeshCore)</h2>
                     <h3>Overview</h3>
                     <p>
-                        The Mesh module connects XCOM™ to <strong>Meshtastic</strong> or <strong>MeshCore</strong> radios.
-                        It is designed for offline field use and stores your mesh settings locally.
+                        The Mesh module connects XCOM&trade; to <strong>Meshtastic</strong> or <strong>MeshCore</strong> over <strong>Web Bluetooth</strong>.
+                        Use it for mesh messaging, node awareness, and link/coverage checks &mdash; then use <strong>XTOC Comm</strong> to generate standardized XTOC packets and send them over the mesh.
                     </p>
+
+                    <h3>What it can do</h3>
+                    <ul>
+                        <li><strong>Broadcast + Direct (DM):</strong> talk on a channel (broadcast) or DM a specific node.</li>
+                        <li><strong>Channel labels (Meshtastic):</strong> import labels from the radio and click a label to set Broadcast + channel quickly.</li>
+                        <li><strong>Nodes heard:</strong> view heard nodes, filter, click to quick-set the Direct destination, and view nodes/coverage on the map when positions exist.</li>
+                        <li><strong>Unread DMs:</strong> when a node sends you a direct message, it jumps to the top, highlights with a ✉ indicator, and clears when you open the Direct thread.</li>
+                        <li><strong>Assign nodes to people:</strong> in <strong>Map</strong> &rarr; <strong>Mesh nodes</strong>, click a node marker and assign it to a roster member (sets <code>meshNodeId</code>) so markers show friendly names and squad messaging works.</li>
+                        <li><strong>Traffic log:</strong> keep a local IN/OUT log for troubleshooting and verification.</li>
+                        <li><strong>Coverage logging:</strong> optionally log SNR/RSSI points (GPS) and render them as a coverage overlay.</li>
+                        <li><strong>Squad messaging:</strong> DM every roster member in a squad that has a configured <code>meshNodeId</code> (format: <code>meshtastic:!deadbeef</code> or <code>meshcore:a1b2c3d4e5f6</code>).</li>
+                    </ul>
 
                     <h3>Requirements</h3>
                     <ul>
@@ -362,21 +379,30 @@ class HelpModule {
                         <li>A Meshtastic or MeshCore device with Bluetooth enabled.</li>
                     </ul>
 
-                    <h3>How to Use</h3>
+                    <h3>Quick start</h3>
                     <ol>
                         <li>Open <strong>Mesh</strong> and click <strong>Connect</strong>.</li>
-                        <li>Choose <strong>Broadcast</strong> (channel) or <strong>Direct</strong> (id), set your channel and (Meshtastic only) ACK preference.</li>
-                        <li>(Optional) Use <strong>Channels</strong> to import Meshtastic channel labels and quick-select a channel.</li>
-                        <li>Use <strong>Nodes heard</strong> to click a node and quick-set the Direct destination for a DM.</li>
-                        <li>Send a <strong>Test message</strong> and confirm it appears in the Traffic log.</li>
-                        <li>Open <strong>XTOC Comm</strong>, generate packets, then click <strong>Send via Mesh</strong> to transmit each packet line as a mesh text message.</li>
+                        <li>Set <strong>Firmware</strong> to match your device (Meshtastic or MeshCore).</li>
+                        <li>Choose <strong>Broadcast</strong> vs <strong>Direct</strong>, set channel, and set the destination (Meshtastic: node id like <code>!deadbeef</code>; MeshCore: pubkey prefix, 12 hex).</li>
+                        <li>(Meshtastic) Under <strong>Channels</strong>, click <strong>Import labels</strong>, then click a channel label to quick-select it.</li>
+                        <li>Send a short test message and confirm it appears in <strong>Traffic</strong>.</li>
+                        <li>To move XTOC packets: open <strong>XTOC Comm</strong>, choose <strong>Meshtastic</strong> or <strong>MeshCore</strong> transport, then click <strong>Connect + Send</strong> / <strong>Send via Mesh</strong>.</li>
+                        <li>(Optional) In <strong>XTOC Comm</strong>, enable <strong>Auto-receive (Mesh)</strong> to ingest packet wrapper lines as they arrive.</li>
                     </ol>
 
-                    <h3>Notes & Troubleshooting</h3>
+                    <h3>Meshtastic vs MeshCore (important)</h3>
                     <ul>
-                        <li>If the browser cannot see your device, confirm Bluetooth is on and the device is not already connected to another client.</li>
-                        <li>If messages appear truncated, choose the <strong>Meshtastic (180 chars)</strong> or <strong>MeshCore (160 bytes)</strong> transport profile in XTOC Comm before generating.</li>
-                        <li>Channel label import is currently supported for <strong>Meshtastic</strong> devices (labels are stored locally on this device).</li>
+                        <li><strong>Limits:</strong> Meshtastic is about <strong>180 chars</strong>; MeshCore is about <strong>160 bytes</strong>. Use the matching transport profile in XTOC Comm so chunking stays safe.</li>
+                        <li><strong>ACK:</strong> ACK request is Meshtastic-only (hidden for MeshCore).</li>
+                        <li><strong>Direct addressing:</strong> Meshtastic Direct uses a node id; MeshCore Direct uses a pubkey prefix.</li>
+                    </ul>
+
+                    <h3>Notes &amp; troubleshooting</h3>
+                    <ul>
+                        <li>If the browser cannot see your device, confirm Bluetooth is on and the radio is not already connected to another app.</li>
+                        <li>If messages look truncated, regenerate using the proper transport profile and chunk as needed.</li>
+                        <li>For coverage logging, allow GPS and leave logging enabled while you receive traffic (points are recorded when packets are received).</li>
+                        <li>For squad messaging, import roster from XTOC and ensure each member has a matching <code>meshNodeId</code> set (assign from a Map mesh node marker popup, or set in XTOC Team before exporting).</li>
                         <li>Traffic and settings are stored locally under <code>xcom.mesh.*</code> keys in localStorage.</li>
                     </ul>
                 </div>
@@ -409,6 +435,55 @@ class HelpModule {
                         <li>If the app is running on <code>https://</code> and the bridge is <code>http://</code>, some browsers may block the connection. For field use, run the apps from the local web fileset (<code>http://localhost</code> / LAN HTTP) or use a secure bridge origin.</li>
                         <li>Traffic and settings are stored locally under <code>xcom.halow.*</code> keys in localStorage.</li>
                     </ul>
+                </div>
+
+                <div class="help-section">
+                    <h2>MeshChat Module (Reticulum)</h2>
+                    <h3>Overview</h3>
+                    <p>
+                        MeshChat is the <strong>Reticulum (RNS)</strong> transport for XTOC/XCOM. XCOM connects to a small helper called <strong>reticulum-bridge</strong>
+                        running on the device that has Reticulum configured (usually the XTOC laptop connected to an RNode over serial/Bluetooth).
+                    </p>
+
+                    <h3>Why this is a big deal</h3>
+                    <ul>
+                        <li><strong>RNode-friendly:</strong> use an RNode over Bluetooth/serial, but keep a browser-based TOC/client workflow.</li>
+                        <li><strong>Broadcast + Direct:</strong> send a line to broadcast, or DM a specific destination hash.</li>
+                        <li><strong>Network visibility:</strong> see peers, connected clients, Reticulum interfaces, and a traffic log.</li>
+                        <li><strong>Auto-ingest (optional):</strong> received XTOC wrapper lines can be stored into the local packet DB/map overlay.</li>
+                        <li><strong>Provisioning QR:</strong> scan a QR from XTOC to auto-configure this device (no typing URLs/hashes).</li>
+                    </ul>
+
+                    <h3>Setup (recommended workflow)</h3>
+                    <ol>
+                        <li><strong>Bridge host:</strong> on the XTOC laptop, configure Reticulum in <code>~/.reticulum/config</code> for your interfaces (serial RNode or BLE RNode using <code>ble://</code>).</li>
+                        <li><strong>Bridge host:</strong> install Reticulum's Python package <code>rns</code> and start the bridge: <code>reticulum-bridge/Start-XTOC-Reticulum-Bridge.cmd</code> (LAN: bind <code>0.0.0.0:8096</code>).</li>
+                        <li><strong>Bridge host:</strong> in XTOC, open <strong>MeshChat</strong>, set Bridge URL to <code>http://127.0.0.1:8096</code>, click <strong>Connect</strong>, then click <strong>Announce</strong>.</li>
+                        <li><strong>Field device:</strong> in XCOM, open <strong>MeshChat</strong> and click <strong>Scan Bridge QR</strong> (recommended) or set Bridge URL manually (example: <code>http://10.0.0.5:8096</code>).</li>
+                        <li>Click <strong>Connect</strong> and confirm Status shows connected; peers typically appear after announces are exchanged.</li>
+                    </ol>
+
+                    <h3>Sending XTOC packets over Reticulum</h3>
+                    <ul>
+                        <li>In <strong>XTOC Comm</strong>, set Transport to <strong>Reticulum (MeshChat)</strong>, then click <strong>Connect + Send</strong> / <strong>Send via MeshChat</strong>.</li>
+                        <li>Use chunking when needed: Reticulum uses shorter lines (default chunking target ~320 chars) so packets survive narrow links.</li>
+                        <li>For DMs: set Destination to <strong>Direct</strong> and set <strong>To Hash</strong> (or click <strong>Set Direct</strong> on a peer).</li>
+                        <li>Enable <strong>Auto-ingest</strong> if you want wrapper lines to be stored into <strong>XTOC Data</strong> and plotted on the map automatically.</li>
+                    </ul>
+
+                    <h3>Troubleshooting + security</h3>
+                    <ul>
+                        <li>This is designed for trusted LANs only (the bridge has permissive CORS and no authentication by design).</li>
+                        <li>Bridge URL cannot be <code>0.0.0.0</code> (bind address). Use the XTOC laptop IP, or <code>http://127.0.0.1:8096</code> on the laptop.</li>
+                        <li>Health check: open <code>http://&lt;XTOC-IP&gt;:8096/health</code>. If it won't load, confirm both devices are on the same LAN and that Windows Firewall allows inbound port 8096.</li>
+                        <li>If the app is served over <code>https://</code> but the bridge is <code>http://</code>, some browsers may block the connection (mixed content). For field use, run the apps from the downloadable local web fileset over LAN HTTP, or use a secure bridge origin.</li>
+                        <li>Reticulum Direct messages are authenticated/encrypted. Broadcast is plaintext at the RNS layer; use <strong>SECURE</strong> packets when confidentiality is required (not for amateur radio).</li>
+                        <li>Traffic and settings are stored locally under <code>xcom.reticulum.*</code> keys in localStorage.</li>
+                    </ul>
+
+                    <p>
+                        <strong>Note:</strong> browser apps do not talk to the RNode directly. Reticulum runs on the bridge host; XTOC/XCOM connect to the bridge over HTTP.
+                    </p>
                 </div>
 
                 <div class="help-section">
@@ -600,7 +675,7 @@ class HelpModule {
                 
                 <div class="help-section">
                     <h2>About</h2>
-                    <p>XCOM™ v1.0.38</p>
+                    <p>XCOM™ v1.0.41</p>
                     <p>&copy; 2025 - All rights reserved</p>
                     <p>This application is designed for amateur radio operators to assist with various radio-related tasks. It is continually being improved with new features and modules.</p>
 
