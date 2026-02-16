@@ -33,6 +33,7 @@ class XtocDataModule {
       case 8: return 'MISSION'
       case 9: return 'EVENT'
       case 10: return 'PHASE LINE'
+      case 11: return 'SENTINEL'
       default: return `T=${String(templateId)}`
     }
   }
@@ -382,6 +383,8 @@ class XtocDataModule {
         return globalThis.decodeEventClear(payloadB64Url)
       case 10:
         return globalThis.decodePhaseLineClear(payloadB64Url)
+      case 11:
+        return globalThis.decodeSentinelClear(payloadB64Url)
       default:
         return { payloadB64Url }
     }
@@ -1027,6 +1030,7 @@ class XtocDataModule {
               <option value="8">MISSION</option>
               <option value="9">EVENT</option>
               <option value="10">PHASE LINE</option>
+              <option value="11">SENTINEL</option>
             </select>
             <select id="xtocDataSource" class="xtocInput" aria-label="Source filter">
               <option value="">All sources</option>

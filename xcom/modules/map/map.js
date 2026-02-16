@@ -200,6 +200,7 @@ class MapModule {
                 <label class="mapInline"><input id="mapImportedT4" type="checkbox" /> CHECKIN</label>
                 <label class="mapInline"><input id="mapImportedT5" type="checkbox" /> RESOURCE</label>
                 <label class="mapInline"><input id="mapImportedT6" type="checkbox" /> ASSET</label>
+                <label class="mapInline"><input id="mapImportedT11" type="checkbox" /> SENTINEL</label>
                 <label class="mapInline"><input id="mapImportedT7" type="checkbox" /> ZONE</label>
                 <label class="mapInline"><input id="mapImportedT8" type="checkbox" /> MISSION</label>
                 <label class="mapInline"><input id="mapImportedT9" type="checkbox" /> EVENT</label>

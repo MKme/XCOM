@@ -1879,6 +1879,170 @@ function makePhaseLineClearPacket(p) {
   return `X1.10.C.${id}.1/1.${encoded}`
 }
 
+// -----------------------------
+// Template 11: SENTINEL (CLEAR)
+// -----------------------------
+
+const SENTINEL_VERSION = 1
+const SENTINEL_MAX_SENSORS = 32
+const SENTINEL_MAX_LABEL_BYTES = 32
+
+function clampByte(n) {
+  return Math.max(0, Math.min(255, Math.floor(Number(n) || 0)))
+}
+
+function normalizeSentinelSensors(sensors) {
+  const list = Array.isArray(sensors) ? sensors : []
+  const out = []
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue
+    const type = Math.floor(Number(item.type))
+    const value = Math.floor(Number(item.value))
+    if (!Number.isFinite(type) || type < 0 || type > 255) continue
+    if (!Number.isFinite(value) || value < -32768 || value > 32767) continue
+    out.push({ type, value })
+    if (out.length >= SENTINEL_MAX_SENSORS) break
+  }
+  return out
+}
+
+function encodeSentinelClear(payload) {
+  const nodeId = Number(payload?.nodeId)
+  if (!Number.isFinite(nodeId) || nodeId < 0 || nodeId > 0xffffffff) throw new Error('Invalid nodeId')
+  if (!Number.isFinite(payload?.t) || Number(payload.t) <= 0) throw new Error('Invalid t')
+  if (!Number.isFinite(payload?.lat) || !Number.isFinite(payload?.lon)) throw new Error('Invalid location')
+
+  const sensors = normalizeSentinelSensors(payload?.sensors)
+
+  const enc = new TextEncoder()
+  const labelBytes = payload?.label && String(payload.label).trim() ? enc.encode(String(payload.label).trim()) : null
+  const hasLabel = !!labelBytes && labelBytes.length > 0
+
+  const hasIo = Number.isFinite(payload?.inMask) || Number.isFinite(payload?.outMask)
+  const inMask = clampByte(payload?.inMask)
+  const outMask = clampByte(payload?.outMask)
+
+  let flags = 0
+  if (payload?.alert) flags |= 1
+  if (hasIo) flags |= 2
+  if (hasLabel) flags |= 4
+
+  const baseLen = 19
+  const ioLen = hasIo ? 2 : 0
+  const labelLen = hasLabel ? (1 + Math.min(labelBytes.length, SENTINEL_MAX_LABEL_BYTES)) : 0
+  const sensorsLen = sensors.length * 3
+  const totalLen = baseLen + ioLen + labelLen + sensorsLen
+
+  const buf = new Uint8Array(totalLen)
+  const dv = new DataView(buf.buffer)
+
+  dv.setUint8(0, SENTINEL_VERSION)
+  dv.setUint8(1, sensors.length)
+  dv.setUint32(2, Math.floor(Number(payload.t) / 60000), false)
+  dv.setInt32(6, Math.round(Number(payload.lat) * 1e5), false)
+  dv.setInt32(10, Math.round(Number(payload.lon) * 1e5), false)
+  dv.setUint32(14, nodeId >>> 0, false)
+  dv.setUint8(18, flags)
+
+  let o = 19
+  if (hasIo) {
+    dv.setUint8(o, inMask)
+    o += 1
+    dv.setUint8(o, outMask)
+    o += 1
+  }
+
+  if (hasLabel) {
+    const n = Math.min(labelBytes.length, SENTINEL_MAX_LABEL_BYTES)
+    dv.setUint8(o, n)
+    o += 1
+    buf.set(labelBytes.subarray(0, n), o)
+    o += n
+  }
+
+  for (const s of sensors) {
+    dv.setUint8(o, s.type)
+    o += 1
+    dv.setInt16(o, s.value, false)
+    o += 2
+  }
+
+  return encodeBase64Url(buf)
+}
+
+function decodeSentinelClear(payloadB64Url) {
+  const bytes = decodeBase64Url(payloadB64Url)
+  if (bytes.length < 19) throw new Error('SENTINEL payload too short')
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+
+  const ver = dv.getUint8(0)
+  if (ver !== SENTINEL_VERSION) throw new Error(`Unsupported SENTINEL version ${ver}`)
+
+  const sensorCount = dv.getUint8(1)
+  if (sensorCount > SENTINEL_MAX_SENSORS) throw new Error(`SENTINEL too many sensors (${sensorCount})`)
+
+  const unixMinutes = dv.getUint32(2, false)
+  const lat = dv.getInt32(6, false) / 1e5
+  const lon = dv.getInt32(10, false) / 1e5
+  const nodeId = dv.getUint32(14, false)
+
+  const flags = dv.getUint8(18)
+  const alert = (flags & 1) !== 0
+  const hasIo = (flags & 2) !== 0
+  const hasLabel = (flags & 4) !== 0
+
+  let o = 19
+  let inMask
+  let outMask
+  if (hasIo) {
+    if (bytes.length < o + 2) throw new Error('SENTINEL io truncated')
+    inMask = dv.getUint8(o)
+    o += 1
+    outMask = dv.getUint8(o)
+    o += 1
+  }
+
+  let label
+  if (hasLabel) {
+    if (bytes.length < o + 1) throw new Error('SENTINEL label truncated')
+    const n = dv.getUint8(o)
+    o += 1
+    if (bytes.length < o + n) throw new Error('SENTINEL label truncated')
+    const dec = new TextDecoder()
+    const s = dec.decode(bytes.subarray(o, o + n)).trim()
+    label = s || undefined
+    o += n
+  }
+
+  const need = sensorCount * 3
+  if (bytes.length < o + need) throw new Error('SENTINEL sensors truncated')
+  const sensors = []
+  for (let i = 0; i < sensorCount; i++) {
+    const type = dv.getUint8(o)
+    o += 1
+    const value = dv.getInt16(o, false)
+    o += 2
+    sensors.push({ type, value })
+  }
+
+  return {
+    nodeId,
+    t: unixMinutes * 60000,
+    lat,
+    lon,
+    ...(alert ? { alert: true } : {}),
+    ...(label ? { label } : {}),
+    ...(hasIo ? { inMask, outMask } : {}),
+    sensors,
+  }
+}
+
+function makeSentinelClearPacket(p) {
+  const id = generatePacketId(8)
+  const encoded = encodeSentinelClear(p)
+  return `X1.11.C.${id}.1/1.${encoded}`
+}
+
 // Make available to non-module scripts (XCOM loads via <script> not ESM).
 try {
   globalThis.parsePacket = parsePacket
@@ -1924,6 +2088,10 @@ try {
   globalThis.encodePhaseLineClear = encodePhaseLineClear
   globalThis.decodePhaseLineClear = decodePhaseLineClear
   globalThis.makePhaseLineClearPacket = makePhaseLineClearPacket
+
+  globalThis.encodeSentinelClear = encodeSentinelClear
+  globalThis.decodeSentinelClear = decodeSentinelClear
+  globalThis.makeSentinelClearPacket = makeSentinelClearPacket
 } catch (_) {
   // ignore
 }

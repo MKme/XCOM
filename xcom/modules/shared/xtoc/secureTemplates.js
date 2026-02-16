@@ -22,6 +22,7 @@ function getTemplatePlainBytes(templateId, data) {
   if (templateId === 8) return globalThis.decodeBase64Url(globalThis.encodeMissionClear(data))
   if (templateId === 9) return globalThis.decodeBase64Url(globalThis.encodeEventClear(data))
   if (templateId === 10) return globalThis.decodeBase64Url(globalThis.encodePhaseLineClear(data))
+  if (templateId === 11) return globalThis.decodeBase64Url(globalThis.encodeSentinelClear(data))
   throw new Error(`Unsupported templateId ${templateId}`)
 }
 
@@ -38,6 +39,7 @@ function decodeTemplatePlainBytes(templateId, bytes) {
   if (templateId === 8) return globalThis.decodeMissionClear(b64)
   if (templateId === 9) return globalThis.decodeEventClear(b64)
   if (templateId === 10) return globalThis.decodePhaseLineClear(b64)
+  if (templateId === 11) return globalThis.decodeSentinelClear(b64)
   throw new Error(`Unsupported templateId ${templateId}`)
 }
 

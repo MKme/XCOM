@@ -29,6 +29,7 @@
       case 8: return 'MISSION'
       case 9: return 'EVENT'
       case 10: return 'PHASE LINE'
+      case 11: return 'SENTINEL'
       default: return `T=${String(templateId)}`
     }
   }
@@ -331,6 +332,7 @@
       case 8: return globalThis.decodeMissionClear(payloadB64Url)
       case 9: return globalThis.decodeEventClear(payloadB64Url)
       case 10: return globalThis.decodePhaseLineClear(payloadB64Url)
+      case 11: return globalThis.decodeSentinelClear(payloadB64Url)
       default: return { payloadB64Url }
     }
   }
@@ -519,6 +521,37 @@
       const head = `ASSET${from ? ` ${from}` : Number.isFinite(src) ? ` U${src}` : ''} cond=${Number.isFinite(condition) ? condition : ''} type=${Number.isFinite(typeCode) ? typeCode : ''}`.trim()
       if (isSecure) return `SECURE ${head}${label ? ` "${label}"` : ''}`.trim()
       return `${head}${label ? ` "${label}"` : ''}${note ? ` — ${note}` : ''}`.trim()
+    }
+
+    if (tpl === 11) {
+      const nodeId = Number(decoded?.nodeId)
+      const nodeHex = Number.isFinite(nodeId) ? ('!' + ((nodeId >>> 0).toString(16).toUpperCase().padStart(8, '0'))) : ''
+      const label = String(decoded?.label || '').trim()
+      const who = label ? `"${label}"` : (nodeHex || 'node')
+      const alert = !!decoded?.alert
+
+      const inMask = Number(decoded?.inMask)
+      const outMask = Number(decoded?.outMask)
+      const ioLabel = (Number.isFinite(inMask) || Number.isFinite(outMask))
+        ? ` io=in0x${(Number.isFinite(inMask) ? inMask : 0).toString(16).toUpperCase().padStart(2, '0')}/out0x${(Number.isFinite(outMask) ? outMask : 0).toString(16).toUpperCase().padStart(2, '0')}`
+        : ''
+
+      const sensors = Array.isArray(decoded?.sensors) ? decoded.sensors : []
+      const shown = !isSecure ? sensors.slice(0, 6).map((r) => {
+        const t = Number(r?.type)
+        const v = Number(r?.value)
+        if (t === 1) return `rcwl=${v ? 1 : 0}`
+        return `s${Number.isFinite(t) ? t : ''}=${Number.isFinite(v) ? v : ''}`
+      }) : []
+      const rest = sensors.length - shown.length
+      const sensorsLabel = shown.length ? ` ${shown.join(' ')}${rest > 0 ? ` +${rest}` : ''}` : ''
+
+      if (isSecure) return `SECURE SENTINEL${alert ? ' ALERT' : ''} ${who}${ioLabel} sensors=${sensors.length}`.trim()
+
+      const lat = Number(decoded?.lat)
+      const lon = Number(decoded?.lon)
+      const loc = (Number.isFinite(lat) && Number.isFinite(lon)) ? ` ${lat.toFixed(4)},${lon.toFixed(4)}` : ''
+      return `SENTINEL${alert ? ' ALERT' : ''} ${who}${loc}${ioLabel}${sensorsLabel}`.trim()
     }
 
     if (tpl === 7) {

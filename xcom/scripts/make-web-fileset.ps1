@@ -323,6 +323,20 @@ if ($IncludeHelpers) {
     $msg = "IncludeHelpers set, but halow-bridge was not found. Expected one of: XCOM\\halow-bridge, XCOM\\helpers\\halow-bridge, or a sibling repo at ..\\XTOC\\halow-bridge."
     if ($Zip) { throw $msg } else { Write-Warning $msg }
   }
+
+  $sentinelCandidates = @(
+    (Join-Path $repoRoot 'sentinel-helper'),
+    (Join-Path $repoRoot 'helpers\\sentinel-helper'),
+    ($(if ($repoParent) { Join-Path $repoParent 'XTOC\\sentinel-helper' } else { '' }))
+  ) | Where-Object { $_ -and (Test-Path $_) }
+
+  $sentinelHelperSrc = $sentinelCandidates | Select-Object -First 1
+  if ($sentinelHelperSrc) {
+    Write-Host "Including sentinel-helper -> $filesetDir" -ForegroundColor Cyan
+    Copy-Item -Path $sentinelHelperSrc -Destination (Join-Path $filesetDir 'sentinel-helper') -Recurse -Force
+  } else {
+    Write-Warning "IncludeHelpers set, but sentinel-helper was not found. Expected one of: XCOM\\sentinel-helper, XCOM\\helpers\\sentinel-helper, or a sibling repo at ..\\XTOC\\sentinel-helper."
+  }
 }
 
 function Remove-IfExists([string]$p) {

@@ -127,6 +127,7 @@ class CommsModule {
               <option value="4" selected>T=4 CHECKIN/LOC</option>
               <option value="5">T=5 RESOURCE</option>
               <option value="6">T=6 ASSET</option>
+              <option value="11">T=11 SENTINEL</option>
               <option value="7">T=7 ZONE</option>
               <option value="8">T=8 MISSION</option>
               <option value="10">T=10 PHASE LINE</option>
@@ -1062,6 +1063,33 @@ class CommsModule {
       return
     }
 
+    if (t === 11) {
+      wrap.innerHTML = `
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Node ID</label><input id="t_nodeid" type="text" placeholder="!DEADBEEF or 0xDEADBEEF" /></div>
+          <div class="commsRow"><label>Time (ms)</label><input id="t_time" type="number" value="${now}" /></div>
+        </div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Lat</label><input id="t_lat" type="number" step="0.00001" /></div>
+          <div class="commsRow"><label>Lon</label><input id="t_lon" type="number" step="0.00001" /></div>
+        </div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>Label</label><input id="t_label" type="text" placeholder="(optional)" /></div>
+          <div class="commsRow"><label>Alert</label><label class="commsInline"><input id="t_alert" type="checkbox" /> ALERT</label></div>
+        </div>
+        <div class="commsGrid2">
+          <div class="commsRow"><label>IO inMask</label><input id="t_in_mask" type="text" placeholder="(optional) e.g. 0x0F" /></div>
+          <div class="commsRow"><label>IO outMask</label><input id="t_out_mask" type="text" placeholder="(optional) e.g. 0x03" /></div>
+        </div>
+        <div class="commsRow">
+          <label>Sensors (type,value per line)</label>
+          <textarea id="t_sensors" rows="4" placeholder="1,1\n7,4200\n..."></textarea>
+          <div class="commsSmallMuted">Suggested types: 1=RCWL motion (0/1), 2=PIR motion (0/1), 6=temp (°C x10), 7=batt (mV).</div>
+        </div>
+      `
+      return
+    }
+
     if (t === 7) {
       wrap.innerHTML = `
         <div class="commsGrid2">
@@ -1754,6 +1782,83 @@ class CommsModule {
         }
         payloadObj = payload
         clearPacket = `X1.10.C.${window.generatePacketId(8)}.1/1.${window.encodePhaseLineClear(payload)}`
+      } else if (templateId === 11) {
+        const parseNodeId32 = (s) => {
+          let t = String(s || '').trim()
+          if (!t) return null
+          if (t.startsWith('!')) t = t.slice(1)
+          if (t.startsWith('0x') || t.startsWith('0X')) t = t.slice(2)
+          const isDec = /^[0-9]+$/.test(t)
+          const isHex = /^[0-9a-fA-F]+$/.test(t)
+          if (!isDec && !isHex) return null
+          const base = isDec ? 10 : 16
+          const n = Number.parseInt(t, base)
+          if (!Number.isFinite(n) || n < 0 || n > 0xffffffff) return null
+          return n >>> 0
+        }
+
+        const parseByte = (s) => {
+          let t = String(s || '').trim()
+          if (!t) return null
+          let base = 10
+          if (t.startsWith('0x') || t.startsWith('0X')) {
+            base = 16
+            t = t.slice(2)
+          }
+          const n = Number.parseInt(t, base)
+          if (!Number.isFinite(n) || n < 0 || n > 255) return null
+          return n
+        }
+
+        const nodeId = parseNodeId32(document.getElementById('t_nodeid')?.value)
+        if (nodeId == null) throw new Error('Invalid nodeId. Use decimal, hex (0xDEADBEEF), or Meshtastic form (!DEADBEEF).')
+
+        const tVal = Number(document.getElementById('t_time')?.value || now)
+        const ts = (Number.isFinite(tVal) && tVal > 0) ? tVal : now
+
+        const lat = Number(document.getElementById('t_lat')?.value)
+        const lon = Number(document.getElementById('t_lon')?.value)
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error('Sentinel requires valid lat/lon.')
+
+        const label = String(document.getElementById('t_label')?.value || '').trim()
+        const alertFlag = !!document.getElementById('t_alert')?.checked
+
+        const inMaskText = String(document.getElementById('t_in_mask')?.value || '').trim()
+        const outMaskText = String(document.getElementById('t_out_mask')?.value || '').trim()
+        const wantsIo = !!inMaskText || !!outMaskText
+        const inMask = wantsIo ? (inMaskText ? parseByte(inMaskText) : 0) : undefined
+        const outMask = wantsIo ? (outMaskText ? parseByte(outMaskText) : 0) : undefined
+        if (wantsIo && (inMask == null || outMask == null)) throw new Error('Invalid IO bitmask. Use 0..255 or 0x00..0xFF.')
+
+        const sensors = []
+        const sensorLines = String(document.getElementById('t_sensors')?.value || '')
+          .split(/\\r?\\n/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+
+        for (const line of sensorLines) {
+          const parts = line.split(/[=,]/).map((x) => x.trim()).filter(Boolean)
+          if (parts.length < 2) throw new Error(`Bad sensor line: "${line}". Expected "type,value".`)
+          const type = Math.floor(Number(parts[0]))
+          const value = Math.floor(Number(parts[1]))
+          if (!Number.isFinite(type) || type < 0 || type > 255) throw new Error(`Bad sensor type in: "${line}"`)
+          if (!Number.isFinite(value) || value < -32768 || value > 32767) throw new Error(`Bad sensor value in: "${line}"`)
+          sensors.push({ type, value })
+          if (sensors.length >= 32) break
+        }
+
+        const payload = {
+          nodeId,
+          t: ts,
+          lat,
+          lon,
+          ...(alertFlag ? { alert: true } : {}),
+          ...(label ? { label } : {}),
+          ...(wantsIo ? { inMask, outMask } : {}),
+          sensors,
+        }
+        payloadObj = payload
+        clearPacket = window.makeSentinelClearPacket(payload)
       } else if (templateId === 6) {
         const { src, srcIds } = readSrc()
         const payload = {
@@ -3305,6 +3410,7 @@ class CommsModule {
       case 8: return 'MISSION'
       case 9: return 'EVENT'
       case 10: return 'PHASE LINE'
+      case 11: return 'SENTINEL'
       default: return `T=${String(templateId)}`
     }
   }
@@ -3526,6 +3632,37 @@ class CommsModule {
       const head = `ASSET${from ? ` ${from}` : Number.isFinite(src) ? ` U${src}` : ''} cond=${Number.isFinite(condition) ? condition : ''} type=${Number.isFinite(typeCode) ? typeCode : ''}`.trim()
       if (isSecure) return `SECURE ${head}${label ? ` \"${label}\"` : ''}`.trim()
       return `${head}${label ? ` \"${label}\"` : ''}${note ? ` — ${note}` : ''}`.trim()
+    }
+
+    if (tpl === 11) {
+      const nodeId = Number(decoded?.nodeId)
+      const nodeHex = Number.isFinite(nodeId) ? ('!' + ((nodeId >>> 0).toString(16).toUpperCase().padStart(8, '0'))) : ''
+      const label = String(decoded?.label || '').trim()
+      const who = label ? `"${label}"` : (nodeHex || 'node')
+      const alert = !!decoded?.alert
+
+      const inMask = Number(decoded?.inMask)
+      const outMask = Number(decoded?.outMask)
+      const ioLabel = (Number.isFinite(inMask) || Number.isFinite(outMask))
+        ? ` io=in0x${(Number.isFinite(inMask) ? inMask : 0).toString(16).toUpperCase().padStart(2, '0')}/out0x${(Number.isFinite(outMask) ? outMask : 0).toString(16).toUpperCase().padStart(2, '0')}`
+        : ''
+
+      const sensors = Array.isArray(decoded?.sensors) ? decoded.sensors : []
+      const shown = !isSecure ? sensors.slice(0, 6).map((r) => {
+        const t = Number(r?.type)
+        const v = Number(r?.value)
+        if (t === 1) return `rcwl=${v ? 1 : 0}`
+        return `s${Number.isFinite(t) ? t : ''}=${Number.isFinite(v) ? v : ''}`
+      }) : []
+      const rest = sensors.length - shown.length
+      const sensorsLabel = shown.length ? ` ${shown.join(' ')}${rest > 0 ? ` +${rest}` : ''}` : ''
+
+      if (isSecure) return `SECURE SENTINEL${alert ? ' ALERT' : ''} ${who}${ioLabel} sensors=${sensors.length}`.trim()
+
+      const lat = Number(decoded?.lat)
+      const lon = Number(decoded?.lon)
+      const loc = (Number.isFinite(lat) && Number.isFinite(lon)) ? ` ${lat.toFixed(4)},${lon.toFixed(4)}` : ''
+      return `SENTINEL${alert ? ' ALERT' : ''} ${who}${loc}${ioLabel}${sensorsLabel}`.trim()
     }
 
     if (tpl === 7) {
